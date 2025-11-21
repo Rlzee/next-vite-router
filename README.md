@@ -59,6 +59,21 @@ Notes:
 - The plugin default `pagesDir` is `src/app`. You can change it via options.
 - The virtual module is `virtual:next-vite-router` (the plugin resolves it internally).
 
+TypeScript note:
+
+If you're using TypeScript in a consuming project, add a declaration file so the virtual module is recognized by the compiler. Create a file such as `src/virtual.d.ts` (or any `*.d.ts` included by your `tsconfig.json`) with the following content:
+
+```ts
+declare module 'virtual:next-vite-router' {
+  import type { RouteObject } from 'react-router-dom';
+
+  export const generateRoutes: () => RouteObject[];
+  export { useRoutes } from 'react-router-dom';
+}
+```
+
+This ensures TypeScript knows the shape of the virtual module provided by the Vite plugin and avoids `Cannot find module 'virtual:next-vite-router'` errors in editors and builds.
+
 ## Programmatic route generation
 
 If you prefer to generate routes manually (for custom setups), the package exports helpers you can use with `import.meta.glob`.
