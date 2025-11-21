@@ -1,6 +1,6 @@
 {
   "name": "next-vite-router",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Next.js-like file-based routing for React + Vite",
   "type": "module",
   "main": "./dist/index.js",
