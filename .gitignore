@@ -1,0 +1,42 @@
+# Node
+node_modules/
+
+# Build outputs
+dist/
+build/
+.vite/
+
+# TypeScript
+*.tsbuildinfo
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Editor directories and files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Coverage
+coverage/
+
+# pnpm
+.pnpm-store/
+
+# Misc
+*.tgz
+*.cache
+
+# Vite plugin dts output (if used separately)
+# dts outputs to dist by default, already ignored above

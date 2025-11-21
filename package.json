@@ -1,0 +1,60 @@
+{
+  "name": "next-vite-router",
+  "version": "1.0.0",
+  "description": "Next.js-like file-based routing for React + Vite",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./plugin": {
+      "import": "./dist/plugin.js",
+      "types": "./dist/plugin.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "vite build",
+    "test:local": "node test/test-package.js",
+    "preview": "pnpm pack --dry-run",
+    "prepublishOnly": "pnpm run build && pnpm run test:local"
+  },
+  "keywords": [
+    "react",
+    "vite",
+    "router",
+    "nextjs",
+    "file-based-routing",
+    "filesystem-router",
+    "react-router"
+  ],
+  "author": "Rlzee",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Rlzee/next-vite-router"
+  },
+  "homepage": "https://github.com/Rlzee/next-vite-router#readme",
+  "license": "MIT",
+  "peerDependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "react-router-dom": "^6.0.0",
+    "vite": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "typescript": "^5.0.0",
+    "vite": "^5.0.0",
+    "vite-plugin-dts": "^3.0.0"
+  }
+}

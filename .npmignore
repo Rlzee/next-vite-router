@@ -1,0 +1,10 @@
+src/
+test/
+*.local
+.env
+.DS_Store
+*.log
+*.tgz
+vite.config.*
+tsconfig.*
+scripts/
