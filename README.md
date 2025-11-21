@@ -168,25 +168,6 @@ The plugin takes an options object. Defaults are:
 
 Pass a custom `pagesDir` if your project uses `src/pages` or another convention.
 
-## Examples & Demos
-
-If you want, I can add a small demo app showing:
-
-- A minimal `src/pages` layout with nested layouts
-- How `generateRoutes()` maps files to React Router routes
-- A Vite dev server example showing HMR for page/layout changes
-
-Tell me which example you'd prefer and I will scaffold it.
-
-## Contributing
-
-Contributions welcome. Suggested workflow:
-
-1. Fork the repo
-2. Create a branch
-3. Run `pnpm install` and `pnpm run dev` to test locally
-4. Open a PR with description and tests/examples if applicable
-
 ## License
 
 MIT
