@@ -18,17 +18,22 @@ export function createLazyElement(
 ): React.ReactElement {
   const config = getRouterConfig();
   
+  // If lazy loading is disabled, return a wrapper that loads synchronously
   if (config.enableLazyLoading === false) {
-    const Component = React.lazy(loader);
-    const element = React.createElement(Component);
+    const DirectLoadComponent = React.lazy(loader);
+    const element = React.createElement(
+      Suspense,
+      { fallback: null },  // No loading fallback when disabled
+      React.createElement(DirectLoadComponent)
+    );
     
     if (routePath) {
       return applyMiddlewares(routePath, element);
     }
-    
     return element;
   }
   
+  // Lazy loading enabled: use cache and show loading fallback
   let LazyComponent = lazyComponentCache.get(cacheKey);
   
   if (!LazyComponent) {

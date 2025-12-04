@@ -2,8 +2,6 @@
 
 Next Vite Router is an npm package that provides Next.js-style, file-based routing for React applications built with Vite. It generates React Router route objects from a filesystem layout (pages, layouts, not-found), and it exposes a Vite plugin that injects a virtual module to generate routes at build/dev time.
 
-This README focuses on how consumers install and use the package (no publishing instructions).
-
 ## Installation
 
 Install with your package manager of choice:
@@ -37,27 +35,59 @@ export default defineConfig({
 });
 ```
 
-Example usage inside your app (client entry):
+Example usage inside your app. **Important: generate routes once at module level** (not inside the component) to avoid infinite re-renders.
+
+File: `src/App.tsx`
 
 ```tsx
-import React from 'react';
-import { BrowserRouter } from 'react-router-dom';
-import { generateRoutes, useRoutes } from 'virtual:next-vite-router';
+import { useRoutes } from 'react-router-dom';
+import { generateRoutes } from 'virtual:next-vite-router';
 
 const routes = generateRoutes();
 
-function App() {
+export default function App() {
   const element = useRoutes(routes);
-  return <BrowserRouter>{element}</BrowserRouter>;
+  return element;
 }
-
-export default App;
 ```
 
-Notes:
+File: `src/main.tsx`
 
-- The plugin default `pagesDir` is `src/app`. You can change it via options.
+```tsx
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
+import App from './App';
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
+  </StrictMode>
+);
+```
+
+**Key points:**
+
+- Call `generateRoutes()` once at module level, not inside the component (prevents infinite re-renders).
+- Wrap your app with `BrowserRouter` at the entry point (`main.tsx`), not inside `App`.
+- `pagesDir` (default: `src/app`) is the directory where you organize your **route files** (`page.tsx`, `layout.tsx`, `not-found.tsx`). It has nothing to do with the `App.tsx` component.
 - The virtual module is `virtual:next-vite-router` (the plugin resolves it internally).
+
+**Example file structure:**
+
+```
+src/
+├── App.tsx                 ← Your main app component
+├── main.tsx                ← Entry point (with BrowserRouter)
+└── app/                    ← pagesDir (routes are organized here)
+    ├── page.tsx            ← Home page
+    ├── layout.tsx          ← Root layout
+    └── dashboard/
+        ├── page.tsx        ← /dashboard page
+        └── layout.tsx      ← Dashboard layout
+```
 
 TypeScript note:
 
