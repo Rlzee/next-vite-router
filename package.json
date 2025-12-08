@@ -5,6 +5,9 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "next-vite-router": "./dist/cli.cjs"
+  },
   "exports": {
     ".": {
       "import": "./dist/index.js",
@@ -22,10 +25,11 @@
   ],
   "scripts": {
     "dev": "vite build --watch",
-    "build": "vite build",
+    "build": "vite build && vite build -c vite.config.cli.ts",
     "test:local": "node test/test-package.js",
     "preview": "pnpm pack --dry-run",
-    "prepublishOnly": "pnpm run build && pnpm run test:local"
+    "prepublishOnly": "pnpm run build && pnpm run test:local",
+    "cli": "cd test && node ../dist/cli.cjs init"
   },
   "keywords": [
     "react",
@@ -51,10 +55,16 @@
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
+    "@types/prompts": "^2.4.9",
     "@types/react": "^18.0.0",
     "@types/react-dom": "^18.0.0",
     "typescript": "^5.0.0",
     "vite": "^5.0.0",
     "vite-plugin-dts": "^3.0.0"
+  },
+  "dependencies": {
+    "commander": "^14.0.2",
+    "kleur": "^4.1.5",
+    "prompts": "^2.4.2"
   }
 }
