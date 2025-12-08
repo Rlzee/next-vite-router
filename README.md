@@ -16,6 +16,51 @@ yarn add next-vite-router
 
 The package has peer dependencies: React, React DOM and React Router DOM. Make sure your project already includes compatible versions (React 18+ is recommended).
 
+## CLI / Getting Started
+
+The quickest way to start a new project with `next-vite-router` is to use the interactive CLI:
+
+```bash
+npx next-vite-router init
+# or
+pnpm dlx next-vite-router init
+# or
+yarn dlx next-vite-router init
+# or
+bunx next-vite-router init
+```
+
+The CLI will prompt you for:
+
+1. **Project name**  name of the folder to create
+2. **Template**  which React Vite variant to use:
+   - `react-ts` (React + TypeScript)
+   - `react-swc-ts` (React + SWC + TypeScript)
+   - `react-compiler-ts` (React Compiler + TypeScript)
+3. **Src folder**  whether to keep source files in `src/` (recommended) or place them at the project root
+4. **Tailwind CSS**  whether to add and configure Tailwind CSS (with `@tailwindcss/vite`)
+
+### What the CLI does
+
+The CLI automates the entire setup:
+
+- Scaffolds a new Vite + React project using `create-vite`
+- Installs `next-vite-router` and `react-router-dom@latest`
+- Configures the Vite plugin in `vite.config.ts`
+- Sets up path aliases (`@/*`) in `tsconfig.json` and Vite config
+- Creates TypeScript declarations for the virtual module (`virtual:next-vite-router`)
+- Generates example pages (`app/page.tsx`, `app/layout.tsx`, `app/example/page.tsx`)
+- Optionally configures Tailwind CSS with `@tailwindcss/vite` and creates `global.css`
+
+After the CLI finishes:
+
+```bash
+cd <your-project-name>
+pnpm dev
+```
+
+Your app is ready with file-based routing!
+
 ## Quick Start  Vite plugin
 
 The recommended and easiest way to use this library in a Vite app is via the Vite plugin. The plugin exposes a virtual module `virtual:next-vite-router` that provides a `generateRoutes()` function and re-exports `useRoutes` from `react-router-dom` for convenience.
