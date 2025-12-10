@@ -5,7 +5,7 @@ import { stripJsonComments } from "./strip-json-comments";
 /**
  * Update tsconfig.app.json
  */
-export function updateAppTsConfig(projectDir: string) {
+export function updateAppTsConfig(projectDir: string, src: boolean) {
   const tsConfigAppPath = path.join(projectDir, "tsconfig.app.json");
   if (!fs.existsSync(tsConfigAppPath)) return;
 
@@ -13,11 +13,26 @@ export function updateAppTsConfig(projectDir: string) {
   const cleanedContent = stripJsonComments(content);
   const tsConfigApp = JSON.parse(cleanedContent);
 
-  tsConfigApp.include = [
-    "./**/*.ts",
-    "./**/*.tsx",
-    "virtual-next-vite-router.d.ts",
-  ];
+  // Ensure compilerOptions contains the path aliases
+  const aliasPath = src ? "./src/*" : "./*";
+  tsConfigApp.compilerOptions = {
+    ...tsConfigApp.compilerOptions,
+    baseUrl: ".",
+    paths: {
+      ...tsConfigApp.compilerOptions?.paths,
+      "@/*": [aliasPath],
+    },
+  };
+
+  if (!src) {
+    tsConfigApp.include = [
+      "./**/*.ts",
+      "./**/*.tsx",
+      "virtual-next-vite-router.d.ts",
+    ];
+  } else {
+    tsConfigApp.include = ["src"];
+  }
 
   fs.writeFileSync(
     tsConfigAppPath,

@@ -39,10 +39,8 @@ export function startNextViteRouterConfig({
   // Update tsconfig.json with path aliases
   updateTsConfigJson(projectDir, src);
 
-  if (!src) {
-    // Update tsconfig.app.json
-    updateAppTsConfig(projectDir);
-  }
+  // Update tsconfig.app.json
+  updateAppTsConfig(projectDir, src);
 
   // Create virtual-next-vite-router.d.ts
   createVirtualDTS(projectDir, src);
