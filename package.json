@@ -1,12 +1,12 @@
 {
   "name": "next-vite-router",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Next.js-like file-based routing for React + Vite",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "next-vite-router": "./dist/cli.cjs"
+    "create-next-vite-router": "./dist/cli.cjs"
   },
   "exports": {
     ".": {
@@ -29,7 +29,7 @@
     "test:local": "node test/test-package.js",
     "preview": "pnpm pack --dry-run",
     "prepublishOnly": "pnpm run build && pnpm run test:local",
-    "cli": "cd test && node ../dist/cli.cjs init"
+    "cli": "cd test && node ../dist/cli.cjs"
   },
   "keywords": [
     "react",
