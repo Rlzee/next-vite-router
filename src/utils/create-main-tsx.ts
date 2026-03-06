@@ -22,7 +22,7 @@ import { generateRoutes, useRoutes } from 'virtual:next-vite-router';
 
 const routes = generateRoutes();
 
-function App() {
+export default function App() {
   const element = useRoutes(routes);
   return element;
 }
