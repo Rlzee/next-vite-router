@@ -39,14 +39,16 @@ function processChildren(
 ): RouteObject[] {
   const children: RouteObject[] = [];
   
-  node.children.forEach((childNode, segment) => {
+  [...node.children.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .forEach(([segment, childNode]) => {
     const normalizedSegment = normalizeSegment(segment);
     const childPath = normalizedSegment 
       ? (currentPath ? `${currentPath}/${normalizedSegment}` : `/${normalizedSegment}`)
       : currentPath;
     
-    children.push(...treeToRoutes(childNode, false, childPath));
-  });
+      children.push(...treeToRoutes(childNode, false, childPath));
+    });
   
   return children;
 }
@@ -113,6 +115,19 @@ export function treeToRoutes(
     const normalizedSegment = normalizeSegment(node.segment);
     
     if (!normalizedSegment) {
+      if (isRoot) {
+        routes.push({
+          path: "/",
+          element: createPageRoute(node, "/", true).element,
+          children: processChildren(node, currentPath).length > 0
+            ? processChildren(node, currentPath)
+            : undefined,
+        });
+        if (node.notFound) {
+          routes.push(createNotFoundRoute(node));
+        }
+        return routes;
+      }
       return processChildren(node, currentPath);
     }
     
@@ -130,5 +145,15 @@ export function treeToRoutes(
     return routes;
   }
   
-  return processChildren(node, currentPath);
+  const normalizedSegment = normalizeSegment(node.segment);
+  const children = processChildren(node, currentPath);
+
+  if (!normalizedSegment) {
+    return children;
+  }
+
+  return [{
+    path: normalizedSegment,
+    children: children.length > 0 ? children : undefined,
+  }];
 }

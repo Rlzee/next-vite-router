@@ -28,6 +28,7 @@
     "build": "vite build && vite build -c vite.config.cli.ts",
     "test:local": "node test/test-package.js",
     "test:routes": "node test/test-route-types.js",
+    "test:generator": "node --test test/routes.test.js",
     "preview": "pnpm pack --dry-run",
     "prepublishOnly": "pnpm run build && pnpm run test:local",
     "cli": "cd test && node ../dist/cli.cjs"

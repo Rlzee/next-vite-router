@@ -6,6 +6,7 @@
  */
 export function normalizeSegment(segment: string): string {
   if (/^\([^)]+\)$/.test(segment)) return "";
+  if (/^\[\[\.\.\.(.+)\]\]$/.test(segment)) return "*";
   if (/^\[\.\.\.(.+)\]$/.test(segment)) return "*";
   if (/^\[([^\]]+)\]$/.test(segment)) return segment.replace(/^\[([^\]]+)\]$/, ":$1");
   return segment;
@@ -18,6 +19,7 @@ export function normalizeSegment(segment: string): string {
  */
 export function extractRoutePath(filePath: string): string {
   return filePath
+    .replace(/\\/g, "/")
     .replace("../../app/", "")
     .replace(/\/?(page|layout|not-found)\.tsx$/, "");
 }

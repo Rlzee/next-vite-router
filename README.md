@@ -140,11 +140,12 @@ The repository includes a complete example in `test/fixture`. From the package r
 
 ```bash
 pnpm run build
+pnpm run test:generator
 pnpm run test:routes
 pnpm exec tsc -p test/fixture/tsconfig.json --noEmit
 ```
 
-This checks the generated routes and compiles the type-safe usage in `test/fixture/route-types.ts`.
+`test:generator` runs the route matrix for static, dynamic, catch-all, grouped, nested-layout, not-found, Windows-path, middleware, ordering, collision, and lazy-loading cases. The other commands check the generated route types and compile the type-safe usage in `test/fixture/route-types.ts`.
 
 ## Programmatic route generation
 
