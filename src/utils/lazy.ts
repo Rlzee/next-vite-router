@@ -18,7 +18,8 @@ export function createLazyElement(
 ): React.ReactElement {
   const config = getRouterConfig();
   
-  // If lazy loading is disabled, return a wrapper that loads synchronously
+  // Keep the Suspense boundary when disabled because the loader remains asynchronous.
+  // This option disables the configured loading fallback and component cache.
   if (config.enableLazyLoading === false) {
     const DirectLoadComponent = React.lazy(loader);
     const element = React.createElement(

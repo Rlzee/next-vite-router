@@ -48,6 +48,36 @@ The package is intentionally limited to three responsibilities:
 
 Navigation, history, data loading, data fetching, and application state remain React Router/application concerns. Use React Router APIs such as `BrowserRouter`, `useRoutes`, `useNavigate`, `useParams`, loaders, and actions directly in your application.
 
+## Lazy loading and Vite chunks
+
+Lazy loading is enabled by default. The plugin uses Vite's native glob imports:
+
+```ts
+const pagesGlob = import.meta.glob('/src/app/**/page.tsx');
+const layoutsGlob = import.meta.glob('/src/app/**/layout.tsx', { eager: true });
+```
+
+Pages and `not-found.tsx` files are intentionally non-eager, so Vite keeps them as dynamic imports and can emit separate chunks such as `dashboard` and `settings`. Layouts are eager because they wrap the route tree during generation.
+
+With this structure:
+
+```text
+src/app/
+├── page.tsx
+├── dashboard/page.tsx
+└── settings/page.tsx
+```
+
+the initial bundle contains the route generation code, while dashboard and settings page modules are loaded when their routes are rendered. `loadingFallback` controls what Suspense displays while a chunk loads:
+
+```ts
+configureRouter({
+  loadingFallback: () => <div>Loading route...</div>,
+});
+```
+
+`enableLazyLoading: false` disables the cache and configured fallback, but loaders remain asynchronous and are still rendered through `Suspense`; this is a compatibility/testing option, not a way to force Vite imports to become synchronous.
+
 ## CLI / Getting Started
 
 The quickest way to start a new project with `next-vite-router` is to use the interactive CLI:
