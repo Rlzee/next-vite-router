@@ -205,7 +205,7 @@ npx create-next-vite-router init
 ```
 
 The CLI creates a Vite React project, installs the package and
-`react-router-dom@^6.0.0`, configures the plugin, and adds an example route
+`react-router-dom@^7.0.0`, configures the plugin, and adds an example route
 tree.
 
 ## Compatibility

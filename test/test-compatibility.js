@@ -16,8 +16,8 @@ const cliSource = fs.readFileSync(
   path.resolve("src/command/init.ts"),
   "utf8",
 );
-assert.match(cliSource, /react-router-dom@\^6\.0\.0/);
+assert.match(cliSource, /react-router-dom@\^7\.0\.0/);
 assert.doesNotMatch(cliSource, /react-router-dom@latest/);
 
 console.log("✅ Peer dependency ranges are explicit and bounded");
-console.log("✅ CLI installs react-router-dom ^6.0.0");
+console.log("✅ CLI installs react-router-dom ^7.0.0");
