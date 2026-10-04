@@ -28,6 +28,26 @@ The CLI installs `react-router-dom@^6.0.0` by default, matching the package's st
 
 The compatibility workflow tests React 18 and 19 with React Router 6 and 7 across Vite 5, 6, 7, and 8.
 
+## Positioning and architecture
+
+`next-vite-router` does not replace React Router. It turns a filesystem tree into the `RouteObject[]` that React Router already understands:
+
+```text
+filesystem
+    -> buildRouteTree()
+    -> treeToRoutes()
+    -> RouteObject[]
+    -> React Router
+```
+
+The package is intentionally limited to three responsibilities:
+
+- discover pages, layouts, and not-found files through Vite;
+- build and convert the route tree;
+- provide the Vite virtual module and optional route-element middleware.
+
+Navigation, history, data loading, data fetching, and application state remain React Router/application concerns. Use React Router APIs such as `BrowserRouter`, `useRoutes`, `useNavigate`, `useParams`, loaders, and actions directly in your application.
+
 ## CLI / Getting Started
 
 The quickest way to start a new project with `next-vite-router` is to use the interactive CLI:
