@@ -237,6 +237,27 @@ The normal pipeline is:
 filesystem -> buildRouteTree() -> treeToRoutes() -> RouteObject[] -> React Router
 ```
 
+## Examples
+
+The repository includes a runnable showcase in [`examples/`](./examples/):
+
+- `basic`
+- `layouts`
+- `dynamic-routes`
+- `middleware`
+- `typed-routes`
+
+Run it from the examples directory:
+
+```bash
+cd examples
+pnpm install
+pnpm dev
+```
+
+The app opens a small navigation menu so each example can be tested
+immediately. The `predev` script builds the local package automatically.
+
 ## Development
 
 From this repository:
