@@ -18,6 +18,12 @@ export function createVirtualDTS(projectDir: string, useSrc: boolean) {
   const content = `declare module 'virtual:next-vite-router' {
   import type { RouteObject } from 'react-router-dom';
 
+  export type RoutePath = string;
+  export type RoutePathParams = Record<string, Record<string, string>>;
+  export type RouteParams<P extends RoutePath> = P extends keyof RoutePathParams
+    ? RoutePathParams[P]
+    : never;
+
   export const generateRoutes: () => RouteObject[];
   export { useRoutes } from 'react-router-dom';
 }

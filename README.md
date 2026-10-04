@@ -134,20 +134,17 @@ src/
         └── layout.tsx      ← Dashboard layout
 ```
 
-TypeScript note:
+The Vite plugin generates the declaration for `virtual:next-vite-router` automatically, so no manual module declaration is required.
 
-If you're using TypeScript in a consuming project, add a declaration file so the virtual module is recognized by the compiler. Create a file such as `src/virtual.d.ts` (or any `*.d.ts` included by your `tsconfig.json`) with the following content:
+The repository includes a complete example in `test/fixture`. From the package root, run:
 
-```next-vite-router/README.md#L43-47
-declare module 'virtual:next-vite-router' {
-  import type { RouteObject } from 'react-router-dom';
-
-  export const generateRoutes: () => RouteObject[];
-  export { useRoutes } from 'react-router-dom';
-}
+```bash
+pnpm run build
+pnpm run test:routes
+pnpm exec tsc -p test/fixture/tsconfig.json --noEmit
 ```
 
-This ensures TypeScript knows the shape of the virtual module provided by the Vite plugin and avoids `Cannot find module 'virtual:next-vite-router'` errors in editors and builds.
+This checks the generated routes and compiles the type-safe usage in `test/fixture/route-types.ts`.
 
 ## Programmatic route generation
 
@@ -204,6 +201,15 @@ src/app/
 └── (components)/
     └── header/
         └── page.tsx      ← /header  (the `(components)` folder is not part of the path)
+```
+
+The plugin also generates `virtual-next-vite-router.d.ts` next to your app directory. It contains a `RoutePath` union with every discovered route and a `RouteParams<Path>` helper for dynamic segments, so your application's route paths remain type-safe without a manual module declaration:
+
+```ts
+import type { RouteParams, RoutePath } from 'virtual:next-vite-router';
+
+const path = '/blog/:id' satisfies RoutePath;
+const params: RouteParams<typeof path> = { id: '123' };
 ```
 
 If you ever need to verify the final route objects, call `generateRoutes()` (the virtual module) and inspect the returned `RouteObject[]` to confirm path strings and param names.
