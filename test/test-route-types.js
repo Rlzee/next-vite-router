@@ -13,6 +13,7 @@ const plugin = nextViteRouter({
 plugin.configResolved({ root: projectRoot });
 
 const declaration = fs.readFileSync(declarationPath, "utf8");
+const virtualModule = plugin.load("\0virtual:next-vite-router");
 
 assert.match(declaration, /export type RoutePath =/);
 assert.match(declaration, /\| "\/"/);
@@ -22,6 +23,10 @@ assert.match(declaration, /\| "\/posts\/:slug"/);
 assert.doesNotMatch(declaration, /marketing/);
 assert.match(declaration, /id: string;/);
 assert.match(declaration, /slug: string;/);
+assert.match(declaration, /export function Router/);
+assert.match(declaration, /export \{ Link, useRoutes \}/);
+assert.match(virtualModule, /import \{ Link, useRoutes \} from 'react-router-dom'/);
+assert.match(virtualModule, /return useRoutes\(generateRoutes\(\)\)/);
 
 console.log("✅ Route declaration generated");
 console.log(`   ${declarationPath}`);

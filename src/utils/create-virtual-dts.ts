@@ -16,6 +16,7 @@ export function createVirtualDTS(projectDir: string, useSrc: boolean) {
   const filePath = path.join(targetDir, "virtual-next-vite-router.d.ts");
 
   const content = `declare module 'virtual:next-vite-router' {
+  import type { ReactElement } from 'react';
   import type { RouteObject } from 'react-router-dom';
 
   export type RoutePath = string;
@@ -25,7 +26,8 @@ export function createVirtualDTS(projectDir: string, useSrc: boolean) {
     : never;
 
   export const generateRoutes: () => RouteObject[];
-  export { useRoutes } from 'react-router-dom';
+  export function Router(): ReactElement | null;
+  export { Link, useRoutes } from 'react-router-dom';
 }
 `;
 

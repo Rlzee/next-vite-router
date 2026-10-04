@@ -65,6 +65,7 @@ function createRouteTypes(routePaths: string[]): string {
   }).join("\n");
 
   return `declare module 'virtual:next-vite-router' {
+  import type { ReactElement } from 'react';
   import type { RouteObject } from 'react-router-dom';
 
   export type RoutePath =
@@ -79,7 +80,8 @@ ${params}
   }
 
   export const generateRoutes: () => RouteObject[];
-  export { useRoutes } from 'react-router-dom';
+  export function Router(): ReactElement | null;
+  export { Link, useRoutes } from 'react-router-dom';
 }
 `;
 }
@@ -121,6 +123,7 @@ export function nextViteRouter(
       if (id === resolvedVirtualModuleId) {
         return `
 import { buildRouteTree, treeToRoutes, normalizeSegment, createLazyElement } from 'next-vite-router';
+import { Link, useRoutes } from 'react-router-dom';
 
 const pagesGlob = import.meta.glob('/${pagesDir}/**/${pageFile}');
 const layoutsGlob = import.meta.glob('/${pagesDir}/**/${layoutFile}', { eager: true });
@@ -144,7 +147,11 @@ export function generateRoutes() {
   return routes;
 }
 
-export { useRoutes } from 'react-router-dom';
+export function Router() {
+  return useRoutes(generateRoutes());
+}
+
+export { Link, useRoutes };
 `;
       }
     },

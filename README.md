@@ -112,19 +112,32 @@ export default defineConfig({
 });
 ```
 
-Example usage inside your app. Important: call `generateRoutes()` once at module level (not inside a component) to avoid infinite re-renders.
+Example usage inside your app. You can either use the convenience `Router` component or call React Router's `useRoutes` directly.
 
 File: `src/App.tsx`
 
 ```next-vite-router/README.md#L19-24
-import { useRoutes } from 'react-router-dom';
-import { generateRoutes } from 'virtual:next-vite-router';
+import { Router } from 'virtual:next-vite-router';
+
+export default function App() {
+  return <Router />;
+}
+```
+
+`Router` is only a thin wrapper around `useRoutes(generateRoutes())`. It does not replace React Router. You can keep using React Router APIs directly:
+
+```tsx
+import { Link, generateRoutes, useRoutes } from 'virtual:next-vite-router';
 
 const routes = generateRoutes();
 
 export default function App() {
-  const element = useRoutes(routes);
-  return element;
+  return (
+    <>
+      <Link to="/users">Users</Link>
+      {useRoutes(routes)}
+    </>
+  );
 }
 ```
 
@@ -255,6 +268,8 @@ Exports from the package (see `src/index.ts`):
 - `createRouteGenerator(pages, layouts, notFounds)` — returns a function that builds `RouteObject[]` using your globs.
 - `buildRouteTree` — builds the intermediate route tree from page/layout/not-found globs.
 - `treeToRoutes` — converts the route tree to React Router routes.
+- `Router` — a thin convenience wrapper around `useRoutes(generateRoutes())`.
+- `Link` — React Router's `Link`, re-exported for convenience.
 - `registerMiddleware`, `clearMiddlewares` — middleware helpers to manage registered middlewares.
 - `configureRouter` — configure router-level options.
 - `nextViteRouter(options)` — Vite plugin factory. Options:
