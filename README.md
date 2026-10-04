@@ -332,9 +332,40 @@ configureRouter({
 
 Call `configureRouter` during app bootstrap before calling `generateRoutes()`.
 
+### Prefer layouts for route-scoped UI and guards
+
+For behavior that belongs to a route subtree, prefer a filesystem layout before reaching for middleware. Layouts compose naturally with the generated route tree and keep the ownership of the UI close to the routes it wraps:
+
+```text
+src/app/
+├── layout.tsx
+├── page.tsx
+└── dashboard/
+    ├── layout.tsx
+    └── page.tsx
+```
+
+Each layout can render an `Outlet` and contain the providers, navigation, or authorization boundary for its subtree:
+
+```tsx
+import { Outlet } from 'react-router-dom';
+
+export default function DashboardLayout() {
+  return (
+    <AuthGuard>
+      <Outlet />
+    </AuthGuard>
+  );
+}
+```
+
+This is the recommended, Next-like approach for route-scoped composition. It uses React Router's normal nested route behavior and does not require path matching.
+
 ### `registerMiddleware(pattern: RegExp, middleware: RouteMiddleware)`
 
-`registerMiddleware` lets you register middleware functions that will be applied to route elements whose path matches the provided `pattern` (a `RegExp`). Middlewares receive the route element (`ReactElement`) and should return a new element (for example wrapping it with providers, guards, or layout components).
+`registerMiddleware` is an optional escape hatch for cross-cutting behavior that cannot be expressed conveniently with a layout. It applies middleware functions to route elements whose path matches the provided `pattern` (a `RegExp`). Layouts should generally be preferred for route-scoped providers, guards, navigation, and UI composition.
+
+Middlewares receive the route element (`ReactElement`) and should return a new element (for example wrapping it with a provider or guard). They do not create routes, replace React Router navigation, or provide a separate request/data-loading pipeline.
 
 Important details:
 
