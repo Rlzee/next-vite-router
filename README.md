@@ -16,6 +16,18 @@ yarn add next-vite-router
 
 The package has peer dependencies: React, React DOM and React Router DOM. Make sure your project already includes compatible versions (React 18+ is recommended).
 
+Supported peer dependency ranges:
+
+| Package | Supported versions |
+| --- | --- |
+| React / React DOM | `>=18 <20` |
+| React Router DOM | `>=6 <8` |
+| Vite | `>=5 <9` |
+
+The CLI installs `react-router-dom@^6.0.0` by default, matching the package's stable baseline. React Router 7 can be used by an existing application and is covered by the compatibility range.
+
+The compatibility workflow tests React 18 and 19 with React Router 6 and 7 across Vite 5, 6, 7, and 8.
+
 ## CLI / Getting Started
 
 The quickest way to start a new project with `next-vite-router` is to use the interactive CLI:
@@ -142,6 +154,7 @@ The repository includes a complete example in `test/fixture`. From the package r
 pnpm run build
 pnpm run test:generator
 pnpm run test:routes
+pnpm run test:compatibility
 pnpm exec tsc -p test/fixture/tsconfig.json --noEmit
 ```
 

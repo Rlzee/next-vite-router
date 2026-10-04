@@ -29,6 +29,7 @@
     "test:local": "node test/test-package.js",
     "test:routes": "node test/test-route-types.js",
     "test:generator": "node --test test/routes.test.js",
+    "test:compatibility": "node test/test-compatibility.js",
     "preview": "pnpm pack --dry-run",
     "prepublishOnly": "pnpm run build && pnpm run test:local",
     "cli": "cd test && node ../dist/cli.cjs"
@@ -50,10 +51,10 @@
   "homepage": "https://github.com/Rlzee/next-vite-router#readme",
   "license": "MIT",
   "peerDependencies": {
-    "react": "^18.0.0",
-    "react-dom": "^18.0.0",
-    "react-router-dom": "^6.0.0",
-    "vite": "^5.0.0"
+    "react": ">=18 <20",
+    "react-dom": ">=18 <20",
+    "react-router-dom": ">=6 <8",
+    "vite": ">=5 <9"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",

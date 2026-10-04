@@ -113,7 +113,7 @@ export const init = new Command()
     );
     const addDepsCmd = pm.addDepsCommand([
       "next-vite-router",
-      "react-router-dom@latest",
+      "react-router-dom@^6.0.0",
     ]);
     execSync(addDepsCmd, { stdio: "inherit", cwd: projectName });
 
