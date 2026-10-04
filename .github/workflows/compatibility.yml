@@ -1,0 +1,97 @@
+name: Compatibility
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  vite-react-router:
+    name: React ${{ matrix.react }} / Router ${{ matrix.router }} / Vite ${{ matrix.vite }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        react: ["18.3.1", "19.2.0"]
+        router: ["6.30.6", "7.18.4"]
+        vite: ["5.4.21", "6.1.0", "7.2.2", "8.0.0"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install package dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build package
+        run: pnpm run build
+
+      - name: Pack package
+        shell: bash
+        run: echo "PACKAGE_TARBALL=$(pnpm pack --pack-destination "$RUNNER_TEMP" | tail -n 1)" >> "$GITHUB_ENV"
+
+      - name: Create compatibility app
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/compat-app/src/app"
+          cat > "$RUNNER_TEMP/compat-app/package.json" <<EOF
+          {
+            "private": true,
+            "type": "module",
+            "dependencies": {
+              "next-vite-router": "file:$PACKAGE_TARBALL",
+              "react": "${{ matrix.react }}",
+              "react-dom": "${{ matrix.react }}",
+              "react-router-dom": "${{ matrix.router }}"
+            },
+            "devDependencies": {
+              "vite": "${{ matrix.vite }}"
+            }
+          }
+          EOF
+          cat > "$RUNNER_TEMP/compat-app/index.html" <<'EOF'
+          <div id="root"></div>
+          <script type="module" src="/src/main.tsx"></script>
+          EOF
+          cat > "$RUNNER_TEMP/compat-app/vite.config.ts" <<'EOF'
+          import { defineConfig } from "vite";
+          import { nextViteRouter } from "next-vite-router/plugin";
+
+          export default defineConfig({
+            plugins: [nextViteRouter()],
+          });
+          EOF
+          cat > "$RUNNER_TEMP/compat-app/src/main.tsx" <<'EOF'
+          import React from "react";
+          import { createRoot } from "react-dom/client";
+          import { BrowserRouter, useRoutes } from "react-router-dom";
+          import { generateRoutes } from "virtual:next-vite-router";
+
+          function App() {
+            return useRoutes(generateRoutes());
+          }
+
+          createRoot(document.getElementById("root")!).render(
+            <BrowserRouter><App /></BrowserRouter>,
+          );
+          EOF
+          cat > "$RUNNER_TEMP/compat-app/src/app/page.tsx" <<'EOF'
+          export default function Home() {
+            return "home";
+          }
+          EOF
+
+      - name: Install compatibility app
+        working-directory: ${{ runner.temp }}/compat-app
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Build compatibility app
+        working-directory: ${{ runner.temp }}/compat-app
+        run: pnpm exec vite build

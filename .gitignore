@@ -40,3 +40,4 @@ coverage/
 
 # Vite plugin dts output (if used separately)
 # dts outputs to dist by default, already ignored above
+examples/src/virtual-next-vite-router.d.ts

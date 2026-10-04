@@ -1,0 +1,21 @@
+{
+  "name": "next-vite-router-examples",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "predev": "pnpm --dir .. build",
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "next-vite-router": "workspace:*",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.30.6"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.4.1",
+    "vite": "^5.4.21",
+    "typescript": "^5.9.3"
+  }
+}

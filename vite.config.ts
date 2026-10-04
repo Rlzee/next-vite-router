@@ -12,7 +12,14 @@ export default defineConfig({
       formats: ['es']
     },
     rollupOptions: {
-      external: ['react', 'react-dom', 'react-router-dom', 'vite'],
+      external: [
+        'react',
+        'react-dom',
+        'react-router-dom',
+        'vite',
+        'node:fs',
+        'node:path',
+      ],
     }
   },
   plugins: [

@@ -1,6 +1,10 @@
 import type { RouterConfig } from "../index";
 
-let routerConfig: RouterConfig = {};
+const defaultRouterConfig: RouterConfig = {
+  enableLazyLoading: true,
+};
+
+let routerConfig: RouterConfig = { ...defaultRouterConfig };
 
 export function configureRouter(config: RouterConfig): void {
   routerConfig = { ...routerConfig, ...config };
