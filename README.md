@@ -6,6 +6,25 @@ Define routes with folders and let the package generate the
 [React Router](https://reactrouter.com/) `RouteObject[]`. It does not replace
 React Router, navigation, history, loaders, or application state.
 
+## Notes de version
+
+### Import du plugin
+
+Le plugin Vite n'est plus exporté depuis l'entrée principale
+`next-vite-router`. Les imports existants doivent être migrés :
+
+```ts
+// Ancien import
+import { nextViteRouter } from "next-vite-router";
+
+// Import actuel
+import { nextViteRouter } from "next-vite-router/plugin";
+```
+
+Le plugin reste disponible via `next-vite-router/plugin`. Cette séparation
+évite d'inclure les dépendances Node du plugin dans le graphe navigateur de
+l'application.
+
 ## Start here
 
 ```bash
