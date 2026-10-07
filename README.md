@@ -238,12 +238,13 @@ replace React Router.
 For an interactive setup:
 
 ```bash
-npx create-next-vite-router init
+npx next-vite-router init
 ```
 
 The CLI creates a Vite React project, installs the package and
 `react-router-dom@^7.0.0`, configures the plugin, and adds an example route
-tree.
+tree. The CLI is published as part of `next-vite-router`; `create-next-vite-router`
+is its executable name, not a separate npm package.
 
 ## Compatibility
 
