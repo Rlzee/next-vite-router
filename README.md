@@ -83,16 +83,19 @@ npm run dev
 
 ## Use React Router directly
 
-`Router` is only a convenience wrapper around
-`useRoutes(generateRoutes())`. You can keep using React Router APIs:
+`Router` is only a convenience wrapper around `useRoutes(routes)`. Routes are
+generated lazily on the first render, so calls to `configureRouter` and
+`registerMiddleware` made during application setup are applied before route
+elements are created. You can keep using React Router APIs:
 
 ```tsx
 import {
   Link,
   generateRoutes,
   useRoutes,
+  useParams,
 } from "virtual:next-vite-router";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 const routes = generateRoutes();
 

@@ -138,6 +138,28 @@ export function nextViteRouter(
       declarationPath = path.join(path.dirname(pagesRoot), "virtual-next-vite-router.d.ts");
       writeRouteTypes();
     },
+    configureServer(server) {
+      const updateRoutes = (file: string) => {
+        const relativeFile = path.relative(pagesRoot, file);
+        if (
+          relativeFile.startsWith("..") ||
+          ![pageFile, layoutFile, notFoundFile].includes(path.basename(file))
+        ) {
+          return;
+        }
+
+        writeRouteTypes();
+        knownRouteFiles = collectRouteFiles(pagesRoot, [pageFile, layoutFile, notFoundFile]);
+        const module = server.moduleGraph.getModuleById(resolvedVirtualModuleId);
+        if (module) {
+          server.moduleGraph.invalidateModule(module);
+          server.ws.send({ type: "full-reload", path: "*" });
+        }
+      };
+
+      server.watcher.on("add", updateRoutes);
+      server.watcher.on("unlink", updateRoutes);
+    },
     resolveId(id) {
       if (id === virtualModuleId) {
         return resolvedVirtualModuleId;
@@ -173,10 +195,11 @@ export function generateRoutes() {
 }
 
 export function Router() {
+  routes ??= generateRoutes();
   return useRoutes(routes);
 }
 
-const routes = generateRoutes();
+let routes;
 
 export { Link, useRoutes };
 export { useParams };

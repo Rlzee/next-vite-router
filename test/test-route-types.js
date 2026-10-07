@@ -26,7 +26,7 @@ assert.match(declaration, /slug: string;/);
 assert.match(declaration, /export function Router/);
 assert.match(declaration, /export \{ Link, useRoutes \}/);
 assert.match(virtualModule, /import \{ Link, useRoutes \} from 'react-router-dom'/);
-assert.match(virtualModule, /const routes = generateRoutes\(\)/);
+assert.match(virtualModule, /routes \?\?= generateRoutes\(\)/);
 assert.match(virtualModule, /import\.meta\.glob\('\/src\/app\/\*\*\/page\.tsx'\)/);
 assert.match(virtualModule, /import\.meta\.glob\('\/src\/app\/\*\*\/not-found\.tsx'\)/);
 assert.match(virtualModule, /import\.meta\.glob\('\/src\/app\/\*\*\/layout\.tsx', \{ eager: true \}\)/);

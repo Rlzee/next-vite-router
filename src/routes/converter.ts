@@ -3,6 +3,7 @@ import type { RouteObject } from "react-router-dom";
 import type { RouteNode } from '../index';
 import { normalizeSegment, createLazyElement } from '../utils/index.utils';
 import { applyMiddlewares } from '../middleware/index.middleware';
+import { CatchAllParamProvider } from '../router-params-context';
 
 function applyLayoutMiddleware(path: string, layout: React.ComponentType): React.ReactElement {
   return applyMiddlewares(path, React.createElement(layout));
@@ -28,11 +29,16 @@ function createPageRoute(
   );
 
   const catchAllMatch = node.segment.match(/^\[\[?\.\.\.(.+?)\]\]?$/);
-  const handle = catchAllMatch ? { catchAllParam: catchAllMatch[1] } : undefined;
+  const routeElement = catchAllMatch
+    ? React.createElement(CatchAllParamProvider, {
+        name: catchAllMatch[1],
+        children: element,
+      })
+    : element;
 
   return isIndex
-    ? { index: true, element, handle }
-    : { path: normalizeSegment(node.segment), element, handle };
+    ? { index: true, element: routeElement }
+    : { path: normalizeSegment(node.segment), element: routeElement };
 }
 
 function createNotFoundRoute(node: RouteNode): RouteObject {
