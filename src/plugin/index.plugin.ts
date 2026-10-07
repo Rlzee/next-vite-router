@@ -182,7 +182,7 @@ export { useParams };
       }
     },
 
-    handleHotUpdate({ file, server }) {
+    handleHotUpdate({ file }) {
       const relativeFile = path.relative(pagesRoot, file);
       const isRouteFile =
         !relativeFile.startsWith("..") &&
