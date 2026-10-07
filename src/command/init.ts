@@ -37,12 +37,11 @@ export const init = new Command()
         name: "template",
         message: "Select a template:",
         choices: [
-          { title: "React + TypeScript", value: "react-ts" },
+          { title: "React + TypeScript (Recommended)", value: "react-ts" },
           {
             title: "React + TypeScript (React Compiler)",
             value: "react-compiler-ts",
           },
-          { title: "React + SWC (Recommended)", value: "react-swc-ts" },
         ],
         initial: 0,
       },
@@ -93,15 +92,11 @@ export const init = new Command()
     const createCommand = pm.createProjectCommand(projectName, variant);
     logger.info(`Creating project "${projectName}" using ${pm.name}...`);
 
-    try {
-      // Use input option to automatically answer 'n' to the install prompt
-      execSync(createCommand, {
-        stdio: ["pipe", "inherit", "inherit"],
-        input: "n\n",
-      });
-    } catch (error) {
-      // Ignore errors from answering 'n' to the prompt
-    }
+    // Use input option to automatically answer 'n' to the install prompt.
+    execSync(createCommand, {
+      stdio: ["pipe", "inherit", "inherit"],
+      input: "n\n",
+    });
 
     // Install dependencies manually
     logger.info("Installing dependencies...");

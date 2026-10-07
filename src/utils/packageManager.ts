@@ -83,7 +83,7 @@ export function detectPackageManager(): PackageManager {
       return {
         name: "pnpm",
         createProjectCommand: (projectName, template) =>
-          `pnpm create vite@latest ${projectName} --template ${template} --no-rolldown`,
+            `pnpm create vite@latest ${projectName} --template ${template} --no-interactive`,
         addDepsCommand: (deps) => `pnpm add ${deps.join(" ")}`,
         addDevDepsCommand: (deps) => `pnpm add -D ${deps.join(" ")}`,
         installCommand: "pnpm install",
@@ -93,7 +93,7 @@ export function detectPackageManager(): PackageManager {
       return {
         name: "bun",
         createProjectCommand: (projectName, template) =>
-          `bun create vite ${projectName} --template=${template} --no-rolldown`,
+            `bun create vite ${projectName} --template=${template} --no-interactive`,
         addDepsCommand: (deps) => `bun add ${deps.join(" ")}`,
         addDevDepsCommand: (deps) => `bun add -d ${deps.join(" ")}`,
         installCommand: "bun install",
@@ -103,7 +103,7 @@ export function detectPackageManager(): PackageManager {
       return {
         name: "yarn",
         createProjectCommand: (projectName, template) =>
-          `yarn create vite ${projectName} --template=${template} --no-rolldown`,
+            `yarn create vite ${projectName} --template=${template} --no-interactive`,
         addDepsCommand: (deps) => `yarn add ${deps.join(" ")}`,
         addDevDepsCommand: (deps) => `yarn add -D ${deps.join(" ")}`,
         installCommand: "yarn install",
@@ -114,7 +114,7 @@ export function detectPackageManager(): PackageManager {
       return {
         name: "npm",
         createProjectCommand: (projectName, template) =>
-          `npm create vite@latest ${projectName} -- --template ${template} --no-rolldown`,
+            `npm create vite@latest ${projectName} -- --template ${template} --no-interactive`,
         addDepsCommand: (deps) => `npm install ${deps.join(" ")}`,
         addDevDepsCommand: (deps) => `npm install -D ${deps.join(" ")}`,
         installCommand: "npm install",

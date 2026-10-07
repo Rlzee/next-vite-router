@@ -18,19 +18,12 @@ export function createMainTSX(projectDir: string, useSrc: boolean) {
   const content = `import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from "react-router-dom";
-import { generateRoutes, useRoutes } from 'virtual:next-vite-router';
-
-const routes = generateRoutes();
-
-export default function App() {
-  const element = useRoutes(routes);
-  return element;
-}
+import { Router } from 'virtual:next-vite-router';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
-      <App />
+      <Router />
     </BrowserRouter>
   </StrictMode>,
 );

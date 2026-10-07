@@ -2,14 +2,20 @@ import fs from "fs";
 import path from "path";
 
 /**
- * Path to vite.config.ts or vite.config.js in the project
+ * Path to the Vite config in the project
  */
 export function getViteConfigPath(projectDir: string): string | null {
-  const tsPath = path.join(projectDir, "vite.config.ts");
-  const jsPath = path.join(projectDir, "vite.config.js");
-
-  if (fs.existsSync(tsPath)) return tsPath;
-  if (fs.existsSync(jsPath)) return jsPath;
+  for (const fileName of [
+    "vite.config.ts",
+    "vite.config.mts",
+    "vite.config.cts",
+    "vite.config.js",
+    "vite.config.mjs",
+    "vite.config.cjs",
+  ]) {
+    const configPath = path.join(projectDir, fileName);
+    if (fs.existsSync(configPath)) return configPath;
+  }
 
   return null;
 }
