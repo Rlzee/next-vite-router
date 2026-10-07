@@ -127,6 +127,11 @@ create competing navigation or data-loading APIs.
 | `[[...slug]]` | Optional catch-all `*` segment; package `useParams` exposes it as `slug` |
 | `(admin)` | Route group omitted from the URL |
 
+Catch-all pages and `not-found.tsx` at the same level both use React Router's
+`*` path and should not be declared together if their fallback behavior must
+be distinct. The catch-all parameter provider wraps the page route, so a
+layout cannot read that parameter through the package `useParams` hook.
+
 The Vite plugin accepts custom `pageFile`, `layoutFile`, and `notFoundFile`
 names. `createRouteGenerator` accepts the same options, plus `pagesDir`, as
 its optional fourth argument when custom glob paths or extensions are used.
@@ -179,7 +184,8 @@ No manual declaration for the virtual module is required.
 
 Pages and `not-found.tsx` files use Vite's non-eager `import.meta.glob`, so
 Vite can emit separate chunks for pages. Layouts are eager because they wrap
-the generated route tree. Lazy loading is enabled by default:
+the generated route tree; changing a layout can therefore cause a full
+development reload. Lazy loading is enabled by default:
 
 ```tsx
 import { configureRouter } from "next-vite-router";

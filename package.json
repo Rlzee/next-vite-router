@@ -30,6 +30,7 @@
     "test:local": "node test/test-package.js",
     "test:routes": "node test/test-route-types.js",
     "test:generator": "node --test test/routes.test.js",
+    "test:params": "node --test test/params.test.js",
     "test:compatibility": "node test/test-compatibility.js",
     "preview": "pnpm pack --dry-run",
     "prepublishOnly": "pnpm run build && pnpm run test:local",
