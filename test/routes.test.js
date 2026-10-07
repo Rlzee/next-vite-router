@@ -8,6 +8,7 @@ import {
   registerMiddleware,
   treeToRoutes,
 } from "../dist/index.js";
+import { extractRoutePath } from "../dist/index.js";
 
 const loader = (name) => async () => ({ default: name });
 const component = (name) => function Component() {
@@ -77,6 +78,56 @@ describe("route generator", () => {
       { path: "dashboard", children: undefined },
     ]);
   });
+
+    test("keeps pages and layouts declared directly in route groups", () => {
+      const groupLayout = component("marketing");
+      const routes = createRoutes({
+        pages: {
+          "(marketing)/page.tsx": loader("marketing"),
+          "(marketing)/about/page.tsx": loader("about"),
+        },
+        layouts: {
+          "(marketing)/layout.tsx": { default: groupLayout },
+        },
+      });
+
+      assert.deepEqual(routeShape(routes), [{
+        children: [
+          { index: true, children: undefined },
+          { path: "about", children: undefined },
+        ],
+      }]);
+      assert.equal(routes[0].element.type, groupLayout);
+    });
+
+    test("generates not-found routes without requiring a layout", () => {
+      const routes = createRoutes({
+        pages: { "dashboard/page.tsx": loader("dashboard") },
+        notFounds: {
+          "dashboard/not-found.tsx": loader("dashboard-not-found"),
+          "not-found.tsx": loader("root-not-found"),
+        },
+      });
+
+      assert.deepEqual(routeShape(routes), [
+        { path: "/", children: [
+          { path: "dashboard", children: [
+            { path: "*", children: undefined },
+          ] },
+          { path: "*", children: undefined },
+        ] },
+      ]);
+    });
+
+    test("extracts paths using configured file names and directories", () => {
+      assert.equal(
+        extractRoutePath("C:\\project\\pages\\about\\page.jsx", {
+          pagesDir: "C:\\project\\pages",
+          pageFile: "page.jsx",
+        }),
+        "about",
+      );
+    });
 
   test("supports nested layouts, layout-only nodes, and not-found routes", () => {
     const rootLayout = component("root");

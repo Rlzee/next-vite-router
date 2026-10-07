@@ -22,4 +22,6 @@ export type {
 
 // Utils
 export { normalizeSegment, extractRoutePath } from './utils/path';
+export type { RouteFileOptions } from './utils/path';
 export { createLazyElement } from './utils/lazy';
+export { useParams } from './router-params';

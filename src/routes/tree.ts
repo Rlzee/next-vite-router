@@ -1,13 +1,14 @@
 import type { RouteNode } from '../index';
-import { extractRoutePath } from '../utils/index.utils';
+import { extractRoutePath, type RouteFileOptions } from '../utils/index.utils';
 
 function addFileToTree(
   root: RouteNode,
   filePath: string,
   fileContent: any,
-  fileType: 'layout' | 'page' | 'notFound'
+  fileType: 'layout' | 'page' | 'notFound',
+  fileOptions?: RouteFileOptions,
 ): void {
-  const routePath = extractRoutePath(filePath);
+  const routePath = extractRoutePath(filePath, fileOptions);
   const segments = routePath ? routePath.split("/") : [];
   
   let currentNode = root;
@@ -39,7 +40,8 @@ function addFileToTree(
 export function buildRouteTree(
   pages: Record<string, () => Promise<any>>,
   layouts: Record<string, any>,
-  notFounds: Record<string, () => Promise<any>>
+  notFounds: Record<string, () => Promise<any>>,
+  fileOptions?: RouteFileOptions,
 ): RouteNode {
   const root: RouteNode = {
     segment: "",
@@ -48,15 +50,15 @@ export function buildRouteTree(
   };
 
   Object.entries(layouts).forEach(([filePath, module]) => {
-    addFileToTree(root, filePath, (module as any).default, 'layout');
+    addFileToTree(root, filePath, (module as any).default, 'layout', fileOptions);
   });
 
   Object.entries(pages).forEach(([filePath, loader]) => {
-    addFileToTree(root, filePath, loader, 'page');
+    addFileToTree(root, filePath, loader, 'page', fileOptions);
   });
 
   Object.entries(notFounds).forEach(([filePath, loader]) => {
-    addFileToTree(root, filePath, loader, 'notFound');
+    addFileToTree(root, filePath, loader, 'notFound', fileOptions);
   });
 
   return root;

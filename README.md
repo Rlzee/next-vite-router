@@ -119,9 +119,13 @@ navigation or data-loading APIs.
 | `layout.tsx` | Nested layout rendered with React Router's `Outlet` |
 | `not-found.tsx` | `*` route for that subtree |
 | `[id]` | Dynamic segment `:id` |
-| `[...slug]` | Catch-all `*` segment |
-| `[[...slug]]` | Optional catch-all `*` segment |
+| `[...slug]` | Catch-all `*` segment; package `useParams` exposes it as `slug` |
+| `[[...slug]]` | Optional catch-all `*` segment; package `useParams` exposes it as `slug` |
 | `(admin)` | Route group omitted from the URL |
+
+The Vite plugin accepts custom `pageFile`, `layoutFile`, and `notFoundFile`
+names. `createRouteGenerator` accepts the same options, plus `pagesDir`, as
+its optional fourth argument when custom glob paths or extensions are used.
 
 Layouts are the recommended way to add route-scoped navigation, providers, or
 authorization:

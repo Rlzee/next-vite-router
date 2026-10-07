@@ -17,7 +17,12 @@ function createPageRoute(
     nodePath
   );
 
-  return isIndex ? { index: true, element } : { path: normalizeSegment(node.segment), element };
+  const catchAllMatch = node.segment.match(/^\[\[?\.\.\.(.+?)\]\]?$/);
+  const handle = catchAllMatch ? { catchAllParam: catchAllMatch[1] } : undefined;
+
+  return isIndex
+    ? { index: true, element, handle }
+    : { path: normalizeSegment(node.segment), element, handle };
 }
 
 function createNotFoundRoute(node: RouteNode): RouteObject {
@@ -53,6 +58,22 @@ function processChildren(
   return children;
 }
 
+function createNodeChildren(node: RouteNode, currentPath: string): RouteObject[] {
+  const children: RouteObject[] = [];
+
+  if (node.page) {
+    children.push(createPageRoute(node, currentPath || "/", true));
+  }
+
+  children.push(...processChildren(node, currentPath));
+
+  if (node.notFound) {
+    children.push(createNotFoundRoute(node));
+  }
+
+  return children;
+}
+
 export function treeToRoutes(
   node: RouteNode,
   isRoot = false,
@@ -60,100 +81,75 @@ export function treeToRoutes(
 ): RouteObject[] {
   const routes: RouteObject[] = [];
   
-  if (isRoot && node.layout) {
-    const children: RouteObject[] = [];
-    
-    if (node.page) {
-      children.push(createPageRoute(node, "/", true));
-    }
-    
-    children.push(...processChildren(node, ""));
-    
-    if (node.notFound) {
-      children.push(createNotFoundRoute(node));
-    }
-    
-    routes.push({
+  if (isRoot) {
+    const children = createNodeChildren(node, "");
+    if (node.layout) {
+      routes.push({
       path: "/",
       element: React.createElement(node.layout),
       children,
-    });
-    
-    return routes;
-  }
-  
-  if (node.layout) {
-    const normalizedSegment = normalizeSegment(node.segment);
-    
-    if (!normalizedSegment) {
-      return processChildren(node, currentPath);
+      });
+      return routes;
     }
-    
-    const nodePath = currentPath + "/" + normalizedSegment;
-    const children: RouteObject[] = [];
-    
-    if (node.page) {
-      children.push(createPageRoute(node, nodePath, true));
-    }
-    
-    children.push(...processChildren(node, nodePath));
-    
-    if (node.notFound) {
-      children.push(createNotFoundRoute(node));
-    }
-    
-    routes.push({
-      path: normalizedSegment,
-      element: React.createElement(node.layout),
-      children: children.length > 0 ? children : undefined,
-    });
-    
-    return routes;
-  }
-  
-  if (node.page) {
-    const normalizedSegment = normalizeSegment(node.segment);
-    
-    if (!normalizedSegment) {
-      if (isRoot) {
-        routes.push({
-          path: "/",
-          element: createPageRoute(node, "/", true).element,
-          children: processChildren(node, currentPath).length > 0
-            ? processChildren(node, currentPath)
-            : undefined,
-        });
-        if (node.notFound) {
-          routes.push(createNotFoundRoute(node));
-        }
-        return routes;
-      }
-      return processChildren(node, currentPath);
-    }
-    
-    const nodePath = currentPath + "/" + normalizedSegment;
-    const children = processChildren(node, nodePath);
-    
-    const pageRoute = createPageRoute(node, nodePath, false);
-    
-    routes.push({
-      path: pageRoute.path,
-      element: pageRoute.element,
-      children: children.length > 0 ? children : undefined,
-    });
-    
-    return routes;
-  }
-  
-  const normalizedSegment = normalizeSegment(node.segment);
-  const children = processChildren(node, currentPath);
 
-  if (!normalizedSegment) {
+    if (node.page) {
+      routes.push({
+        path: "/",
+        element: createPageRoute(node, "/", false).element,
+        children: children.slice(1).length > 0 ? children.slice(1) : undefined,
+      });
+      return routes;
+    }
+
+    if (node.notFound) {
+      routes.push({
+        path: "/",
+        children,
+      });
+      return routes;
+    }
+
     return children;
   }
 
-  return [{
-    path: normalizedSegment,
-    children: children.length > 0 ? children : undefined,
-  }];
+  const normalizedSegment = normalizeSegment(node.segment);
+  const isPathless = !normalizedSegment;
+  const nodePath = isPathless
+    ? currentPath
+    : currentPath + "/" + normalizedSegment;
+  const descendants = processChildren(node, nodePath);
+  const notFound = node.notFound ? [createNotFoundRoute(node)] : [];
+
+  if (node.layout) {
+    const children = createNodeChildren(node, nodePath);
+    return [{
+      ...(isPathless ? {} : { path: normalizedSegment }),
+      element: React.createElement(node.layout),
+      children: children.length > 0 ? children : undefined,
+    }];
+  }
+
+  if (node.page && !isPathless) {
+    return [{
+      path: normalizedSegment,
+      element: createPageRoute(node, nodePath).element,
+      children: [...descendants, ...notFound].length > 0
+        ? [...descendants, ...notFound]
+        : undefined,
+    }];
+  }
+
+  if (node.page || node.notFound || !isPathless) {
+    const children = [
+      ...(node.page ? [createPageRoute(node, nodePath, true)] : []),
+      ...descendants,
+      ...notFound,
+    ];
+    return [{
+      ...(isPathless ? {} : { path: normalizedSegment }),
+      children: children.length > 0 ? children : undefined,
+    }];
+  }
+
+  return descendants;
 }

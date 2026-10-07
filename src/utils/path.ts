@@ -12,14 +12,35 @@ export function normalizeSegment(segment: string): string {
   return segment;
 }
 
+export type RouteFileOptions = {
+  pagesDir?: string;
+  pageFile?: string;
+  layoutFile?: string;
+  notFoundFile?: string;
+};
+
 /**
  * Extract the route path from a file path
  * @example "../../app/blog/[id]/page.tsx" -> "blog/[id]"
  * @example "../../app/page.tsx" -> ""
  */
-export function extractRoutePath(filePath: string): string {
-  return filePath
+export function extractRoutePath(
+  filePath: string,
+  { pagesDir, pageFile = "page.tsx", layoutFile = "layout.tsx", notFoundFile = "not-found.tsx" }: RouteFileOptions = {},
+): string {
+  const normalized = filePath.replace(/\\/g, "/");
+  const base = pagesDir?.replace(/\\/g, "/").replace(/^\/|\/$/g, "");
+  const fileNames = [pageFile, layoutFile, notFoundFile]
+    .map((file) => file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+
+  return normalized
+    .replace(
+      base
+        ? new RegExp(`^.*(?:^|/)${base}/`)
+        : /^.*(?:^|\/)(?:app|pages)\//,
+      "",
+    )
     .replace(/\\/g, "/")
-    .replace("../../app/", "")
-    .replace(/\/?(page|layout|not-found)\.tsx$/, "");
+    .replace(new RegExp(`/?(?:${fileNames})$`), "");
 }

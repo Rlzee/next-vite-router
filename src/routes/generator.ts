@@ -1,6 +1,7 @@
 import type { RouteObject } from "react-router-dom";
 import { buildRouteTree } from './index.routes';
 import { treeToRoutes } from './index.routes';
+import type { RouteFileOptions } from '../utils/path';
 
 /**
  * Create a custom route generator function using your own files
@@ -22,10 +23,11 @@ import { treeToRoutes } from './index.routes';
 export function createRouteGenerator(
   pages: Record<string, () => Promise<any>>,
   layouts: Record<string, any>,
-  notFounds: Record<string, () => Promise<any>>
+  notFounds: Record<string, () => Promise<any>>,
+  fileOptions?: RouteFileOptions
 ) {
   return (): RouteObject[] => {
-    const routeTree = buildRouteTree(pages, layouts, notFounds);
+    const routeTree = buildRouteTree(pages, layouts, notFounds, fileOptions);
     const routes = treeToRoutes(routeTree, true);
     return routes;
   };

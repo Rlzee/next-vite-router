@@ -1,7 +1,7 @@
 import type { Plugin } from "vite";
 import fs from "node:fs";
 import path from "node:path";
-import { normalizeSegment } from "../utils/path";
+import { normalizeSegment, type RouteFileOptions } from "../utils/path";
 
 export type NextViteRouterPluginOptions = {
   pagesDir?: string;
@@ -95,6 +95,7 @@ export function nextViteRouter(
     layoutFile = "layout.tsx",
     notFoundFile = "not-found.tsx",
   } = options;
+  const fileOptions: RouteFileOptions = { pagesDir, pageFile, layoutFile, notFoundFile };
 
   const virtualModuleId = "virtual:next-vite-router";
   const resolvedVirtualModuleId = "\0" + virtualModuleId;
@@ -122,7 +123,7 @@ export function nextViteRouter(
     load(id) {
       if (id === resolvedVirtualModuleId) {
         return `
-import { buildRouteTree, treeToRoutes, normalizeSegment, createLazyElement } from 'next-vite-router';
+import { buildRouteTree, treeToRoutes, normalizeSegment, createLazyElement, useParams } from 'next-vite-router';
 import { Link, useRoutes } from 'react-router-dom';
 
 const pagesGlob = import.meta.glob('/${pagesDir}/**/${pageFile}');
@@ -142,7 +143,7 @@ const notFounds = Object.fromEntries(
 );
 
 export function generateRoutes() {
-  const tree = buildRouteTree(pages, layouts, notFounds);
+  const tree = buildRouteTree(pages, layouts, notFounds, ${JSON.stringify(fileOptions)});
   const routes = treeToRoutes(tree, true);
   return routes;
 }
@@ -152,6 +153,7 @@ export function Router() {
 }
 
 export { Link, useRoutes };
+export { useParams };
 `;
       }
     },

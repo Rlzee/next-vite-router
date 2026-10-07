@@ -10,6 +10,7 @@ declare module 'virtual:next-vite-router' {
 
   export const generateRoutes: () => RouteObject[];
   export function Router(): ReactElement | null;
+  export function useParams<T extends Record<string, string | undefined> = Record<string, string | undefined>>(): T;
 
   export { Link, useRoutes } from 'react-router-dom';
 }
