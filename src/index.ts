@@ -9,15 +9,12 @@ export { registerMiddleware, clearMiddlewares } from './middleware/index.middlew
 // Config
 export { configureRouter } from './config/index.config';
 
-// Plugin
-export { nextViteRouter } from './plugin/index.plugin';
-export type { NextViteRouterPluginOptions } from './plugin/index.plugin';
-
 // Types
 export type {
   RouterConfig,
   RouteNode,
-  RouteMiddleware
+  RouteMiddleware,
+  RouteModuleLoader,
 } from './types/index.type';
 
 // Utils

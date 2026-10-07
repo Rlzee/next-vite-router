@@ -1,11 +1,13 @@
-import type { ReactElement } from 'react';
+import type { ComponentType, ReactElement } from 'react';
+
+export type RouteModuleLoader = () => Promise<{ default: ComponentType }>;
 
 export type RouteNode = {
   segment: string;
   fullPath: string;
-  page?: any;
-  layout?: any;
-  notFound?: any;
+  page?: RouteModuleLoader;
+  layout?: ComponentType;
+  notFound?: RouteModuleLoader;
   children: Map<string, RouteNode>;
 }
 

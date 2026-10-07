@@ -45,6 +45,27 @@ function collectRoutePaths(
   return [...paths].sort();
 }
 
+function collectRouteFiles(pagesRoot: string, fileNames: string[]): string[] {
+  const files: string[] = [];
+
+  function visit(directory: string): void {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const entryPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        visit(entryPath);
+      } else if (entry.isFile() && fileNames.includes(entry.name)) {
+        files.push(path.relative(pagesRoot, entryPath));
+      }
+    }
+  }
+
+  if (fs.existsSync(pagesRoot)) {
+    visit(pagesRoot);
+  }
+
+  return files.sort();
+}
+
 function dynamicParamName(segment: string): string | undefined {
   const match = segment.match(/^\/(?:\[\.\.\.|:)([^/\]]+)\]?$/);
   return match?.[1];
@@ -81,6 +102,7 @@ ${params}
 
   export const generateRoutes: () => RouteObject[];
   export function Router(): ReactElement | null;
+  export function useParams<T extends Record<string, string | undefined> = Record<string, string | undefined>>(): T;
   export { Link, useRoutes } from 'react-router-dom';
 }
 `;
@@ -101,9 +123,11 @@ export function nextViteRouter(
   const resolvedVirtualModuleId = "\0" + virtualModuleId;
   let pagesRoot = "";
   let declarationPath = "";
+  let knownRouteFiles: string[] = [];
 
   function writeRouteTypes(): void {
     const content = createRouteTypes(collectRoutePaths(pagesRoot, pageFile));
+    knownRouteFiles = collectRouteFiles(pagesRoot, [pageFile, layoutFile, notFoundFile]);
     fs.writeFileSync(declarationPath, content, "utf-8");
   }
 
@@ -149,8 +173,10 @@ export function generateRoutes() {
 }
 
 export function Router() {
-  return useRoutes(generateRoutes());
+  return useRoutes(routes);
 }
+
+const routes = generateRoutes();
 
 export { Link, useRoutes };
 export { useParams };
@@ -159,22 +185,21 @@ export { useParams };
     },
 
     handleHotUpdate({ file, server }) {
-      if (
-        file.includes(pagesDir) &&
-        (file.endsWith(pageFile) ||
-          file.endsWith(layoutFile) ||
-          file.endsWith(notFoundFile))
-      ) {
+      const relativeFile = path.relative(pagesRoot, file);
+      const isRouteFile =
+        !relativeFile.startsWith("..") &&
+        [pageFile, layoutFile, notFoundFile].includes(path.basename(file));
+
+      if (isRouteFile) {
+        const nextRouteFiles = collectRouteFiles(pagesRoot, [pageFile, layoutFile, notFoundFile]);
+        const routesChanged = nextRouteFiles.join("\0") !== knownRouteFiles.join("\0");
         writeRouteTypes();
         const module = server.moduleGraph.getModuleById(
           resolvedVirtualModuleId
         );
-        if (module) {
+        if (module && routesChanged) {
           server.moduleGraph.invalidateModule(module);
-          server.ws.send({
-            type: "full-reload",
-            path: "*",
-          });
+          return [module];
         }
       }
     },

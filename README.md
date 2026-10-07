@@ -107,9 +107,10 @@ export default function App() {
 }
 ```
 
-Use `useNavigate`, `useParams`, loaders, actions, and other React Router APIs
-from `react-router-dom`. The package intentionally does not create competing
-navigation or data-loading APIs.
+Use `useNavigate`, loaders, actions, and other React Router APIs from
+`react-router-dom`. The package `useParams` hook is also available from the
+virtual module and maps catch-all names such as `slug`. The package does not
+create competing navigation or data-loading APIs.
 
 ## File conventions
 
@@ -149,6 +150,10 @@ export default function DashboardLayout() {
   );
 }
 ```
+
+The Vite plugin is a Node/Vite integration and should be imported from
+`next-vite-router/plugin`; the main `next-vite-router` entry remains safe for
+browser application code.
 
 ## Type-safe paths
 

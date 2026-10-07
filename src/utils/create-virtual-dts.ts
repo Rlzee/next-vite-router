@@ -33,4 +33,17 @@ export function createVirtualDTS(projectDir: string, useSrc: boolean) {
 `;
 
   fs.writeFileSync(filePath, content, "utf-8");
+
+  const gitignorePath = path.join(projectDir, ".gitignore");
+  const entry = useSrc
+    ? "src/virtual-next-vite-router.d.ts"
+    : "virtual-next-vite-router.d.ts";
+  const currentGitignore = fs.existsSync(gitignorePath)
+    ? fs.readFileSync(gitignorePath, "utf-8")
+    : "";
+
+  if (!currentGitignore.split(/\r?\n/).includes(entry)) {
+    const prefix = currentGitignore && !currentGitignore.endsWith("\n") ? "\n" : "";
+    fs.writeFileSync(gitignorePath, `${currentGitignore}${prefix}${entry}\n`, "utf-8");
+  }
 }

@@ -2,16 +2,26 @@ import React from "react";
 import type { RouteObject } from "react-router-dom";
 import type { RouteNode } from '../index';
 import { normalizeSegment, createLazyElement } from '../utils/index.utils';
+import { applyMiddlewares } from '../middleware/index.middleware';
+
+function applyLayoutMiddleware(path: string, layout: React.ComponentType): React.ReactElement {
+  return applyMiddlewares(path, React.createElement(layout));
+}
 
 function createPageRoute(
   node: RouteNode,
   nodePath: string,
   isIndex: boolean = false
 ): RouteObject {
+  const page = node.page;
+  if (!page) {
+    throw new Error(`Route node "${node.fullPath}" has no page loader`);
+  }
+
   const element = createLazyElement(
     async () => {
-      const mod = await node.page();
-      return { default: (mod as any).default };
+      const mod = await page();
+      return { default: mod.default };
     },
     `page:${node.fullPath || nodePath}`,
     nodePath
@@ -26,14 +36,21 @@ function createPageRoute(
 }
 
 function createNotFoundRoute(node: RouteNode): RouteObject {
+  const notFound = node.notFound;
+  if (!notFound) {
+    throw new Error(`Route node "${node.fullPath}" has no not-found loader`);
+  }
+
+  const routePath = node.fullPath ? `/${node.fullPath}` : "/";
   return {
     path: "*",
     element: createLazyElement(
       async () => {
-        const mod = await node.notFound();
-        return { default: (mod as any).default };
+        const mod = await notFound();
+        return { default: mod.default };
       },
-      `notfound:${node.fullPath}`
+      `notfound:${node.fullPath}`,
+      routePath,
     ),
   };
 }
@@ -86,7 +103,7 @@ export function treeToRoutes(
     if (node.layout) {
       routes.push({
       path: "/",
-      element: React.createElement(node.layout),
+      element: applyLayoutMiddleware("/", node.layout),
       children,
       });
       return routes;
@@ -124,7 +141,7 @@ export function treeToRoutes(
     const children = createNodeChildren(node, nodePath);
     return [{
       ...(isPathless ? {} : { path: normalizedSegment }),
-      element: React.createElement(node.layout),
+      element: applyLayoutMiddleware(nodePath, node.layout),
       children: children.length > 0 ? children : undefined,
     }];
   }
