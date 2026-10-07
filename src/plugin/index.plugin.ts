@@ -181,6 +181,5 @@ export { useParams };
 `;
       }
     },
-
   };
 }
