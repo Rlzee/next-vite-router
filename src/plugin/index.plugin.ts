@@ -182,15 +182,5 @@ export { useParams };
       }
     },
 
-    handleHotUpdate({ file }) {
-      const relativeFile = path.relative(pagesRoot, file);
-      const isRouteFile =
-        !relativeFile.startsWith("..") &&
-        [pageFile, layoutFile, notFoundFile].includes(path.basename(file));
-
-      if (isRouteFile) {
-        writeRouteTypes();
-      }
-    },
   };
 }

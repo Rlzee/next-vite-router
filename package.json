@@ -33,7 +33,7 @@
     "test:params": "node --test test/params.test.js",
     "test:compatibility": "node test/test-compatibility.js",
     "preview": "pnpm pack --dry-run",
-    "prepublishOnly": "pnpm run build && pnpm run test:local",
+    "prepublishOnly": "pnpm run build && pnpm run test:params && pnpm run test:local",
     "cli": "cd test && node ../dist/cli.cjs"
   },
   "keywords": [
