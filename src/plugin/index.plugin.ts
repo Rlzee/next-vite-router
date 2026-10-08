@@ -22,7 +22,7 @@ function routePathFromDirectory(directory: string): string {
 
 type RouteTypeEntry = {
   path: string;
-  params: string[];
+  params: Array<{ name: string; optional: boolean }>;
 };
 
 function collectRoutePaths(
@@ -43,8 +43,18 @@ function collectRoutePaths(
           .split(path.sep)
           .filter(Boolean);
         const params = segments
-          .map((segment) => segment.match(/^\[\[?\.\.\.(.+?)\]\]?$/)?.[1])
-          .filter((name): name is string => Boolean(name));
+          .map((segment) => {
+            const optionalMatch = segment.match(/^\[\[\.\.\.(.+)\]\]$/);
+            if (optionalMatch) {
+              return { name: optionalMatch[1], optional: true };
+            }
+
+            const requiredMatch = segment.match(/^\[\.\.\.(.+)\]$/);
+            return requiredMatch
+              ? { name: requiredMatch[1], optional: false }
+              : undefined;
+          })
+          .filter((param): param is { name: string; optional: boolean } => Boolean(param));
         paths.set(routePathFromDirectory(relativeDirectory), {
           path: routePathFromDirectory(relativeDirectory),
           params,
@@ -72,9 +82,12 @@ function createRouteTypes(routePaths: RouteTypeEntry[]): string {
       .split("/")
       .map((segment) => dynamicParamName(`/${segment}`))
       .filter((name): name is string => Boolean(name));
-    names.push(...catchAllParams);
-    const fields = names.length > 0
-      ? names.map((name) => `    ${name}: string;`).join("\n")
+    const fields = names.length > 0 || catchAllParams.length > 0
+      ? [
+          ...names.map((name) => `    ${name}: string;`),
+          ...catchAllParams.map(({ name, optional }) =>
+            `    ${name}${optional ? "?" : ""}: string;`),
+        ].join("\n")
       : "    [key: string]: never;";
 
     return `  "${route}": {\n${fields}\n  };`;
