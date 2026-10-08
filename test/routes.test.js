@@ -45,6 +45,35 @@ describe("route generator", () => {
     assert.deepEqual(routeShape(routes), [{ path: "/", children: undefined }]);
   });
 
+  test("renders a page with child routes as an index route", () => {
+    const routes = createRoutes({
+      pages: {
+        "users/page.tsx": loader("list"),
+        "users/[id]/page.tsx": loader("detail"),
+      },
+    });
+
+    assert.equal(routes[0].element, undefined);
+    assert.equal(routes[0].children[0].index, true);
+    assert.notEqual(routes[0].children[0].element, undefined);
+    assert.equal(routes[0].children[1].path, ":id");
+    assert.notEqual(routes[0].children[1].element, undefined);
+  });
+
+  test("keeps root pages and child routes as sibling matches", () => {
+    const routes = createRoutes({
+      pages: {
+        "page.tsx": loader("home"),
+        "about/page.tsx": loader("about"),
+      },
+    });
+
+    assert.equal(routes[0].path, "/");
+    assert.equal(routes[0].element, undefined);
+    assert.equal(routes[0].children[0].index, true);
+    assert.equal(routes[0].children[1].path, "about");
+  });
+
   test("generates static, dynamic, multi-parameter, and catch-all routes", () => {
     const routes = createRoutes({
       pages: {
@@ -115,6 +144,7 @@ describe("route generator", () => {
       assert.deepEqual(routeShape(routes), [
         { path: "/", children: [
           { path: "dashboard", children: [
+            { index: true, children: undefined },
             { path: "*", children: undefined },
           ] },
           { path: "*", children: undefined },

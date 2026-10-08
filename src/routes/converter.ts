@@ -120,12 +120,17 @@ export function treeToRoutes(
     }
 
     if (node.page) {
-      routes.push({
+      if (children.length > 1) {
+        return [{
+          path: "/",
+          children,
+        }];
+      }
+
+      return [{
         path: "/",
         element: createPageRoute(node, "/", false).element,
-        children: children.slice(1).length > 0 ? children.slice(1) : undefined,
-      });
-      return routes;
+      }];
     }
 
     if (node.notFound) {
@@ -170,12 +175,20 @@ export function treeToRoutes(
       return [indexRoute, catchAllRoute];
     }
 
+    if (descendants.length > 0 || notFound.length > 0) {
+      return [{
+        path: normalizedSegment,
+        children: [
+          createPageRoute(node, nodePath, true),
+          ...descendants,
+          ...notFound,
+        ],
+      }];
+    }
+
     return [{
       path: normalizedSegment,
       element: createPageRoute(node, nodePath).element,
-      children: [...descendants, ...notFound].length > 0
-        ? [...descendants, ...notFound]
-        : undefined,
     }];
   }
 
