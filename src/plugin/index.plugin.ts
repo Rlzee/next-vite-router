@@ -56,10 +56,18 @@ function collectRoutePaths(
               : undefined;
           })
           .filter((param): param is { name: string; optional: boolean } => Boolean(param));
-        paths.set(routePathFromDirectory(relativeDirectory), {
-          path: routePathFromDirectory(relativeDirectory),
-          params,
-        });
+        const routePath = routePathFromDirectory(relativeDirectory);
+        paths.set(routePath, { path: routePath, params });
+
+        const lastSegment = segments[segments.length - 1];
+        const optionalCatchAll = lastSegment?.match(/^\[\[\.\.\.(.+)\]\]$/);
+        if (optionalCatchAll) {
+          const baseDirectory = segments.slice(0, -1).join(path.sep);
+          const basePath = routePathFromDirectory(baseDirectory);
+          if (!paths.has(basePath)) {
+            paths.set(basePath, { path: basePath, params: [] });
+          }
+        }
       }
     }
   }
