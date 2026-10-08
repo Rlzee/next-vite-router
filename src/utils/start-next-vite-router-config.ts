@@ -109,7 +109,7 @@ export function startViteConfig(projectDir: string, src: boolean) {
   const pluginsRegex = /plugins\s*:\s*\[(.*?)\]/s;
   const match = viteConfigContent.match(pluginsRegex);
 
-  const pluginString = `nextViteRouter({ pagesDir: "${src ? "src/app" : "app"}", pageFile: "page.tsx", layoutFile: "layout.tsx", notFoundFile: "not-found.tsx" })`;
+  const pluginString = "nextViteRouter()";
 
   if (match) {
     const existing = match[1].trim();
