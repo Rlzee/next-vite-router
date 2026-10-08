@@ -2,7 +2,7 @@
 
 import { Command } from "commander";
 import { init } from "./command/init";
-import pkg from "../package.json" assert { type: "json" };
+import pkg from "../package.json" with { type: "json" };
 
 async function main() {
   const program = new Command();

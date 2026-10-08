@@ -1,5 +1,6 @@
 src/
 test/
+examples/
 *.local
 .env
 .DS_Store
