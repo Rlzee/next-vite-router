@@ -2,6 +2,29 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.2.2] - 2026-10-08
+
+### Fixed
+
+- Fixed nested page rendering when a route has both a page and child routes:
+  - Parent pages are now emitted as `index` routes.
+  - Child routes are no longer hidden by a parent page without an `Outlet`.
+- Fixed the same issue for root pages that have child routes.
+- Added duplicate route detection for route groups that resolve to the same URL.
+  - Multiple collisions are reported together with their source files.
+  - The Vite plugin reports collisions during build and logs them without
+    breaking the dev server during route file updates.
+- Optional catch-all routes now include their base path in generated
+  `RoutePath` types (for example, both `/docs` and `/docs/*`).
+- The CLI now generates `nextViteRouter()` when default options are used.
+- Replaced generated `__dirname` usage in Vite aliases with an ESM-compatible
+  `import.meta.url` implementation.
+
+### Tests
+
+- Added regression coverage for nested pages, root pages with child routes,
+  grouped route collisions, custom file names, and generated Vite aliases.
+
 ## [1.2.1] - 2026-10-08
 
 ### Fixed
@@ -114,4 +137,5 @@ No unreleased changes.
 [1.1.0]: https://github.com/Rlzee/next-vite-router/releases/tag/v1.1.0
 [1.1.1]: https://github.com/Rlzee/next-vite-router/commit/185f3f3
 [1.2.0]: https://github.com/Rlzee/next-vite-router/releases/tag/v1.2.0
-[1.2.1]: https://github.com/Rlzee/next-vite-router/compare/v1.2.0...HEAD
+[1.2.1]: https://github.com/Rlzee/next-vite-router/releases/tag/v1.2.1
+[1.2.2]: https://github.com/Rlzee/next-vite-router/compare/v1.2.1...HEAD
