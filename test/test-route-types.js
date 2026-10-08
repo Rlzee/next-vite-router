@@ -20,6 +20,7 @@ assert.match(declaration, /\| "\/"/);
 assert.match(declaration, /\| "\/users"/);
 assert.match(declaration, /\| "\/users\/:id"/);
 assert.match(declaration, /\| "\/posts\/:slug"/);
+assert.match(declaration, /\| "\/blog\/\*"/);
 assert.doesNotMatch(declaration, /marketing/);
 assert.match(declaration, /id: string;/);
 assert.match(declaration, /slug: string;/);

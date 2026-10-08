@@ -20,11 +20,16 @@ function routePathFromDirectory(directory: string): string {
   return segments.length > 0 ? `/${segments.join("/")}` : "/";
 }
 
+type RouteTypeEntry = {
+  path: string;
+  params: string[];
+};
+
 function collectRoutePaths(
   pagesRoot: string,
   pageFile: string
-): string[] {
-  const paths = new Set<string>();
+): RouteTypeEntry[] {
+  const paths = new Map<string, RouteTypeEntry>();
 
   function visit(directory: string): void {
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
@@ -33,7 +38,17 @@ function collectRoutePaths(
       if (entry.isDirectory()) {
         visit(entryPath);
       } else if (entry.isFile() && entry.name === pageFile) {
-        paths.add(routePathFromDirectory(path.relative(pagesRoot, directory)));
+        const relativeDirectory = path.relative(pagesRoot, directory);
+        const segments = relativeDirectory
+          .split(path.sep)
+          .filter(Boolean);
+        const params = segments
+          .map((segment) => segment.match(/^\[\[?\.\.\.(.+?)\]\]?$/)?.[1])
+          .filter((name): name is string => Boolean(name));
+        paths.set(routePathFromDirectory(relativeDirectory), {
+          path: routePathFromDirectory(relativeDirectory),
+          params,
+        });
       }
     }
   }
@@ -42,7 +57,7 @@ function collectRoutePaths(
     visit(pagesRoot);
   }
 
-  return [...paths].sort();
+  return [...paths.values()].sort((left, right) => left.path.localeCompare(right.path));
 }
 
 function dynamicParamName(segment: string): string | undefined {
@@ -50,13 +65,14 @@ function dynamicParamName(segment: string): string | undefined {
   return match?.[1];
 }
 
-function createRouteTypes(routePaths: string[]): string {
-  const routeLiterals = routePaths.map((route) => `  | "${route}"`).join("\n");
-  const params = routePaths.map((route) => {
+function createRouteTypes(routePaths: RouteTypeEntry[]): string {
+  const routeLiterals = routePaths.map(({ path: route }) => `  | "${route}"`).join("\n");
+  const params = routePaths.map(({ path: route, params: catchAllParams }) => {
     const names = route
       .split("/")
       .map((segment) => dynamicParamName(`/${segment}`))
       .filter((name): name is string => Boolean(name));
+    names.push(...catchAllParams);
     const fields = names.length > 0
       ? names.map((name) => `    ${name}: string;`).join("\n")
       : "    [key: string]: never;";

@@ -24,9 +24,11 @@ export function applyMiddlewares(path: string, element: ReactElement): ReactElem
   let result = element;
   
   for (const config of middlewareConfigs) {
+    config.pattern.lastIndex = 0;
     if (config.pattern.test(path)) {
       result = config.middleware(result);
     }
+    config.pattern.lastIndex = 0;
   }
   
   return result;

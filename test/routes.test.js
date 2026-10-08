@@ -201,6 +201,23 @@ describe("route generator", () => {
     assert.equal(element.props["data-test"], wrapped);
   });
 
+  test("resets global middleware regex state between routes", () => {
+    const wrapped = Symbol("wrapped");
+    registerMiddleware(/\/users/g, (element) =>
+      React.createElement("section", { "data-test": wrapped }, element),
+    );
+
+    const routes = createRoutes({
+      pages: {
+        "users/first/page.tsx": loader("first"),
+        "users/second/page.tsx": loader("second"),
+      },
+    });
+
+    assert.equal(routes[0].children[0].element.props["data-test"], wrapped);
+    assert.equal(routes[0].children[1].element.props["data-test"], wrapped);
+  });
+
   test("keeps colliding dynamic parameter names as distinct route definitions", () => {
     const routes = createRoutes({
       pages: {
