@@ -78,10 +78,15 @@ export function startViteConfig(projectDir: string, src: boolean) {
   let viteConfigContent = readViteConfig(projectDir);
   if (!viteConfigContent) throw new Error("Vite config empty");
 
-  // Add path import if not already present
+  // Add path imports if not already present
   if (!viteConfigContent.includes('import { resolve }')) {
     viteConfigContent =
       `import { resolve } from "path";\n` +
+      viteConfigContent;
+  }
+  if (!viteConfigContent.includes('import { fileURLToPath }')) {
+    viteConfigContent =
+      `import { fileURLToPath } from "node:url";\n` +
       viteConfigContent;
   }
 
@@ -94,7 +99,7 @@ export function startViteConfig(projectDir: string, src: boolean) {
   // Add resolve config with alias
   const resolveConfig = `  resolve: {
     alias: {
-      "@": resolve(__dirname, "./${src ? "src" : "."}"),
+      "@": resolve(fileURLToPath(new URL("./${src ? "src" : "."}", import.meta.url))),
     },
   },`;
 

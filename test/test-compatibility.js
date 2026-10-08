@@ -27,6 +27,13 @@ const mainSource = fs.readFileSync(
 assert.match(mainSource, /import \{ Router \} from 'virtual:next-vite-router'/);
 assert.doesNotMatch(mainSource, /generateRoutes, useRoutes/);
 
+const startConfigSource = fs.readFileSync(
+  path.resolve("src/utils/start-next-vite-router-config.ts"),
+  "utf8",
+);
+assert.match(startConfigSource, /fileURLToPath\(new URL/);
+assert.doesNotMatch(startConfigSource, /resolve\(__dirname/);
+
 console.log("✅ Peer dependency ranges are explicit and bounded");
 console.log("✅ CLI installs react-router-dom ^7.0.0");
 console.log("✅ CLI uses the current React + TypeScript Vite template");
