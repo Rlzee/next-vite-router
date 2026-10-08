@@ -176,6 +176,15 @@ export function nextViteRouter(
           return;
         }
 
+        try {
+          assertNoDuplicateRoutes(collectPageFiles(pagesRoot, pageFile), fileOptions);
+        } catch (error) {
+          server.config.logger.error(
+            error instanceof Error ? error.message : String(error),
+          );
+          return;
+        }
+
         writeRouteTypes();
         const module = server.moduleGraph.getModuleById(resolvedVirtualModuleId);
         if (module) {

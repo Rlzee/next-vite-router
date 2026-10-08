@@ -22,14 +22,21 @@ export function assertNoDuplicateRoutes(
     routes.set(routePath, entries);
   }
 
-  for (const [routePath, entries] of routes) {
-    if (entries.length > 1) {
-      throw new Error(
-        `Duplicate route "${routePath}" detected:\n${entries
-          .map((entry) => `  ${entry}`)
-          .join("\n")}`,
-      );
-    }
+  const duplicates = [...routes.entries()]
+    .filter(([, entries]) => entries.length > 1)
+    .sort(([left], [right]) => left.localeCompare(right));
+
+  if (duplicates.length > 0) {
+    throw new Error(
+      duplicates
+        .map(([routePath, entries]) =>
+          `Duplicate route "${routePath}" detected:\n${entries
+            .sort((left, right) => left.localeCompare(right))
+            .map((entry) => `  ${entry}`)
+            .join("\n")}`,
+        )
+        .join("\n\n"),
+    );
   }
 }
 

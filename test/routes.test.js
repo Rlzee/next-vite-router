@@ -117,12 +117,18 @@ describe("route generator", () => {
       () => assertNoDuplicateRoutes([
         "(a)/x/page.tsx",
         "(b)/x/page.tsx",
+        "(c)/y/page.tsx",
+        "(d)/y/page.tsx",
       ]),
       {
         message: [
           'Duplicate route "/x" detected:',
           "  (a)/x/page.tsx",
           "  (b)/x/page.tsx",
+          "",
+          'Duplicate route "/y" detected:',
+          "  (c)/y/page.tsx",
+          "  (d)/y/page.tsx",
         ].join("\n"),
       },
     );
