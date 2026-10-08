@@ -62,7 +62,10 @@ describe("route generator", () => {
       { path: "compare", children: [
         { path: ":from", children: [{ path: ":to", children: undefined }] },
       ] },
-      { path: "docs", children: [{ path: "*", children: undefined }] },
+      { path: "docs", children: [
+        { index: true, children: undefined },
+        { path: "*", children: undefined },
+      ] },
       { path: "users", children: [{ path: ":id", children: undefined }] },
     ]);
   });

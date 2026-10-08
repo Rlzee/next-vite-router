@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { MemoryRouter, useRoutes } from "react-router-dom";
+import { matchRoutes, MemoryRouter, useRoutes } from "react-router-dom";
 import {
   buildRouteTree,
   CatchAllParamProvider,
@@ -48,4 +48,22 @@ test("treeToRoutes attaches the catch-all provider to generated pages", () => {
 
   assert.equal(provider.type, CatchAllParamProvider);
   assert.equal(provider.props.name, "slug");
+});
+
+test("optional catch-all routes match the base and nested paths", () => {
+  const loader = async () => ({ default: Probe });
+  const routes = treeToRoutes(buildRouteTree({
+    "docs/[[...segments]]/page.tsx": loader,
+  }, {}, {}), true);
+
+  const baseMatch = matchRoutes(routes, "/docs");
+  const nestedMatch = matchRoutes(routes, "/docs/foo");
+  const deepMatch = matchRoutes(routes, "/docs/foo/bar");
+
+  assert.equal(baseMatch?.at(-1)?.route.index, true);
+  assert.deepEqual(baseMatch?.at(-1)?.params, {});
+  assert.equal(nestedMatch?.at(-1)?.route.path, "*");
+  assert.equal(nestedMatch?.at(-1)?.params["*"], "foo");
+  assert.equal(deepMatch?.at(-1)?.route.path, "*");
+  assert.equal(deepMatch?.at(-1)?.params["*"], "foo/bar");
 });
