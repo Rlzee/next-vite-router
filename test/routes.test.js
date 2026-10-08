@@ -3,6 +3,7 @@ import { test, describe, beforeEach } from "node:test";
 import React from "react";
 import {
   buildRouteTree,
+  assertNoDuplicateRoutes,
   clearMiddlewares,
   configureRouter,
   registerMiddleware,
@@ -109,6 +110,22 @@ describe("route generator", () => {
     assert.deepEqual(routeShape(routes), [
       { path: "dashboard", children: undefined },
     ]);
+  });
+
+  test("rejects duplicate routes created by route groups", () => {
+    assert.throws(
+      () => assertNoDuplicateRoutes([
+        "(a)/x/page.tsx",
+        "(b)/x/page.tsx",
+      ]),
+      {
+        message: [
+          'Duplicate route "/x" detected:',
+          "  (a)/x/page.tsx",
+          "  (b)/x/page.tsx",
+        ].join("\n"),
+      },
+    );
   });
 
     test("keeps pages and layouts declared directly in route groups", () => {

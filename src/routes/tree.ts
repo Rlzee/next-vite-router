@@ -1,5 +1,37 @@
 import type { RouteNode } from '../index';
-import { extractRoutePath, type RouteFileOptions } from '../utils/index.utils';
+import { extractRoutePath, normalizeSegment, type RouteFileOptions } from '../utils/index.utils';
+
+function normalizedRoutePath(filePath: string, fileOptions?: RouteFileOptions): string {
+  const routePath = extractRoutePath(filePath, fileOptions);
+  const segments = routePath
+    ? routePath.split("/").map(normalizeSegment).filter(Boolean)
+    : [];
+  return segments.length > 0 ? `/${segments.join("/")}` : "/";
+}
+
+export function assertNoDuplicateRoutes(
+  filePaths: string[],
+  fileOptions?: RouteFileOptions,
+): void {
+  const routes = new Map<string, string[]>();
+
+  for (const filePath of filePaths) {
+    const routePath = normalizedRoutePath(filePath, fileOptions);
+    const entries = routes.get(routePath) ?? [];
+    entries.push(filePath);
+    routes.set(routePath, entries);
+  }
+
+  for (const [routePath, entries] of routes) {
+    if (entries.length > 1) {
+      throw new Error(
+        `Duplicate route "${routePath}" detected:\n${entries
+          .map((entry) => `  ${entry}`)
+          .join("\n")}`,
+      );
+    }
+  }
+}
 
 function addFileToTree(
   root: RouteNode,
@@ -43,6 +75,8 @@ export function buildRouteTree(
   notFounds: Record<string, () => Promise<any>>,
   fileOptions?: RouteFileOptions,
 ): RouteNode {
+  assertNoDuplicateRoutes(Object.keys(pages), fileOptions);
+
   const root: RouteNode = {
     segment: "",
     fullPath: "",

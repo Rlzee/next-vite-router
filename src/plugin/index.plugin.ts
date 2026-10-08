@@ -2,6 +2,7 @@ import type { Plugin } from "vite";
 import fs from "node:fs";
 import path from "node:path";
 import { normalizeSegment, type RouteFileOptions } from "../utils/path";
+import { assertNoDuplicateRoutes } from "../routes/tree";
 
 export type NextViteRouterPluginOptions = {
   pagesDir?: string;
@@ -68,6 +69,27 @@ function collectRoutePaths(
   }
 
   return [...paths.values()].sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function collectPageFiles(pagesRoot: string, pageFile: string): string[] {
+  const files: string[] = [];
+
+  function visit(directory: string): void {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const entryPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        visit(entryPath);
+      } else if (entry.isFile() && entry.name === pageFile) {
+        files.push(path.relative(pagesRoot, entryPath));
+      }
+    }
+  }
+
+  if (fs.existsSync(pagesRoot)) {
+    visit(pagesRoot);
+  }
+
+  return files;
 }
 
 function dynamicParamName(segment: string): string | undefined {
@@ -141,6 +163,7 @@ export function nextViteRouter(
     configResolved(config) {
       pagesRoot = path.resolve(config.root, pagesDir);
       declarationPath = path.join(path.dirname(pagesRoot), "virtual-next-vite-router.d.ts");
+      assertNoDuplicateRoutes(collectPageFiles(pagesRoot, pageFile), fileOptions);
       writeRouteTypes();
     },
     configureServer(server) {

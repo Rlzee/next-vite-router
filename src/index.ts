@@ -1,6 +1,7 @@
 // Routes
 export { createRouteGenerator } from './routes/generator';
 export { buildRouteTree } from './routes/tree';
+export { assertNoDuplicateRoutes } from './routes/tree';
 export { treeToRoutes } from './routes/converter';
 
 // Middleware
