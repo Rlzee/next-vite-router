@@ -4,6 +4,8 @@ declare module 'virtual:next-vite-router' {
 
   export type RoutePath =
   | "/"
+  | "/blog/*"
+  | "/docs/*"
   | "/posts/:slug"
   | "/users"
   | "/users/:id";
@@ -15,6 +17,12 @@ declare module 'virtual:next-vite-router' {
   export interface RoutePathParams {
   "/": {
     [key: string]: never;
+  };
+  "/blog/*": {
+    slug: string;
+  };
+  "/docs/*": {
+    segments?: string;
   };
   "/posts/:slug": {
     slug: string;

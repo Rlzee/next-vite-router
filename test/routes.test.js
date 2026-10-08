@@ -62,7 +62,10 @@ describe("route generator", () => {
       { path: "compare", children: [
         { path: ":from", children: [{ path: ":to", children: undefined }] },
       ] },
-      { path: "docs", children: [{ path: "*", children: undefined }] },
+      { path: "docs", children: [
+        { index: true, children: undefined },
+        { path: "*", children: undefined },
+      ] },
       { path: "users", children: [{ path: ":id", children: undefined }] },
     ]);
   });
@@ -199,6 +202,23 @@ describe("route generator", () => {
 
     const element = routes[0].children[0].element;
     assert.equal(element.props["data-test"], wrapped);
+  });
+
+  test("resets global middleware regex state between routes", () => {
+    const wrapped = Symbol("wrapped");
+    registerMiddleware(/\/users/g, (element) =>
+      React.createElement("section", { "data-test": wrapped }, element),
+    );
+
+    const routes = createRoutes({
+      pages: {
+        "users/first/page.tsx": loader("first"),
+        "users/second/page.tsx": loader("second"),
+      },
+    });
+
+    assert.equal(routes[0].children[0].element.props["data-test"], wrapped);
+    assert.equal(routes[0].children[1].element.props["data-test"], wrapped);
   });
 
   test("keeps colliding dynamic parameter names as distinct route definitions", () => {

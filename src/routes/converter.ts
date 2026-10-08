@@ -9,6 +9,10 @@ function applyLayoutMiddleware(path: string, layout: React.ComponentType): React
   return applyMiddlewares(path, React.createElement(layout));
 }
 
+function isOptionalCatchAll(segment: string): boolean {
+  return /^\[\[\.\.\..+\]\]$/.test(segment);
+}
+
 function createPageRoute(
   node: RouteNode,
   nodePath: string,
@@ -153,6 +157,19 @@ export function treeToRoutes(
   }
 
   if (node.page && !isPathless) {
+    if (isOptionalCatchAll(node.segment)) {
+      const indexRoute = createPageRoute(node, currentPath, true);
+      const catchAllRoute = {
+        path: normalizedSegment,
+        element: createPageRoute(node, nodePath).element,
+        children: [...descendants, ...notFound].length > 0
+          ? [...descendants, ...notFound]
+          : undefined,
+      };
+
+      return [indexRoute, catchAllRoute];
+    }
+
     return [{
       path: normalizedSegment,
       element: createPageRoute(node, nodePath).element,
