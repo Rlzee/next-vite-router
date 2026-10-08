@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { nextViteRouter } from "../dist/plugin.js";
 
@@ -38,3 +39,47 @@ assert.match(virtualModule, /import\.meta\.glob\('\/src\/app\/\*\*\/layout\.tsx'
 console.log("✅ Route declaration generated");
 console.log(`   ${declarationPath}`);
 console.log("✅ Static, dynamic, and grouped routes verified");
+
+const customProjectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-"));
+const customPagesRoot = path.join(customProjectRoot, "src", "routes");
+fs.mkdirSync(path.join(customPagesRoot, "users", "[id]"), { recursive: true });
+fs.writeFileSync(path.join(customPagesRoot, "index.tsx"), "");
+fs.writeFileSync(path.join(customPagesRoot, "users", "index.tsx"), "");
+fs.writeFileSync(path.join(customPagesRoot, "users", "[id]", "index.tsx"), "");
+fs.writeFileSync(path.join(customPagesRoot, "layout.tsx"), "");
+fs.writeFileSync(path.join(customPagesRoot, "missing.tsx"), "");
+
+try {
+  const customPlugin = nextViteRouter({
+    pagesDir: "src/routes",
+    pageFile: "index.tsx",
+    layoutFile: "layout.tsx",
+    notFoundFile: "missing.tsx",
+  });
+  customPlugin.configResolved({ root: customProjectRoot });
+
+  const customDeclaration = fs.readFileSync(
+    path.join(customProjectRoot, "src", "virtual-next-vite-router.d.ts"),
+    "utf8",
+  );
+  const customVirtualModule = customPlugin.load("\0virtual:next-vite-router");
+
+  assert.match(customDeclaration, /\| "\/"/);
+  assert.match(customDeclaration, /\| "\/users"/);
+  assert.match(customDeclaration, /\| "\/users\/:id"/);
+  assert.match(
+    customVirtualModule,
+    /import\.meta\.glob\('\/src\/routes\/\*\*\/index\.tsx'\)/,
+  );
+  assert.match(
+    customVirtualModule,
+    /import\.meta\.glob\('\/src\/routes\/\*\*\/missing\.tsx'\)/,
+  );
+  assert.match(
+    customVirtualModule,
+    /import\.meta\.glob\('\/src\/routes\/\*\*\/layout\.tsx', \{ eager: true \}\)/,
+  );
+  console.log("✅ Custom page, layout, not-found, and directory names verified");
+} finally {
+  fs.rmSync(customProjectRoot, { recursive: true, force: true });
+}
