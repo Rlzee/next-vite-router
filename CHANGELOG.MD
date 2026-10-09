@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.2.3] - 2026-10-09
+
+### Fixed
+
+- Route file creation, deletion, and renaming now reliably refresh generated route declarations and the virtual route module.
+- Ordinary content changes to pages, layouts, and `not-found.tsx` continue to use Vite's normal HMR mechanism.
+- Structural route changes trigger a full-page reload when Vite cannot safely preserve the cached route tree.
+- Route watcher handlers are properly cleaned up when the dev server closes or is reconfigured.
+- Structural reload timers are coalesced to prevent redundant reloads and cancelled during watcher cleanup.
+- Route collisions no longer trigger route declaration updates or full-page reloads.
+
+### Tests
+
+- Added deterministic coverage for watcher registration and cleanup, route
+  collision handling, reload coalescing, and timer cancellation.
+- Added browser-level verification for route additions and removals during
+  development.
+
 ## [1.2.2] - 2026-10-08
 
 ### Fixed
