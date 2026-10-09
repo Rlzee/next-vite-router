@@ -6,32 +6,18 @@ Define routes with folders and let the package generate the
 [React Router](https://reactrouter.com/) `RouteObject[]`. It does not replace
 React Router, navigation, history, loaders, or application state.
 
-## Release notes
-
-### Plugin import
-
-The Vite plugin is no longer exported from the main
-`next-vite-router` entry point. Existing imports must be migrated:
-
-```ts
-// Previous import
-import { nextViteRouter } from "next-vite-router";
-
-// Current import
-import { nextViteRouter } from "next-vite-router/plugin";
-```
-
-The plugin remains available through `next-vite-router/plugin`. This separation
-prevents the plugin's Node dependencies from being included in the application's
-browser dependency graph.
-
 ## Start here
 
 ```bash
 npm create vite@latest my-app -- --template react-ts
 cd my-app
-npm install next-vite-router react-router-dom
+npm install next-vite-router
 ```
+
+`next-vite-router` declares `react-router-dom` as a peer dependency. Recent
+versions of npm install this dependency automatically; if your package manager
+does not resolve peer dependencies automatically, install
+`react-router-dom` explicitly.
 
 Add the plugin to `vite.config.ts`:
 
