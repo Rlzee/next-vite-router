@@ -125,37 +125,6 @@ try {
   assert.equal(watcher.listenerCount("add"), 1);
   assert.equal(watcher.listenerCount("unlink"), 1);
 
-  fs.mkdirSync(path.join(hmrPagesRoot, "contact"));
-  fs.writeFileSync(path.join(hmrPagesRoot, "contact", "page.tsx"), "");
-  watcher.emit("add", path.join(hmrPagesRoot, "contact", "page.tsx"));
-  await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.equal(reloads.length, 1);
-  assert.deepEqual(reloads[0], { type: "full-reload", path: "*" });
-  assert.equal(invalidations, 1);
-
-  fs.mkdirSync(path.join(hmrPagesRoot, "(contact)"));
-  fs.writeFileSync(path.join(hmrPagesRoot, "(contact)", "page.tsx"), "");
-  const declarationBeforeCollision = fs.readFileSync(
-    path.join(hmrProjectRoot, "src", "virtual-next-vite-router.d.ts"),
-    "utf8",
-  );
-  watcher.emit("add", path.join(hmrPagesRoot, "(contact)", "page.tsx"));
-  await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.equal(reloads.length, 1);
-  assert.equal(invalidations, 1);
-  assert.equal(errors.length, 1);
-  assert.equal(
-    fs.readFileSync(
-      path.join(hmrProjectRoot, "src", "virtual-next-vite-router.d.ts"),
-      "utf8",
-    ),
-    declarationBeforeCollision,
-  );
-
-  watcher.emit("close");
-  assert.equal(watcher.listenerCount("add"), 0);
-  assert.equal(watcher.listenerCount("unlink"), 0);
-  fs.rmSync(path.join(hmrPagesRoot, "(contact)"), { recursive: true, force: true });
   const realSetTimeout = globalThis.setTimeout;
   const realClearTimeout = globalThis.clearTimeout;
   const timers = new Map();
@@ -175,16 +144,62 @@ try {
   };
 
   try {
+    fs.mkdirSync(path.join(hmrPagesRoot, "contact"));
+    fs.writeFileSync(path.join(hmrPagesRoot, "contact", "page.tsx"), "");
+    watcher.emit("add", path.join(hmrPagesRoot, "contact", "page.tsx"));
+    assert.equal(timers.size, 1);
+
+    fs.mkdirSync(path.join(hmrPagesRoot, "help"));
+    fs.writeFileSync(path.join(hmrPagesRoot, "help", "page.tsx"), "");
+    watcher.emit("add", path.join(hmrPagesRoot, "help", "page.tsx"));
+    assert.equal(timers.size, 2);
+    assert.equal(clearedTimers, 1);
+    for (const timer of timers.values()) {
+      if (!timer.cleared) {
+        timer.cleared = true;
+        timer.callback();
+      }
+    }
+    assert.equal(reloads.length, 1);
+    assert.deepEqual(reloads[0], { type: "full-reload", path: "*" });
+    assert.equal(invalidations, 2);
+
+    fs.mkdirSync(path.join(hmrPagesRoot, "(contact)"));
+    fs.writeFileSync(path.join(hmrPagesRoot, "(contact)", "page.tsx"), "");
+    const declarationBeforeCollision = fs.readFileSync(
+      path.join(hmrProjectRoot, "src", "virtual-next-vite-router.d.ts"),
+      "utf8",
+    );
+    watcher.emit("add", path.join(hmrPagesRoot, "(contact)", "page.tsx"));
+    assert.equal(reloads.length, 1);
+    assert.equal(invalidations, 2);
+    assert.equal(errors.length, 1);
+    assert.equal(
+      fs.readFileSync(
+        path.join(hmrProjectRoot, "src", "virtual-next-vite-router.d.ts"),
+        "utf8",
+      ),
+      declarationBeforeCollision,
+    );
+
+    watcher.emit("close");
+    assert.equal(watcher.listenerCount("add"), 0);
+    assert.equal(watcher.listenerCount("unlink"), 0);
+    fs.rmSync(path.join(hmrPagesRoot, "(contact)"), { recursive: true, force: true });
     hmrPlugin.configureServer(hmrServer);
     assert.equal(watcher.listenerCount("add"), 1);
     assert.equal(watcher.listenerCount("unlink"), 1);
     watcher.emit("unlink", path.join(hmrPagesRoot, "(contact)", "page.tsx"));
-    assert.equal(timers.size, 1);
+    assert.equal(
+      [...timers.values()].filter((timer) => !timer.cleared).length,
+      1,
+    );
     watcher.emit("close");
-    assert.equal(clearedTimers, 1);
+    assert.equal(clearedTimers, 2);
 
     for (const timer of timers.values()) {
       if (!timer.cleared) {
+        timer.cleared = true;
         timer.callback();
       }
     }

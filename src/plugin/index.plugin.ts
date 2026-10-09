@@ -208,6 +208,9 @@ export function nextViteRouter(
           // Vite cannot safely update a cached route tree when a glob entry is
           // created or removed, so use a full reload only for structural changes.
           server.moduleGraph.invalidateModule(module);
+          if (reloadTimer) {
+            clearTimeout(reloadTimer);
+          }
           reloadTimer = setTimeout(() => {
             reloadTimer = undefined;
             server.ws.send({ type: "full-reload", path: "*" });
