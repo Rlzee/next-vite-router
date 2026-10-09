@@ -203,8 +203,14 @@ No manual declaration for the virtual module is required.
 
 Pages and `not-found.tsx` files use Vite's non-eager `import.meta.glob`, so
 Vite can emit separate chunks for pages. Layouts are eager because they wrap
-the generated route tree; changing a layout can therefore cause a full
-development reload. Lazy loading is enabled by default:
+the generated route tree. Vite handles ordinary content changes to pages,
+layouts, and `not-found.tsx` through its normal HMR mechanism. Creating,
+deleting, or renaming a route-related file also refreshes the generated route
+module and route declarations. Because Vite cannot reliably preserve a cached
+route tree when an `import.meta.glob` entry is added or removed, these
+structural changes trigger a full-page reload as a fallback. Lazy-loaded route
+components remain lazy-loaded during normal navigation. Lazy loading is
+enabled by default:
 
 ```tsx
 import { configureRouter } from "next-vite-router";

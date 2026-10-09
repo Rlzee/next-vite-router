@@ -1,4 +1,4 @@
-import type { Plugin } from "vite";
+import type { Plugin, ViteDevServer } from "vite";
 import fs from "node:fs";
 import path from "node:path";
 import { normalizeSegment, type RouteFileOptions } from "../utils/path";
@@ -161,6 +161,8 @@ export function nextViteRouter(
   const resolvedVirtualModuleId = "\0" + virtualModuleId;
   let pagesRoot = "";
   let declarationPath = "";
+  let watchedServer: ViteDevServer | undefined;
+  let removeWatcherListeners: (() => void) | undefined;
   function writeRouteTypes(): void {
     const content = createRouteTypes(collectRoutePaths(pagesRoot, pageFile));
     fs.writeFileSync(declarationPath, content, "utf-8");
@@ -175,7 +177,14 @@ export function nextViteRouter(
       writeRouteTypes();
     },
     configureServer(server) {
-      const updateRoutes = (file: string) => {
+      if (watchedServer === server) {
+        return;
+      }
+
+      removeWatcherListeners?.();
+      watchedServer = server;
+
+      const updateRouteMetadata = (file: string) => {
         const relativeFile = path.relative(pagesRoot, file);
         if (
           relativeFile.startsWith("..") ||
@@ -196,13 +205,37 @@ export function nextViteRouter(
         writeRouteTypes();
         const module = server.moduleGraph.getModuleById(resolvedVirtualModuleId);
         if (module) {
+          // Vite cannot safely update a cached route tree when a glob entry is
+          // created or removed, so use a full reload only for structural changes.
           server.moduleGraph.invalidateModule(module);
-          server.ws.send({ type: "full-reload", path: "*" });
+          reloadTimer = setTimeout(() => {
+            reloadTimer = undefined;
+            server.ws.send({ type: "full-reload", path: "*" });
+          }, 0);
         }
       };
 
-      server.watcher.on("add", updateRoutes);
-      server.watcher.on("unlink", updateRoutes);
+      let reloadTimer: ReturnType<typeof setTimeout> | undefined;
+      const cleanup = () => {
+        if (reloadTimer) {
+          clearTimeout(reloadTimer);
+          reloadTimer = undefined;
+        }
+        server.watcher.off("add", updateRouteMetadata);
+        server.watcher.off("unlink", updateRouteMetadata);
+        server.watcher.off("close", cleanup);
+        if (watchedServer === server) {
+          watchedServer = undefined;
+          removeWatcherListeners = undefined;
+        }
+      };
+
+      // Vite updates import.meta.glob modules for file creation and deletion.
+      // Only the generated declarations need to be refreshed here.
+      server.watcher.on("add", updateRouteMetadata);
+      server.watcher.on("unlink", updateRouteMetadata);
+      server.watcher.once("close", cleanup);
+      removeWatcherListeners = cleanup;
     },
     resolveId(id) {
       if (id === virtualModuleId) {
@@ -244,6 +277,12 @@ export function Router() {
 }
 
 let routes;
+
+if (import.meta.hot) {
+  import.meta.hot.accept(() => {
+    routes = undefined;
+  });
+}
 
 export { Link, useRoutes };
 export { useParams };
