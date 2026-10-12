@@ -2,6 +2,35 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.2.4] - 2026-10-12
+
+### Added
+
+- Added semantic route collision detection for dynamic parameters, route
+  groups, catch-all routes, and `not-found.tsx` fallbacks.
+- Added shared route-segment parsing for runtime route generation, validation,
+  and generated TypeScript declarations.
+- Added integration coverage for React Router matching, layouts, optional
+  catch-all routes, custom file names, HMR, and consumer TypeScript types.
+
+### Changed
+
+- Refactored route conversion into focused helpers for pages, layouts, index
+  routes, route groups, catch-all routes, and not-found fallbacks.
+- Generated route declarations now safely quote route keys and validate
+  parameter names and duplicate parameters.
+- Clarified `pagesDir` configuration, route matching, and server-side
+  authorization guidance.
+
+### Fixed
+
+- Reject ambiguous routes that would resolve to the same URL pattern,
+  including dynamic parameters with different names.
+- Reject conflicts between catch-all pages and `not-found.tsx` at the same
+  route level.
+- Escape custom route directories correctly when extracting paths from
+  Windows and special-character paths.
+
 ## [1.2.3] - 2026-10-09
 
 ### Fixed
