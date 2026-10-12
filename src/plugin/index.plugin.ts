@@ -7,7 +7,7 @@ import {
   type RouteFileOptions,
   type RouteSegment,
 } from "../utils/path";
-import { assertNoDuplicateRoutes } from "../routes/tree";
+import { assertNoRouteConflicts } from "../routes/tree";
 
 export type NextViteRouterPluginOptions = {
   pagesDir?: string;
@@ -197,7 +197,11 @@ export function nextViteRouter(
     configResolved(config) {
       pagesRoot = path.resolve(config.root, pagesDir);
       declarationPath = path.join(path.dirname(pagesRoot), "virtual-next-vite-router.d.ts");
-      assertNoDuplicateRoutes(collectPageFiles(pagesRoot, pageFile), fileOptions);
+      assertNoRouteConflicts(
+        collectPageFiles(pagesRoot, pageFile),
+        collectPageFiles(pagesRoot, notFoundFile),
+        fileOptions,
+      );
       writeRouteTypes();
     },
     configureServer(server) {
@@ -218,7 +222,11 @@ export function nextViteRouter(
         }
 
         try {
-          assertNoDuplicateRoutes(collectPageFiles(pagesRoot, pageFile), fileOptions);
+          assertNoRouteConflicts(
+            collectPageFiles(pagesRoot, pageFile),
+            collectPageFiles(pagesRoot, notFoundFile),
+            fileOptions,
+          );
         } catch (error) {
           server.config.logger.error(
             error instanceof Error ? error.message : String(error),

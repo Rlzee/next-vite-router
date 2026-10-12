@@ -39,6 +39,65 @@ function collisionKind(path: string): RouteCollision["kind"] {
   return /(^|\/)(:param|\*)($|\/)/.test(path) ? "pattern" : "literal";
 }
 
+function assertNoCatchAllFallbackCollisions(
+  pageFiles: string[],
+  notFoundFiles: string[],
+  fileOptions?: RouteFileOptions,
+): void {
+  const catchAllRoutes = pageFiles.flatMap((filePath) => {
+    const routePath = extractRoutePath(filePath, fileOptions);
+    const segments = parseRouteSegments(routePath);
+    const lastSegment = segments[segments.length - 1];
+    if (lastSegment?.kind !== "catchAll") {
+      return [];
+    }
+
+    const canonicalSegments = segments.map(canonicalSegment).filter(Boolean);
+    const fullPath = canonicalSegments.length > 0
+      ? `/${canonicalSegments.join("/")}`
+      : "/";
+    const parentSegments = canonicalSegments.slice(0, -1);
+    const parentPath = parentSegments.length > 0
+      ? `/${parentSegments.join("/")}`
+      : "/";
+
+    return [{ filePath, paths: new Set([fullPath, parentPath]) }];
+  });
+
+  const conflicts = new Map<
+    string,
+    { routePath: string; pageFile: string; notFoundFile: string }
+  >();
+  for (const notFoundFile of notFoundFiles) {
+    for (const routePath of normalizedRoutePaths(notFoundFile, fileOptions)) {
+      for (const catchAllRoute of catchAllRoutes) {
+        if (catchAllRoute.paths.has(routePath)) {
+          const key = `${routePath}\0${catchAllRoute.filePath}\0${notFoundFile}`;
+          conflicts.set(key, {
+              routePath,
+              pageFile: catchAllRoute.filePath,
+              notFoundFile,
+            });
+        }
+      }
+    }
+  }
+
+  if (conflicts.size > 0) {
+    throw new Error(
+      [...conflicts.values()]
+        .sort((left, right) => left.routePath.localeCompare(right.routePath))
+        .map(({ routePath, pageFile, notFoundFile }) =>
+          `Conflicting fallback routes "${routePath}" detected:\n` +
+          `  catch-all page: ${pageFile}\n` +
+          `  not-found file: ${notFoundFile}\n` +
+          "A not-found route and a catch-all page cannot coexist at the same route level.",
+        )
+        .join("\n\n"),
+    );
+  }
+}
+
 export function assertNoDuplicateRoutes(
   filePaths: string[],
   fileOptions?: RouteFileOptions,
@@ -51,6 +110,7 @@ export function assertNoDuplicateRoutes(
       entries.push({ kind: collisionKind(routePath), filePath });
       routes.set(routePath, entries);
     }
+
   }
 
   const duplicates = [...routes.entries()]
@@ -69,6 +129,16 @@ export function assertNoDuplicateRoutes(
         .join("\n\n"),
     );
   }
+}
+
+export function assertNoRouteConflicts(
+  pageFiles: string[],
+  notFoundFiles: string[],
+  fileOptions?: RouteFileOptions,
+): void {
+  assertNoDuplicateRoutes(pageFiles, fileOptions);
+  assertNoDuplicateRoutes(notFoundFiles, fileOptions);
+  assertNoCatchAllFallbackCollisions(pageFiles, notFoundFiles, fileOptions);
 }
 
 function addFileToTree(
@@ -113,7 +183,11 @@ export function buildRouteTree(
   notFounds: Record<string, () => Promise<any>>,
   fileOptions?: RouteFileOptions,
 ): RouteNode {
-  assertNoDuplicateRoutes(Object.keys(pages), fileOptions);
+  assertNoRouteConflicts(
+    Object.keys(pages),
+    Object.keys(notFounds),
+    fileOptions,
+  );
 
   const root: RouteNode = {
     segment: "",

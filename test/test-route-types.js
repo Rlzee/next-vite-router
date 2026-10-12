@@ -118,6 +118,21 @@ assert.throws(
 );
 console.log("✅ Plugin options are validated");
 
+const fallbackConflictRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-fallback-"));
+const fallbackPagesRoot = path.join(fallbackConflictRoot, "src", "app", "docs");
+fs.mkdirSync(path.join(fallbackPagesRoot, "[...slug]"), { recursive: true });
+fs.writeFileSync(path.join(fallbackPagesRoot, "[...slug]", "page.tsx"), "");
+fs.writeFileSync(path.join(fallbackPagesRoot, "not-found.tsx"), "");
+try {
+  assert.throws(
+    () => nextViteRouter().configResolved({ root: fallbackConflictRoot }),
+    /Conflicting fallback routes "\/docs" detected/,
+  );
+} finally {
+  fs.rmSync(fallbackConflictRoot, { recursive: true, force: true });
+}
+console.log("✅ Catch-all and not-found collisions rejected");
+
 const customProjectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-"));
 const customPagesRoot = path.join(customProjectRoot, "src", "routes");
 fs.mkdirSync(path.join(customPagesRoot, "users", "[id]"), { recursive: true });

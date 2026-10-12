@@ -210,6 +210,43 @@ describe("route generator", () => {
     );
   });
 
+  test("rejects not-found routes that conflict with catch-all pages", () => {
+    assert.throws(
+      () => buildRouteTree(
+        {
+          "docs/[...slug]/page.tsx": loader("docs"),
+        },
+        {},
+        {
+          "docs/not-found.tsx": loader("docs-not-found"),
+        },
+      ),
+      {
+        message: [
+          'Conflicting fallback routes "/docs" detected:',
+          "  catch-all page: docs/[...slug]/page.tsx",
+          "  not-found file: docs/not-found.tsx",
+          "A not-found route and a catch-all page cannot coexist at the same route level.",
+        ].join("\n"),
+      },
+    );
+  });
+
+  test("rejects not-found files placed at a catch-all level", () => {
+    assert.throws(
+      () => buildRouteTree(
+        {
+          "docs/[[...slug]]/page.tsx": loader("docs"),
+        },
+        {},
+        {
+          "docs/[[...slug]]/not-found.tsx": loader("docs-not-found"),
+        },
+      ),
+      /Conflicting fallback routes "\/docs\/\*" detected/,
+    );
+  });
+
     test("keeps pages and layouts declared directly in route groups", () => {
       const groupLayout = component("marketing");
       const routes = createRoutes({
