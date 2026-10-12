@@ -13,7 +13,6 @@ export type RouteNode = {
 
 export type RouterConfig = {
   loadingFallback?: React.ComponentType;
-  pagesDir?: string;
   enableLazyLoading?: boolean;
 }
 

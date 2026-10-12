@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { nextViteRouter } from "../dist/plugin.js";
 
 const projectRoot = path.resolve("test/fixture");
@@ -33,10 +34,58 @@ assert.match(declaration, /export function Router/);
 assert.match(declaration, /export \{ Link, useRoutes \}/);
 assert.match(virtualModule, /import \{ Link, useRoutes \} from 'react-router-dom'/);
 assert.match(virtualModule, /routes \?\?= generateRoutes\(\)/);
-assert.match(virtualModule, /import\.meta\.glob\('\/src\/app\/\*\*\/page\.tsx'\)/);
-assert.match(virtualModule, /import\.meta\.glob\('\/src\/app\/\*\*\/not-found\.tsx'\)/);
-assert.match(virtualModule, /import\.meta\.glob\('\/src\/app\/\*\*\/layout\.tsx', \{ eager: true \}\)/);
+assert.match(virtualModule, /import\.meta\.glob\(["']\/src\/app\/\*\*\/page\.tsx["']\)/);
+assert.match(virtualModule, /import\.meta\.glob\(["']\/src\/app\/\*\*\/not-found\.tsx["']\)/);
+assert.match(virtualModule, /import\.meta\.glob\(["']\/src\/app\/\*\*\/layout\.tsx["'], \{ eager: true \}\)/);
 assert.match(virtualModule, /import\.meta\.hot\.accept\(\(\) => \{\s*routes = undefined;/);
+
+const tscPath = path.resolve("node_modules", "typescript", "bin", "tsc");
+const runTypeScript = (filePath) => {
+  const result = spawnSync(process.execPath, [
+    tscPath,
+    "--noEmit",
+    "--strict",
+    "--skipLibCheck",
+    "--module",
+    "ESNext",
+    "--moduleResolution",
+    "bundler",
+    "--target",
+    "ES2020",
+    "--jsx",
+    "react-jsx",
+    filePath,
+    declarationPath,
+  ], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+};
+
+runTypeScript(path.join(projectRoot, "src", "route-types.ts"));
+
+const invalidTypesPath = path.join(projectRoot, "src", "invalid-route-types.ts");
+fs.writeFileSync(invalidTypesPath, `
+import type { RouteParams, RoutePath } from "virtual:next-vite-router";
+import type { RouterConfig } from "../../../dist/index.js";
+
+// @ts-expect-error unknown route path
+const invalidPath: RoutePath = "/users/:missing";
+// @ts-expect-error required route parameter is missing
+const missingParam: RouteParams<"/users/:id"> = {};
+// @ts-expect-error route parameters reject unknown keys
+const extraParam: RouteParams<"/users/:id"> = { id: "123", extra: "nope" };
+// @ts-expect-error pagesDir belongs to the plugin options, not RouterConfig
+const invalidConfig: RouterConfig = { pagesDir: "src/app" };
+
+void invalidPath;
+void missingParam;
+void extraParam;
+void invalidConfig;
+`, "utf8");
+try {
+  runTypeScript(invalidTypesPath);
+} finally {
+  fs.rmSync(invalidTypesPath, { force: true });
+}
 
 console.log("✅ Route declaration generated");
 console.log(`   ${declarationPath}`);
@@ -58,6 +107,16 @@ for (const invalidDirectory of ["compare/[id]/[id]", "users/[foo-bar]", "users/[
   }
 }
 console.log("✅ Invalid and repeated parameter names rejected");
+
+assert.throws(
+  () => nextViteRouter({ pageFile: "" }),
+  /option "pageFile" must not be empty/,
+);
+assert.throws(
+  () => nextViteRouter({ pageFile: "page.tsx", layoutFile: "page.tsx" }),
+  /file options must be distinct/,
+);
+console.log("✅ Plugin options are validated");
 
 const customProjectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-"));
 const customPagesRoot = path.join(customProjectRoot, "src", "routes");
@@ -88,15 +147,15 @@ try {
   assert.match(customDeclaration, /\| "\/users\/:id"/);
   assert.match(
     customVirtualModule,
-    /import\.meta\.glob\('\/src\/routes\/\*\*\/index\.tsx'\)/,
+    /import\.meta\.glob\(["']\/src\/routes\/\*\*\/index\.tsx["']\)/,
   );
   assert.match(
     customVirtualModule,
-    /import\.meta\.glob\('\/src\/routes\/\*\*\/missing\.tsx'\)/,
+    /import\.meta\.glob\(["']\/src\/routes\/\*\*\/missing\.tsx["']\)/,
   );
   assert.match(
     customVirtualModule,
-    /import\.meta\.glob\('\/src\/routes\/\*\*\/layout\.tsx', \{ eager: true \}\)/,
+    /import\.meta\.glob\(["']\/src\/routes\/\*\*\/layout\.tsx["'], \{ eager: true \}\)/,
   );
   assert.match(
     customVirtualModule,

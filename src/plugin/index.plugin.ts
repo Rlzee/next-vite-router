@@ -29,6 +29,35 @@ type RouteTypeEntry = {
   params: Array<{ name: string; optional: boolean }>;
 };
 
+function validatePluginOptions(options: Required<NextViteRouterPluginOptions>): void {
+  const entries = [
+    ["pagesDir", options.pagesDir],
+    ["pageFile", options.pageFile],
+    ["layoutFile", options.layoutFile],
+    ["notFoundFile", options.notFoundFile],
+  ] as const;
+
+  for (const [name, value] of entries) {
+    if (!value.trim()) {
+      throw new Error(`nextViteRouter option "${name}" must not be empty.`);
+    }
+  }
+
+  const fileNames = entries.slice(1);
+  const duplicate = fileNames.find(([, value], index) =>
+    fileNames.slice(index + 1).some(([, otherValue]) => otherValue === value),
+  );
+  if (duplicate) {
+    throw new Error(
+      `nextViteRouter file options must be distinct; "${duplicate[0]}" is duplicated.`,
+    );
+  }
+}
+
+function normalizePluginPath(value: string): string {
+  return value.replace(/\\/g, "/").replace(/^\/|\/$/g, "");
+}
+
 function collectRoutePaths(
   pagesRoot: string,
   pageFile: string
@@ -148,6 +177,8 @@ export function nextViteRouter(
     layoutFile = "layout.tsx",
     notFoundFile = "not-found.tsx",
   } = options;
+  validatePluginOptions({ pagesDir, pageFile, layoutFile, notFoundFile });
+  const normalizedPagesDir = normalizePluginPath(pagesDir);
   const fileOptions: RouteFileOptions = { pagesDir, pageFile, layoutFile, notFoundFile };
 
   const virtualModuleId = "virtual:next-vite-router";
@@ -241,15 +272,19 @@ export function nextViteRouter(
 
     load(id) {
       if (id === resolvedVirtualModuleId) {
+        const pagesGlobPath = `/${normalizedPagesDir}/**/${pageFile}`;
+        const layoutsGlobPath = `/${normalizedPagesDir}/**/${layoutFile}`;
+        const notFoundGlobPath = `/${normalizedPagesDir}/**/${notFoundFile}`;
+        const transformPrefix = `/${normalizedPagesDir}/`;
         return `
 import { buildRouteTree, treeToRoutes, normalizeSegment, createLazyElement, useParams } from 'next-vite-router';
 import { Link, useRoutes } from 'react-router-dom';
 
-const pagesGlob = import.meta.glob('/${pagesDir}/**/${pageFile}');
-const layoutsGlob = import.meta.glob('/${pagesDir}/**/${layoutFile}', { eager: true });
-const notFoundsGlob = import.meta.glob('/${pagesDir}/**/${notFoundFile}');
+const pagesGlob = import.meta.glob(${JSON.stringify(pagesGlobPath)});
+const layoutsGlob = import.meta.glob(${JSON.stringify(layoutsGlobPath)}, { eager: true });
+const notFoundsGlob = import.meta.glob(${JSON.stringify(notFoundGlobPath)});
 
-const transformPath = (path) => path.replace('/${pagesDir}/', '');
+const transformPath = (path) => path.replace(${JSON.stringify(transformPrefix)}, '');
 
 const pages = Object.fromEntries(
   Object.entries(pagesGlob).map(([key, value]) => [transformPath(key), value])
