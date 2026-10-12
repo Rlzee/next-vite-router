@@ -80,6 +80,9 @@ export type RouteFileOptions = {
  * Extract the route path from a file path
  * @example "../../app/blog/[id]/page.tsx" -> "blog/[id]"
  * @example "../../app/page.tsx" -> ""
+ *
+ * `pagesDir` may be relative or absolute. The plugin resolves it relative to
+ * the Vite project root before passing it here.
  */
 export function extractRoutePath(
   filePath: string,
@@ -87,6 +90,7 @@ export function extractRoutePath(
 ): string {
   const normalized = filePath.replace(/\\/g, "/");
   const base = pagesDir?.replace(/\\/g, "/").replace(/^\/|\/$/g, "");
+  const escapedBase = base?.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const fileNames = [pageFile, layoutFile, notFoundFile]
     .map((file) => file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
     .join("|");
@@ -94,7 +98,7 @@ export function extractRoutePath(
   return normalized
     .replace(
       base
-        ? new RegExp(`^.*(?:^|/)${base}/`)
+        ? new RegExp(`^.*(?:^|/)${escapedBase}/`)
         : /^.*(?:^|\/)(?:app|pages)\//,
       "",
     )

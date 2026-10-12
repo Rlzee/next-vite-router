@@ -263,6 +263,23 @@ describe("route generator", () => {
     );
   });
 
+  test("rejects not-found fallbacks alongside optional catch-all pages", () => {
+    assert.throws(
+      () => buildRouteTree(
+        {
+          "docs/[[...slug]]/page.tsx": loader("docs"),
+        },
+        {
+          "docs/layout.tsx": { default: component("docs-layout") },
+        },
+        {
+          "docs/not-found.tsx": loader("docs-not-found"),
+        },
+      ),
+      /Conflicting fallback routes "\/docs" detected/,
+    );
+  });
+
     test("keeps pages and layouts declared directly in route groups", () => {
       const groupLayout = component("marketing");
       const routes = createRoutes({
@@ -311,6 +328,20 @@ describe("route generator", () => {
           pageFile: "page.jsx",
         }),
         "about",
+      );
+      assert.equal(
+        extractRoutePath(
+          "C:\\project\\src\\app.v2\\my pages\\about\\page.tsx",
+          { pagesDir: "C:\\project\\src\\app.v2" },
+        ),
+        "my pages/about",
+      );
+      assert.equal(
+        extractRoutePath(
+          "C:\\project\\src\\appXv2\\about\\page.tsx",
+          { pagesDir: "C:\\project\\src\\app.v2" },
+        ),
+        "C:/project/src/appXv2/about",
       );
     });
 

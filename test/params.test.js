@@ -67,3 +67,30 @@ test("optional catch-all routes match the base and nested paths", () => {
   assert.equal(deepMatch?.at(-1)?.route.path, "*");
   assert.equal(deepMatch?.at(-1)?.params["*"], "foo/bar");
 });
+
+test("optional catch-all routes preserve layout matching at base and nested paths", () => {
+  function DocsLayout() {
+    return React.createElement("section", null, "docs");
+  }
+
+  const loader = async () => ({ default: Probe });
+  const routes = treeToRoutes(buildRouteTree(
+    { "docs/[[...segments]]/page.tsx": loader },
+    { "docs/layout.tsx": { default: DocsLayout } },
+    {},
+  ), true);
+
+  const baseMatch = matchRoutes(routes, "/docs");
+  const nestedMatch = matchRoutes(routes, "/docs/reference/api");
+
+  assert.deepEqual(
+    baseMatch?.map(({ route }) => route.path ?? route.index),
+    ["docs", true],
+  );
+  assert.deepEqual(
+    nestedMatch?.map(({ route }) => route.path ?? route.index),
+    ["docs", "*"],
+  );
+  assert.equal(baseMatch?.[0]?.route.element.type, DocsLayout);
+  assert.equal(nestedMatch?.at(-1)?.params["*"], "reference/api");
+});

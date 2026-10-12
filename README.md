@@ -141,6 +141,9 @@ hook.
 The Vite plugin accepts custom `pageFile`, `layoutFile`, and `notFoundFile`
 names. `createRouteGenerator` accepts the same options, plus `pagesDir`, as
 its optional fourth argument when custom glob paths or extensions are used.
+For the Vite plugin, `pagesDir` is relative to the Vite project root (the
+default is `src/app`). The lower-level route path utility also accepts an
+absolute `pagesDir`, which is useful for custom route generators.
 
 Layouts are the recommended way to add route-scoped navigation, providers, or
 authorization:
