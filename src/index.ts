@@ -19,8 +19,14 @@ export type {
 } from './types/index.type';
 
 // Utils
-export { normalizeSegment, extractRoutePath } from './utils/path';
+export {
+  normalizeSegment,
+  extractRoutePath,
+  parseRouteSegments,
+  routeSegmentToPath,
+} from './utils/path';
 export type { RouteFileOptions } from './utils/path';
+export type { RouteSegment } from './utils/path';
 export { createLazyElement } from './utils/lazy';
 export { useParams } from './router-params';
 export { CatchAllParamProvider } from './router-params-context';

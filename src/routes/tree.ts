@@ -1,28 +1,33 @@
 import type { RouteNode } from '../index';
-import { extractRoutePath, normalizeSegment, type RouteFileOptions } from '../utils/index.utils';
+import {
+  extractRoutePath,
+  parseRouteSegments,
+  routeSegmentToPath,
+  type RouteFileOptions,
+} from '../utils/index.utils';
 
 type RouteCollision = {
   kind: "literal" | "pattern";
   filePath: string;
 };
 
-function canonicalSegment(segment: string): string {
-  if (/^\[\[\.\.\..+\]\]$/.test(segment)) return "*";
-  if (/^\[\.\.\..+\]$/.test(segment)) return "*";
-  if (/^\[[^\]]+\]$/.test(segment)) return ":param";
-  return normalizeSegment(segment);
+function canonicalSegment(segment: ReturnType<typeof parseRouteSegments>[number]): string {
+  if (segment.kind === "group") return "";
+  if (segment.kind === "catchAll") return "*";
+  if (segment.kind === "dynamic") return ":param";
+  return routeSegmentToPath(segment);
 }
 
 function normalizedRoutePaths(filePath: string, fileOptions?: RouteFileOptions): string[] {
   const routePath = extractRoutePath(filePath, fileOptions);
-  const segments = routePath ? routePath.split("/").filter(Boolean) : [];
+  const segments = parseRouteSegments(routePath);
   const canonicalSegments = segments.map(canonicalSegment).filter(Boolean);
   const paths = [
     canonicalSegments.length > 0 ? `/${canonicalSegments.join("/")}` : "/",
   ];
 
   const lastSegment = segments[segments.length - 1];
-  if (lastSegment && /^\[\[\.\.\..+\]\]$/.test(lastSegment)) {
+  if (lastSegment?.kind === "catchAll" && lastSegment.optional) {
     const baseSegments = canonicalSegments.slice(0, -1);
     paths.push(baseSegments.length > 0 ? `/${baseSegments.join("/")}` : "/");
   }

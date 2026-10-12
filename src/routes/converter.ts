@@ -1,7 +1,11 @@
 import React from "react";
 import type { RouteObject } from "react-router-dom";
 import type { RouteNode } from '../index';
-import { normalizeSegment, createLazyElement } from '../utils/index.utils';
+import {
+  createLazyElement,
+  parseRouteSegments,
+  routeSegmentToPath,
+} from '../utils/index.utils';
 import { applyMiddlewares } from '../middleware/index.middleware';
 import { CatchAllParamProvider } from '../router-params-context';
 
@@ -10,7 +14,13 @@ function applyLayoutMiddleware(path: string, layout: React.ComponentType): React
 }
 
 function isOptionalCatchAll(segment: string): boolean {
-  return /^\[\[\.\.\..+\]\]$/.test(segment);
+  const parsed = parseRouteSegments(segment)[0];
+  return parsed?.kind === "catchAll" && parsed.optional;
+}
+
+function normalizedSegment(segment: string): string {
+  const parsed = parseRouteSegments(segment)[0];
+  return parsed ? routeSegmentToPath(parsed) : "";
 }
 
 function createPageRoute(
@@ -32,17 +42,17 @@ function createPageRoute(
     nodePath
   );
 
-  const catchAllMatch = node.segment.match(/^\[\[?\.\.\.(.+?)\]\]?$/);
-  const routeElement = catchAllMatch
+  const routeSegment = parseRouteSegments(node.segment)[0];
+  const routeElement = routeSegment?.kind === "catchAll"
     ? React.createElement(CatchAllParamProvider, {
-        name: catchAllMatch[1],
+        name: routeSegment.name,
         children: element,
       })
     : element;
 
   return isIndex
     ? { index: true, element: routeElement }
-    : { path: normalizeSegment(node.segment), element: routeElement };
+    : { path: normalizedSegment(node.segment), element: routeElement };
 }
 
 function createNotFoundRoute(node: RouteNode): RouteObject {
@@ -74,9 +84,9 @@ function processChildren(
   [...node.children.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
     .forEach(([segment, childNode]) => {
-    const normalizedSegment = normalizeSegment(segment);
-    const childPath = normalizedSegment 
-      ? (currentPath ? `${currentPath}/${normalizedSegment}` : `/${normalizedSegment}`)
+    const childSegment = normalizedSegment(segment);
+    const childPath = childSegment
+      ? (currentPath ? `${currentPath}/${childSegment}` : `/${childSegment}`)
       : currentPath;
     
       children.push(...treeToRoutes(childNode, false, childPath));
@@ -144,18 +154,18 @@ export function treeToRoutes(
     return children;
   }
 
-  const normalizedSegment = normalizeSegment(node.segment);
-  const isPathless = !normalizedSegment;
+  const nodeSegment = normalizedSegment(node.segment);
+  const isPathless = !nodeSegment;
   const nodePath = isPathless
     ? currentPath
-    : currentPath + "/" + normalizedSegment;
+    : currentPath + "/" + nodeSegment;
   const descendants = processChildren(node, nodePath);
   const notFound = node.notFound ? [createNotFoundRoute(node)] : [];
 
   if (node.layout) {
     const children = createNodeChildren(node, nodePath);
     return [{
-      ...(isPathless ? {} : { path: normalizedSegment }),
+      ...(isPathless ? {} : { path: nodeSegment }),
       element: applyLayoutMiddleware(nodePath, node.layout),
       children: children.length > 0 ? children : undefined,
     }];
@@ -165,7 +175,7 @@ export function treeToRoutes(
     if (isOptionalCatchAll(node.segment)) {
       const indexRoute = createPageRoute(node, currentPath, true);
       const catchAllRoute = {
-        path: normalizedSegment,
+        path: nodeSegment,
         element: createPageRoute(node, nodePath).element,
         children: [...descendants, ...notFound].length > 0
           ? [...descendants, ...notFound]
@@ -177,7 +187,7 @@ export function treeToRoutes(
 
     if (descendants.length > 0 || notFound.length > 0) {
       return [{
-        path: normalizedSegment,
+        path: nodeSegment,
         children: [
           createPageRoute(node, nodePath, true),
           ...descendants,
@@ -187,7 +197,7 @@ export function treeToRoutes(
     }
 
     return [{
-      path: normalizedSegment,
+      path: nodeSegment,
       element: createPageRoute(node, nodePath).element,
     }];
   }
@@ -199,7 +209,7 @@ export function treeToRoutes(
       ...notFound,
     ];
     return [{
-      ...(isPathless ? {} : { path: normalizedSegment }),
+      ...(isPathless ? {} : { path: nodeSegment }),
       children: children.length > 0 ? children : undefined,
     }];
   }

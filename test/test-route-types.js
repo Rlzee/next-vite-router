@@ -42,6 +42,23 @@ console.log("✅ Route declaration generated");
 console.log(`   ${declarationPath}`);
 console.log("✅ Static, dynamic, and grouped routes verified");
 
+for (const invalidDirectory of ["compare/[id]/[id]", "users/[foo-bar]", "users/[1id]"]) {
+  const invalidRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-invalid-"));
+  const invalidPagesRoot = path.join(invalidRoot, "src", "app", invalidDirectory);
+  fs.mkdirSync(invalidPagesRoot, { recursive: true });
+  fs.writeFileSync(path.join(invalidPagesRoot, "page.tsx"), "");
+
+  try {
+    assert.throws(
+      () => nextViteRouter().configResolved({ root: invalidRoot }),
+      /(?:Duplicate route parameter|Invalid route parameter name)/,
+    );
+  } finally {
+    fs.rmSync(invalidRoot, { recursive: true, force: true });
+  }
+}
+console.log("✅ Invalid and repeated parameter names rejected");
+
 const customProjectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-"));
 const customPagesRoot = path.join(customProjectRoot, "src", "routes");
 fs.mkdirSync(path.join(customPagesRoot, "users", "[id]"), { recursive: true });

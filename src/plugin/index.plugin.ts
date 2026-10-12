@@ -1,7 +1,12 @@
 import type { Plugin, ViteDevServer } from "vite";
 import fs from "node:fs";
 import path from "node:path";
-import { normalizeSegment, type RouteFileOptions } from "../utils/path";
+import {
+  parseRouteSegments,
+  routeSegmentToPath,
+  type RouteFileOptions,
+  type RouteSegment,
+} from "../utils/path";
 import { assertNoDuplicateRoutes } from "../routes/tree";
 
 export type NextViteRouterPluginOptions = {
@@ -11,14 +16,12 @@ export type NextViteRouterPluginOptions = {
   notFoundFile?: string;
 };
 
-function routePathFromDirectory(directory: string): string {
-  const segments = directory
-    .split(path.sep)
-    .filter(Boolean)
-    .map(normalizeSegment)
+function routePathFromSegments(segments: RouteSegment[]): string {
+  const normalized = segments
+    .map(routeSegmentToPath)
     .filter(Boolean);
 
-  return segments.length > 0 ? `/${segments.join("/")}` : "/";
+  return normalized.length > 0 ? `/${normalized.join("/")}` : "/";
 }
 
 type RouteTypeEntry = {
@@ -43,27 +46,25 @@ function collectRoutePaths(
         const segments = relativeDirectory
           .split(path.sep)
           .filter(Boolean);
-        const params = segments
-          .map((segment) => {
-            const optionalMatch = segment.match(/^\[\[\.\.\.(.+)\]\]$/);
-            if (optionalMatch) {
-              return { name: optionalMatch[1], optional: true };
-            }
-
-            const requiredMatch = segment.match(/^\[\.\.\.(.+)\]$/);
-            return requiredMatch
-              ? { name: requiredMatch[1], optional: false }
-              : undefined;
-          })
-          .filter((param): param is { name: string; optional: boolean } => Boolean(param));
-        const routePath = routePathFromDirectory(relativeDirectory);
+        const routeSegments = parseRouteSegments(segments.join("/"));
+        const params = routeSegments
+          .filter(
+            (segment): segment is Extract<RouteSegment, { kind: "dynamic" | "catchAll" }> =>
+              segment.kind === "dynamic" || segment.kind === "catchAll",
+          )
+          .map((segment) => ({
+            name: segment.name,
+            optional: segment.kind === "catchAll" && segment.optional,
+          }));
+        const routePath = routePathFromSegments(routeSegments);
         paths.set(routePath, { path: routePath, params });
 
-        const lastSegment = segments[segments.length - 1];
-        const optionalCatchAll = lastSegment?.match(/^\[\[\.\.\.(.+)\]\]$/);
-        if (optionalCatchAll) {
+        const lastSegment = routeSegments[routeSegments.length - 1];
+        if (lastSegment?.kind === "catchAll" && lastSegment.optional) {
           const baseDirectory = segments.slice(0, -1).join(path.sep);
-          const basePath = routePathFromDirectory(baseDirectory);
+          const basePath = routePathFromSegments(
+            parseRouteSegments(baseDirectory.split(path.sep).join("/")),
+          );
           if (!paths.has(basePath)) {
             paths.set(basePath, { path: basePath, params: [] });
           }
@@ -100,27 +101,19 @@ function collectPageFiles(pagesRoot: string, pageFile: string): string[] {
   return files;
 }
 
-function dynamicParamName(segment: string): string | undefined {
-  const match = segment.match(/^\/(?:\[\.\.\.|:)([^/\]]+)\]?$/);
-  return match?.[1];
-}
-
 function createRouteTypes(routePaths: RouteTypeEntry[]): string {
-  const routeLiterals = routePaths.map(({ path: route }) => `  | "${route}"`).join("\n");
-  const params = routePaths.map(({ path: route, params: catchAllParams }) => {
-    const names = route
-      .split("/")
-      .map((segment) => dynamicParamName(`/${segment}`))
-      .filter((name): name is string => Boolean(name));
-    const fields = names.length > 0 || catchAllParams.length > 0
+  const routeLiterals = routePaths
+    .map(({ path: route }) => `  | ${JSON.stringify(route)}`)
+    .join("\n");
+  const params = routePaths.map(({ path: route, params }) => {
+    const fields = params.length > 0
       ? [
-          ...names.map((name) => `    ${name}: string;`),
-          ...catchAllParams.map(({ name, optional }) =>
+          ...params.map(({ name, optional }) =>
             `    ${name}${optional ? "?" : ""}: string;`),
         ].join("\n")
       : "    [key: string]: never;";
 
-    return `  "${route}": {\n${fields}\n  };`;
+    return `  ${JSON.stringify(route)}: {\n${fields}\n  };`;
   }).join("\n");
 
   return `declare module 'virtual:next-vite-router' {

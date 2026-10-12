@@ -12,6 +12,63 @@ export function normalizeSegment(segment: string): string {
   return segment;
 }
 
+export type RouteSegment =
+  | { kind: "group"; name: string }
+  | { kind: "static"; name: string }
+  | { kind: "dynamic"; name: string }
+  | { kind: "catchAll"; name: string; optional: boolean };
+
+const PARAMETER_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+export function routeSegmentToPath(segment: RouteSegment): string {
+  if (segment.kind === "group") return "";
+  if (segment.kind === "dynamic") return `:${segment.name}`;
+  if (segment.kind === "catchAll") return "*";
+  return segment.name;
+}
+
+export function parseRouteSegments(routePath: string): RouteSegment[] {
+  const segments = routePath ? routePath.split("/").filter(Boolean) : [];
+  const parsed: RouteSegment[] = [];
+  const parameterNames = new Set<string>();
+
+  for (const segment of segments) {
+    const groupMatch = segment.match(/^\(([^)]+)\)$/);
+    const optionalCatchAllMatch = segment.match(/^\[\[\.\.\.(.+)\]\]$/);
+    const catchAllMatch = segment.match(/^\[\.\.\.(.+)\]$/);
+    const dynamicMatch = segment.match(/^\[([^\]]+)\]$/);
+    const parameter = optionalCatchAllMatch
+      ? { name: optionalCatchAllMatch[1], optional: true, kind: "catchAll" as const }
+      : catchAllMatch
+        ? { name: catchAllMatch[1], optional: false, kind: "catchAll" as const }
+        : dynamicMatch
+          ? { name: dynamicMatch[1], optional: false, kind: "dynamic" as const }
+          : undefined;
+
+    if (groupMatch) {
+      parsed.push({ kind: "group", name: groupMatch[1] });
+    } else if (parameter) {
+      if (!PARAMETER_NAME.test(parameter.name)) {
+        throw new Error(
+          `Invalid route parameter name "${parameter.name}" in segment "${segment}". ` +
+          "Parameter names must start with a letter or underscore and contain only letters, numbers, and underscores.",
+        );
+      }
+      if (parameterNames.has(parameter.name)) {
+        throw new Error(
+          `Duplicate route parameter "${parameter.name}" in route "${routePath || "/"}".`,
+        );
+      }
+      parameterNames.add(parameter.name);
+      parsed.push(parameter);
+    } else {
+      parsed.push({ kind: "static", name: segment });
+    }
+  }
+
+  return parsed;
+}
+
 export type RouteFileOptions = {
   pagesDir?: string;
   pageFile?: string;
