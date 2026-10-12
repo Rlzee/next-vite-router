@@ -134,6 +134,54 @@ describe("route generator", () => {
     );
   });
 
+  test("rejects dynamic routes with different parameter names", () => {
+    assert.throws(
+      () => assertNoDuplicateRoutes([
+        "users/[id]/page.tsx",
+        "users/[slug]/page.tsx",
+      ]),
+      {
+        message: [
+          'Ambiguous route pattern "/users/:param" detected:',
+          "  users/[id]/page.tsx",
+          "  users/[slug]/page.tsx",
+        ].join("\n"),
+      },
+    );
+  });
+
+  test("rejects optional catch-all routes that collide with their base route", () => {
+    assert.throws(
+      () => assertNoDuplicateRoutes([
+        "docs/page.tsx",
+        "docs/[[...segments]]/page.tsx",
+      ]),
+      {
+        message: [
+          'Duplicate route "/docs" detected:',
+          "  docs/[[...segments]]/page.tsx",
+          "  docs/page.tsx",
+        ].join("\n"),
+      },
+    );
+  });
+
+  test("rejects required and optional catch-all routes with the same prefix", () => {
+    assert.throws(
+      () => assertNoDuplicateRoutes([
+        "docs/[...segments]/page.tsx",
+        "docs/[[...rest]]/page.tsx",
+      ]),
+      {
+        message: [
+          'Ambiguous route pattern "/docs/*" detected:',
+          "  docs/[...segments]/page.tsx",
+          "  docs/[[...rest]]/page.tsx",
+        ].join("\n"),
+      },
+    );
+  });
+
     test("keeps pages and layouts declared directly in route groups", () => {
       const groupLayout = component("marketing");
       const routes = createRoutes({
@@ -274,21 +322,13 @@ describe("route generator", () => {
     assert.equal(routes[0].children[1].element.props["data-test"], wrapped);
   });
 
-  test("keeps colliding dynamic parameter names as distinct route definitions", () => {
-    const routes = createRoutes({
+  test("rejects colliding dynamic parameter names when building routes", () => {
+    assert.throws(() => createRoutes({
       pages: {
         "users/[id]/page.tsx": loader("id"),
         "users/[slug]/page.tsx": loader("slug"),
       },
-    });
-
-    assert.deepEqual(routeShape(routes), [{
-      path: "users",
-      children: [
-        { path: ":id", children: undefined },
-        { path: ":slug", children: undefined },
-      ],
-    }]);
+    }), /Ambiguous route pattern "\/users\/:param" detected/);
   });
 
   test("orders routes consistently regardless of glob insertion order", () => {

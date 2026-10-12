@@ -1,25 +1,51 @@
 import type { RouteNode } from '../index';
 import { extractRoutePath, normalizeSegment, type RouteFileOptions } from '../utils/index.utils';
 
-function normalizedRoutePath(filePath: string, fileOptions?: RouteFileOptions): string {
+type RouteCollision = {
+  kind: "literal" | "pattern";
+  filePath: string;
+};
+
+function canonicalSegment(segment: string): string {
+  if (/^\[\[\.\.\..+\]\]$/.test(segment)) return "*";
+  if (/^\[\.\.\..+\]$/.test(segment)) return "*";
+  if (/^\[[^\]]+\]$/.test(segment)) return ":param";
+  return normalizeSegment(segment);
+}
+
+function normalizedRoutePaths(filePath: string, fileOptions?: RouteFileOptions): string[] {
   const routePath = extractRoutePath(filePath, fileOptions);
-  const segments = routePath
-    ? routePath.split("/").map(normalizeSegment).filter(Boolean)
-    : [];
-  return segments.length > 0 ? `/${segments.join("/")}` : "/";
+  const segments = routePath ? routePath.split("/").filter(Boolean) : [];
+  const canonicalSegments = segments.map(canonicalSegment).filter(Boolean);
+  const paths = [
+    canonicalSegments.length > 0 ? `/${canonicalSegments.join("/")}` : "/",
+  ];
+
+  const lastSegment = segments[segments.length - 1];
+  if (lastSegment && /^\[\[\.\.\..+\]\]$/.test(lastSegment)) {
+    const baseSegments = canonicalSegments.slice(0, -1);
+    paths.push(baseSegments.length > 0 ? `/${baseSegments.join("/")}` : "/");
+  }
+
+  return paths;
+}
+
+function collisionKind(path: string): RouteCollision["kind"] {
+  return /(^|\/)(:param|\*)($|\/)/.test(path) ? "pattern" : "literal";
 }
 
 export function assertNoDuplicateRoutes(
   filePaths: string[],
   fileOptions?: RouteFileOptions,
 ): void {
-  const routes = new Map<string, string[]>();
+  const routes = new Map<string, RouteCollision[]>();
 
   for (const filePath of filePaths) {
-    const routePath = normalizedRoutePath(filePath, fileOptions);
-    const entries = routes.get(routePath) ?? [];
-    entries.push(filePath);
-    routes.set(routePath, entries);
+    for (const routePath of normalizedRoutePaths(filePath, fileOptions)) {
+      const entries = routes.get(routePath) ?? [];
+      entries.push({ kind: collisionKind(routePath), filePath });
+      routes.set(routePath, entries);
+    }
   }
 
   const duplicates = [...routes.entries()]
@@ -30,9 +56,9 @@ export function assertNoDuplicateRoutes(
     throw new Error(
       duplicates
         .map(([routePath, entries]) =>
-          `Duplicate route "${routePath}" detected:\n${entries
-            .sort((left, right) => left.localeCompare(right))
-            .map((entry) => `  ${entry}`)
+          `${entries[0].kind === "pattern" ? "Ambiguous route pattern" : "Duplicate route"} "${routePath}" detected:\n${entries
+            .sort((left, right) => left.filePath.localeCompare(right.filePath))
+            .map((entry) => `  ${entry.filePath}`)
             .join("\n")}`,
         )
         .join("\n\n"),
