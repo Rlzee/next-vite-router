@@ -23,6 +23,10 @@ function normalizedSegment(segment: string): string {
   return parsed ? routeSegmentToPath(parsed) : "";
 }
 
+function createIndexRoute(node: RouteNode, nodePath: string): RouteObject {
+  return createPageRoute(node, nodePath, true);
+}
+
 function createPageRoute(
   node: RouteNode,
   nodePath: string,
@@ -75,6 +79,23 @@ function createNotFoundRoute(node: RouteNode): RouteObject {
   };
 }
 
+function createNotFoundRoutes(node: RouteNode): RouteObject[] {
+  return node.notFound ? [createNotFoundRoute(node)] : [];
+}
+
+function createLayoutRoute(
+  nodePath: string,
+  nodeSegment: string,
+  layout: React.ComponentType,
+  children: RouteObject[],
+): RouteObject {
+  return {
+    ...(nodeSegment ? { path: nodeSegment } : {}),
+    element: applyLayoutMiddleware(nodePath, layout),
+    children: children.length > 0 ? children : undefined,
+  };
+}
+
 function processChildren(
   node: RouteNode,
   currentPath: string
@@ -99,13 +120,94 @@ function createNodeChildren(node: RouteNode, currentPath: string): RouteObject[]
   const children: RouteObject[] = [];
 
   if (node.page) {
-    children.push(createPageRoute(node, currentPath || "/", true));
+    children.push(createIndexRoute(node, currentPath || "/"));
   }
 
   children.push(...processChildren(node, currentPath));
 
+  children.push(...createNotFoundRoutes(node));
+
+  return children;
+}
+
+function createPageRoutes(
+  node: RouteNode,
+  currentPath: string,
+  nodePath: string,
+  nodeSegment: string,
+  descendants: RouteObject[],
+  notFound: RouteObject[],
+): RouteObject[] {
+  if (isOptionalCatchAll(node.segment)) {
+    const catchAllChildren = [...descendants, ...notFound];
+    return [
+      createIndexRoute(node, currentPath),
+      {
+        path: nodeSegment,
+        element: createPageRoute(node, nodePath).element,
+        children: catchAllChildren.length > 0 ? catchAllChildren : undefined,
+      },
+    ];
+  }
+
+  if (descendants.length > 0 || notFound.length > 0) {
+    return [{
+      path: nodeSegment,
+      children: [
+        createIndexRoute(node, nodePath),
+        ...descendants,
+        ...notFound,
+      ],
+    }];
+  }
+
+  return [{
+    path: nodeSegment,
+    element: createPageRoute(node, nodePath).element,
+  }];
+}
+
+function createPathlessNodeRoutes(
+  node: RouteNode,
+  nodePath: string,
+  descendants: RouteObject[],
+  notFound: RouteObject[],
+): RouteObject[] {
+  const children = [
+    ...(node.page ? [createIndexRoute(node, nodePath)] : []),
+    ...descendants,
+    ...notFound,
+  ];
+
+  return [{
+    children: children.length > 0 ? children : undefined,
+  }];
+}
+
+function createRootRoutes(node: RouteNode): RouteObject[] {
+  const children = createNodeChildren(node, "");
+
+  if (node.layout) {
+    return [{
+      path: "/",
+      element: applyLayoutMiddleware("/", node.layout),
+      children,
+    }];
+  }
+
+  if (node.page) {
+    if (children.length > 1) {
+      return [{ path: "/", children }];
+    }
+
+    return [{
+      path: "/",
+      element: createPageRoute(node, "/", false).element,
+    }];
+  }
+
   if (node.notFound) {
-    children.push(createNotFoundRoute(node));
+    return [{ path: "/", children }];
   }
 
   return children;
@@ -116,42 +218,8 @@ export function treeToRoutes(
   isRoot = false,
   currentPath = ""
 ): RouteObject[] {
-  const routes: RouteObject[] = [];
-  
   if (isRoot) {
-    const children = createNodeChildren(node, "");
-    if (node.layout) {
-      routes.push({
-      path: "/",
-      element: applyLayoutMiddleware("/", node.layout),
-      children,
-      });
-      return routes;
-    }
-
-    if (node.page) {
-      if (children.length > 1) {
-        return [{
-          path: "/",
-          children,
-        }];
-      }
-
-      return [{
-        path: "/",
-        element: createPageRoute(node, "/", false).element,
-      }];
-    }
-
-    if (node.notFound) {
-      routes.push({
-        path: "/",
-        children,
-      });
-      return routes;
-    }
-
-    return children;
+    return createRootRoutes(node);
   }
 
   const nodeSegment = normalizedSegment(node.segment);
@@ -160,58 +228,39 @@ export function treeToRoutes(
     ? currentPath
     : currentPath + "/" + nodeSegment;
   const descendants = processChildren(node, nodePath);
-  const notFound = node.notFound ? [createNotFoundRoute(node)] : [];
+  const notFound = createNotFoundRoutes(node);
 
   if (node.layout) {
-    const children = createNodeChildren(node, nodePath);
-    return [{
-      ...(isPathless ? {} : { path: nodeSegment }),
-      element: applyLayoutMiddleware(nodePath, node.layout),
-      children: children.length > 0 ? children : undefined,
-    }];
+    return [createLayoutRoute(
+      nodePath,
+      isPathless ? "" : nodeSegment,
+      node.layout,
+      createNodeChildren(node, nodePath),
+    )];
   }
 
   if (node.page && !isPathless) {
-    if (isOptionalCatchAll(node.segment)) {
-      const indexRoute = createPageRoute(node, currentPath, true);
-      const catchAllRoute = {
-        path: nodeSegment,
-        element: createPageRoute(node, nodePath).element,
-        children: [...descendants, ...notFound].length > 0
-          ? [...descendants, ...notFound]
-          : undefined,
-      };
-
-      return [indexRoute, catchAllRoute];
-    }
-
-    if (descendants.length > 0 || notFound.length > 0) {
-      return [{
-        path: nodeSegment,
-        children: [
-          createPageRoute(node, nodePath, true),
-          ...descendants,
-          ...notFound,
-        ],
-      }];
-    }
-
-    return [{
-      path: nodeSegment,
-      element: createPageRoute(node, nodePath).element,
-    }];
+    return createPageRoutes(
+      node,
+      currentPath,
+      nodePath,
+      nodeSegment,
+      descendants,
+      notFound,
+    );
   }
 
   if (node.page || node.notFound || !isPathless) {
-    const children = [
-      ...(node.page ? [createPageRoute(node, nodePath, true)] : []),
-      ...descendants,
-      ...notFound,
-    ];
-    return [{
-      ...(isPathless ? {} : { path: nodeSegment }),
-      children: children.length > 0 ? children : undefined,
-    }];
+    return isPathless
+      ? createPathlessNodeRoutes(node, nodePath, descendants, notFound)
+      : [{
+          path: nodeSegment,
+          children: [
+            ...(node.page ? [createIndexRoute(node, nodePath)] : []),
+            ...descendants,
+            ...notFound,
+          ],
+        }];
   }
 
   return descendants;
