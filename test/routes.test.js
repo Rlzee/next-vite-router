@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test, describe, beforeEach } from "node:test";
 import React from "react";
+import { matchRoutes } from "react-router-dom";
 import {
   buildRouteTree,
   assertNoDuplicateRoutes,
@@ -61,6 +62,21 @@ describe("route generator", () => {
     assert.notEqual(routes[0].children[1].element, undefined);
   });
 
+  test("resolves multiple dynamic parameters and exposes their values", () => {
+    const routes = createRoutes({
+      pages: {
+        "compare/[from]/[to]/page.tsx": loader("compare"),
+      },
+    });
+
+    const matches = matchRoutes(routes, "/compare/paris/berlin");
+    assert.deepEqual(matches?.at(-1)?.params, {
+      from: "paris",
+      to: "berlin",
+    });
+    assert.equal(matches?.at(-1)?.route.path, ":to");
+  });
+
   test("keeps root pages and child routes as sibling matches", () => {
     const routes = createRoutes({
       pages: {
@@ -110,6 +126,18 @@ describe("route generator", () => {
     assert.deepEqual(routeShape(routes), [
       { path: "dashboard", children: undefined },
     ]);
+  });
+
+  test("matches grouped routes without exposing the group in the URL", () => {
+    const routes = createRoutes({
+      pages: {
+        "(admin)/dashboard/page.tsx": loader("dashboard"),
+      },
+    });
+
+    const matches = matchRoutes(routes, "/dashboard");
+    assert.equal(matches?.at(-1)?.route.path, "dashboard");
+    assert.equal(matchRoutes(routes, "/admin/dashboard"), null);
   });
 
   test("rejects duplicate routes created by route groups", () => {
@@ -265,6 +293,32 @@ describe("route generator", () => {
       routes[0].children[0].children[0].element.type,
       React.Suspense,
     );
+
+    const dashboardMissing = matchRoutes(routes, "/dashboard/missing");
+    assert.deepEqual(
+      dashboardMissing?.map(({ route }) => route.path ?? route.index),
+      ["/", "dashboard", "*"],
+    );
+    assert.equal(matchRoutes(routes, "/unknown")?.at(-1)?.route.path, "*");
+  });
+
+  test("resolves catch-all pages under layouts", () => {
+    const layout = component("docs-layout");
+    const routes = createRoutes({
+      layouts: {
+        docs: { default: layout },
+      },
+      pages: {
+        "docs/[...slug]/page.tsx": loader("docs"),
+      },
+    });
+
+    const matches = matchRoutes(routes, "/docs/guide/api");
+    assert.deepEqual(matches?.map(({ route }) => route.path ?? route.index), [
+      "docs",
+      "*",
+    ]);
+    assert.equal(matches?.at(-1)?.params["*"], "guide/api");
   });
 
   test("keeps only page entries supplied by the glob", () => {

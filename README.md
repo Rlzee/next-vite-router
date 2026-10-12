@@ -302,7 +302,12 @@ pnpm exec tsc -p test/fixture/tsconfig.json --noEmit
 pnpm run test:local
 ```
 
-The route matrix lives in [`test/routes.test.js`](./test/routes.test.js).
+The route matrix lives in [`test/routes.test.js`](./test/routes.test.js) and
+includes React Router `matchRoutes` assertions for dynamic parameters, route
+groups, nested `not-found.tsx` fallbacks, and catch-all pages under layouts.
+`test/test-route-types.js` covers generated TypeScript declarations and HMR
+updates, while `test/test-compatibility.js` checks the supported dependency
+ranges and generated production bootstrap.
 
 ## License
 
