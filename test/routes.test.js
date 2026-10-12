@@ -162,6 +162,22 @@ describe("route generator", () => {
     );
   });
 
+  test("rejects dynamic collisions across groups omitted from the URL", () => {
+    assert.throws(
+      () => assertNoDuplicateRoutes([
+        "(app)/(admin)/users/[id]/page.tsx",
+        "(app)/(marketing)/users/[slug]/page.tsx",
+      ]),
+      {
+        message: [
+          'Ambiguous route pattern "/users/:param" detected:',
+          "  (app)/(admin)/users/[id]/page.tsx",
+          "  (app)/(marketing)/users/[slug]/page.tsx",
+        ].join("\n"),
+      },
+    );
+  });
+
   test("rejects dynamic routes with different parameter names", () => {
     assert.throws(
       () => assertNoDuplicateRoutes([
