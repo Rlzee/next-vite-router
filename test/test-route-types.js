@@ -40,7 +40,7 @@ assert.match(virtualModule, /import\.meta\.glob\(["']\/src\/app\/\*\*\/layout\.t
 assert.match(virtualModule, /import\.meta\.hot\.accept\(\(\) => \{\s*routes = undefined;/);
 
 const tscPath = path.resolve("node_modules", "typescript", "bin", "tsc");
-const runTypeScript = (filePath) => {
+const runTypeScript = (filePath, declarationFiles = [declarationPath]) => {
   const result = spawnSync(process.execPath, [
     tscPath,
     "--noEmit",
@@ -55,7 +55,7 @@ const runTypeScript = (filePath) => {
     "--jsx",
     "react-jsx",
     filePath,
-    declarationPath,
+    ...declarationFiles,
   ], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stdout + result.stderr);
 };
@@ -160,6 +160,26 @@ try {
   assert.match(customDeclaration, /\| "\/"/);
   assert.match(customDeclaration, /\| "\/users"/);
   assert.match(customDeclaration, /\| "\/users\/:id"/);
+  const customTypesPath = path.join(customProjectRoot, "src", "custom-route-types.ts");
+  const customDeclarationPath = path.join(
+    customProjectRoot,
+    "src",
+    "virtual-next-vite-router.d.ts",
+  );
+  fs.writeFileSync(customTypesPath, `
+import type { RouteParams, RoutePath } from "virtual:next-vite-router";
+
+const user = "/users/:id" satisfies RoutePath;
+const params: RouteParams<typeof user> = { id: "123" };
+
+void params;
+`, "utf8");
+  try {
+    runTypeScript(customTypesPath, [customDeclarationPath]);
+  } finally {
+    fs.rmSync(customTypesPath, { force: true });
+  }
+  console.log("✅ Custom route names compile with generated types");
   assert.match(
     customVirtualModule,
     /import\.meta\.glob\(["']\/src\/routes\/\*\*\/index\.tsx["']\)/,
