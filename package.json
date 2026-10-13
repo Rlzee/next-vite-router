@@ -11,12 +11,24 @@
   },
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./plugin": {
-      "import": "./dist/plugin.js",
-      "types": "./dist/plugin.d.ts"
+      "import": {
+        "types": "./dist/plugin.d.ts",
+        "default": "./dist/plugin.js"
+      },
+      "require": {
+        "types": "./dist/plugin.d.cts",
+        "default": "./dist/plugin.cjs"
+      }
     }
   },
   "files": [
@@ -26,7 +38,7 @@
   ],
   "scripts": {
     "dev": "vite build --watch",
-    "build": "vite build && vite build -c vite.config.cli.ts",
+    "build": "vite build && vite build -c vite.config.cli.ts && node -e \"import fs from 'node:fs'; for (const f of ['index','plugin']) fs.copyFileSync('dist/'+f+'.d.ts','dist/'+f+'.d.cts')\"",
     "test:local": "node test/test-package.js",
     "test:routes": "node test/test-route-types.js",
     "test:generator": "node --test test/routes.test.js",
