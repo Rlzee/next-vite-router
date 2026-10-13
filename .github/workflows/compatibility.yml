@@ -6,7 +6,7 @@ on:
 
 jobs:
   vite-react-router:
-    name: React ${{ matrix.react }} / Router ${{ matrix.router }} / Vite ${{ matrix.vite }}
+    name: React ${{ matrix.react }} / Router ${{ matrix.router }} / Vite ${{ matrix.vite }} / ${{ matrix.package_type }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -14,6 +14,12 @@ jobs:
         react: ["18.3.1", "19.2.0"]
         router: ["6.30.6", "7.18.4"]
         vite: ["5.4.21", "6.1.0", "7.2.2", "8.0.0"]
+        package_type: ["module"]
+        include:
+          - react: "18.3.1"
+            router: "6.30.6"
+            vite: "5.4.21"
+            package_type: commonjs
 
     steps:
       - uses: actions/checkout@v4
@@ -41,10 +47,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/compat-app/src/app"
+          if [ "${{ matrix.package_type }}" = "module" ]; then
+            PACKAGE_TYPE_FIELD='"type": "module",'
+          else
+            PACKAGE_TYPE_FIELD=''
+          fi
           cat > "$RUNNER_TEMP/compat-app/package.json" <<EOF
           {
             "private": true,
-            "type": "module",
+            $PACKAGE_TYPE_FIELD
             "dependencies": {
               "next-vite-router": "file:$PACKAGE_TARBALL",
               "react": "${{ matrix.react }}",

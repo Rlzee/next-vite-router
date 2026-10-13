@@ -31,6 +31,10 @@ export default defineConfig({
 });
 ```
 
+The plugin ships both ESM and CJS, so this works when `package.json` has no
+`"type": "module"` (Vite 5 loads `vite.config.ts` with `require()` in that
+case). You can also rename the file to `vite.config.mts` to force ESM.
+
 Create your route tree:
 
 ```text

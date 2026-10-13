@@ -9,7 +9,9 @@ export default defineConfig({
         index: resolve(__dirname, 'src/index.ts'),
         plugin: resolve(__dirname, 'src/plugin/index.plugin.ts'),
       },
-      formats: ['es']
+      formats: ['es', 'cjs'],
+      fileName: (format, entryName) =>
+        `${entryName}.${format === 'es' ? 'js' : 'cjs'}`,
     },
     rollupOptions: {
       external: [
@@ -20,6 +22,9 @@ export default defineConfig({
         'node:fs',
         'node:path',
       ],
+      output: {
+        exports: 'named',
+      },
     }
   },
   plugins: [
