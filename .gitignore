@@ -38,6 +38,9 @@ coverage/
 *.tgz
 *.cache
 
-# Vite plugin dts output (if used separately)
-# dts outputs to dist by default, already ignored above
+# Generated route type declarations (written by the Vite plugin)
+/src/virtual-next-vite-router.d.ts
+/test/fixture/src/virtual-next-vite-router.d.ts
 examples/src/virtual-next-vite-router.d.ts
+# Temporary project dirs created by the route-types test
+test/route-types-*/

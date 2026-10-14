@@ -7,41 +7,8 @@ import { spawnSync } from "node:child_process";
 import { nextViteRouter } from "../dist/plugin.js";
 import { buildRouteTree } from "../dist/index.js";
 
-const projectRoot = path.resolve("test/fixture");
-const declarationPath = path.join(projectRoot, "src", "virtual-next-vite-router.d.ts");
-
-const plugin = nextViteRouter({
-  pagesDir: "src/app",
-});
-
-plugin.configResolved({ root: projectRoot });
-
-const declaration = fs.readFileSync(declarationPath, "utf8");
-const virtualModule = plugin.load("\0virtual:next-vite-router");
-
-assert.match(declaration, /export type RoutePath =/);
-assert.match(declaration, /\| "\/"/);
-assert.match(declaration, /\| "\/users"/);
-assert.match(declaration, /\| "\/users\/:id"/);
-assert.match(declaration, /\| "\/posts\/:slug"/);
-assert.match(declaration, /\| "\/blog\/\*"/);
-assert.match(declaration, /\| "\/docs\/\*"/);
-assert.match(declaration, /\| "\/docs"/);
-assert.doesNotMatch(declaration, /marketing/);
-assert.match(declaration, /id: string;/);
-assert.match(declaration, /slug: string;/);
-assert.match(declaration, /segments\?: string;/);
-assert.match(declaration, /export function Router/);
-assert.match(declaration, /export \{ Link, useRoutes \}/);
-assert.match(virtualModule, /import \{ Link, useRoutes \} from 'react-router-dom'/);
-assert.match(virtualModule, /routes \?\?= generateRoutes\(\)/);
-assert.match(virtualModule, /import\.meta\.glob\(["']\/src\/app\/\*\*\/page\.tsx["']\)/);
-assert.match(virtualModule, /import\.meta\.glob\(["']\/src\/app\/\*\*\/not-found\.tsx["']\)/);
-assert.match(virtualModule, /import\.meta\.glob\(["']\/src\/app\/\*\*\/layout\.tsx["'], \{ eager: true \}\)/);
-assert.match(virtualModule, /import\.meta\.hot\.accept\(\(\) => \{\s*routes = undefined;/);
-
 const tscPath = path.resolve("node_modules", "typescript", "bin", "tsc");
-const runTypeScript = (filePath, declarationFiles = [declarationPath]) => {
+const runTypeScript = (filePath, declarationFiles) => {
   const result = spawnSync(process.execPath, [
     tscPath,
     "--noEmit",
@@ -61,10 +28,52 @@ const runTypeScript = (filePath, declarationFiles = [declarationPath]) => {
   assert.equal(result.status, 0, result.stdout + result.stderr);
 };
 
-runTypeScript(path.join(projectRoot, "src", "route-types.ts"));
+// The generated route declaration must never be written into a tracked source
+// folder, so copy the read-only fixture into a temporary project directory and
+// run everything against that copy. The temp dir lives under `test/` so that
+// TypeScript still resolves `node_modules` from the repo root and the fixture's
+// relative `../../../dist/...` imports keep pointing at the built library.
+const fixtureSource = path.resolve("test", "fixture");
+const projectRoot = fs.mkdtempSync(path.join(path.resolve("test"), "route-types-"));
+const declarationPath = path.join(projectRoot, "src", "virtual-next-vite-router.d.ts");
 
-const invalidTypesPath = path.join(projectRoot, "src", "invalid-route-types.ts");
-fs.writeFileSync(invalidTypesPath, `
+try {
+  fs.cpSync(fixtureSource, projectRoot, { recursive: true });
+
+  const plugin = nextViteRouter({
+    pagesDir: "src/app",
+  });
+
+  plugin.configResolved({ root: projectRoot });
+
+  const declaration = fs.readFileSync(declarationPath, "utf8");
+  const virtualModule = plugin.load("\0virtual:next-vite-router");
+
+  assert.match(declaration, /export type RoutePath =/);
+  assert.match(declaration, /\| "\/"/);
+  assert.match(declaration, /\| "\/users"/);
+  assert.match(declaration, /\| "\/users\/:id"/);
+  assert.match(declaration, /\| "\/posts\/:slug"/);
+  assert.match(declaration, /\| "\/blog\/\*"/);
+  assert.match(declaration, /\| "\/docs\/\*"/);
+  assert.match(declaration, /\| "\/docs"/);
+  assert.doesNotMatch(declaration, /marketing/);
+  assert.match(declaration, /id: string;/);
+  assert.match(declaration, /slug: string;/);
+  assert.match(declaration, /segments\?: string;/);
+  assert.match(declaration, /export function Router/);
+  assert.match(declaration, /export \{ Link, useRoutes \}/);
+  assert.match(virtualModule, /import \{ Link, useRoutes \} from 'react-router-dom'/);
+  assert.match(virtualModule, /routes \?\?= generateRoutes\(\)/);
+  assert.match(virtualModule, /import\.meta\.glob\(["']\/src\/app\/\*\*\/page\.tsx["']\)/);
+  assert.match(virtualModule, /import\.meta\.glob\(["']\/src\/app\/\*\*\/not-found\.tsx["']\)/);
+  assert.match(virtualModule, /import\.meta\.glob\(["']\/src\/app\/\*\*\/layout\.tsx["'], \{ eager: true \}\)/);
+  assert.match(virtualModule, /import\.meta\.hot\.accept\(\(\) => \{\s*routes = undefined;/);
+
+  runTypeScript(path.join(projectRoot, "src", "route-types.ts"), [declarationPath]);
+
+  const invalidTypesPath = path.join(projectRoot, "src", "invalid-route-types.ts");
+  fs.writeFileSync(invalidTypesPath, `
 import type { RouteParams, RoutePath } from "virtual:next-vite-router";
 import type { RouterConfig } from "../../../dist/index.js";
 
@@ -82,15 +91,18 @@ void missingParam;
 void extraParam;
 void invalidConfig;
 `, "utf8");
-try {
-  runTypeScript(invalidTypesPath);
-} finally {
-  fs.rmSync(invalidTypesPath, { force: true });
-}
+  try {
+    runTypeScript(invalidTypesPath, [declarationPath]);
+  } finally {
+    fs.rmSync(invalidTypesPath, { force: true });
+  }
 
-console.log("✅ Route declaration generated");
-console.log(`   ${declarationPath}`);
-console.log("✅ Static, dynamic, and grouped routes verified");
+  console.log("✅ Route declaration generated");
+  console.log(`   ${declarationPath}`);
+  console.log("✅ Static, dynamic, and grouped routes verified");
+} finally {
+  fs.rmSync(projectRoot, { recursive: true, force: true });
+}
 
 for (const invalidDirectory of ["compare/[id]/[id]", "users/[foo-bar]", "users/[1id]"]) {
   const invalidRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-invalid-"));
