@@ -33,6 +33,19 @@ function RouteLoadingFallback() {
 }
 
 /**
+ * Clear the module-level lazy component cache.
+ *
+ * `lazyComponentCache` is a package-wide singleton keyed by route path, so a
+ * `React.lazy` component created in one context (for example a previous test)
+ * is reused whenever another context requests the same key with a different
+ * loader. Exposing an explicit reset keeps that state from leaking, mirroring
+ * `clearMiddlewares` for the middleware registry.
+ */
+export function clearLazyCache(): void {
+  lazyComponentCache.clear();
+}
+
+/**
  * Create a lazy element wrapped with Suspense and apply middlewares
  * @param loader - Function that loads the component
  * @param cacheKey - Unique key for the cache

@@ -2,6 +2,47 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.2.5] - 2026-10-14
+
+### Added
+
+- Shipped a CommonJS build of the Vite plugin (`next-vite-router/plugin`) so
+  `vite.config.*` files load under Vite 5 without a `type: "module"` package.
+- Exposed `clearLazyCache` and `resetRouterConfig` to reset the package's
+  module-level singletons (the lazy component cache and the router config),
+  mirroring the existing `clearMiddlewares`.
+
+### Changed
+
+- Normalized the `pagesDir` option so `./src/app`, `src\app`, and `src/app/`
+  behave identically across the emitted glob, the runtime base, and the
+  generated TypeScript declarations.
+
+### Fixed
+
+- Preserved route folders whose name matches the pages directory (for example
+  an `app` route under `pagesDir: "app"`), which previously collapsed onto `/`.
+- Resolved the lazy loading fallback at render time, so `configureRouter`
+  changes made after `generateRoutes()` are now honored.
+- Removed the stray committed `virtual-next-vite-router.d.ts` declarations; the
+  file is now generated only where the plugin runs and is git-ignored.
+- Set `package.json` `repository.url` to the full
+  `git+https://github.com/…/next-vite-router.git` form (publint suggestion).
+
+### Tests
+
+- Ran the unit test suites on every pull request through a dedicated
+  `unit-tests` CI job, driven by a single `pnpm test` script that
+  `prepublishOnly` now reuses.
+- Isolated the route-types test in a temporary directory so it no longer writes
+  generated declarations into tracked source folders.
+- Reset every module singleton between route-generator tests to stop state
+  leaking through the shared lazy cache.
+
+### Documentation
+
+- Clarified React Router integration and data-loading usage in the README.
+
 ## [1.2.4] - 2026-10-12
 
 ### Added
@@ -185,4 +226,7 @@ No unreleased changes.
 [1.1.1]: https://github.com/Rlzee/next-vite-router/commit/185f3f3
 [1.2.0]: https://github.com/Rlzee/next-vite-router/releases/tag/v1.2.0
 [1.2.1]: https://github.com/Rlzee/next-vite-router/releases/tag/v1.2.1
-[1.2.2]: https://github.com/Rlzee/next-vite-router/compare/v1.2.1...HEAD
+[1.2.2]: https://github.com/Rlzee/next-vite-router/compare/v1.2.1...v1.2.2
+[1.2.3]: https://github.com/Rlzee/next-vite-router/releases/tag/v1.2.3
+[1.2.4]: https://github.com/Rlzee/next-vite-router/releases/tag/v1.2.4
+[1.2.5]: https://github.com/Rlzee/next-vite-router/compare/v1.2.4...v1.2.5

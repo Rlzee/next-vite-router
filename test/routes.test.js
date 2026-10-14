@@ -7,7 +7,9 @@ import {
   buildRouteTree,
   assertNoDuplicateRoutes,
   clearMiddlewares,
+  clearLazyCache,
   configureRouter,
+  resetRouterConfig,
   registerMiddleware,
   treeToRoutes,
 } from "../dist/index.js";
@@ -35,8 +37,13 @@ function routeShape(routes) {
 }
 
 beforeEach(() => {
+  // Reset every module-level singleton so state cannot leak between tests:
+  // the middleware registry, the router configuration, and the lazy component
+  // cache (previously unreset, so a shared route key reused a stale
+  // React.lazy component from an earlier test).
   clearMiddlewares();
-  configureRouter({ enableLazyLoading: true, loadingFallback: undefined });
+  resetRouterConfig();
+  clearLazyCache();
 });
 
 describe("route generator", () => {
