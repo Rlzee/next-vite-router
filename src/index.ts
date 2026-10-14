@@ -9,7 +9,7 @@ export { treeToRoutes } from './routes/converter';
 export { registerMiddleware, clearMiddlewares } from './middleware/index.middleware';
 
 // Config
-export { configureRouter } from './config/index.config';
+export { configureRouter, resetRouterConfig } from './config/index.config';
 
 // Types
 export type {
@@ -28,6 +28,6 @@ export {
 } from './utils/path';
 export type { RouteFileOptions } from './utils/path';
 export type { RouteSegment } from './utils/path';
-export { createLazyElement } from './utils/lazy';
+export { createLazyElement, clearLazyCache } from './utils/lazy';
 export { useParams } from './router-params';
 export { CatchAllParamProvider } from './router-params-context';
