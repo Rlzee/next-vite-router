@@ -92,10 +92,12 @@ npm run dev
 
 ## Use React Router directly
 
-`Router` is only a convenience wrapper around `useRoutes(routes)`. Routes are
-generated lazily on the first render, so calls to `configureRouter` and
-`registerMiddleware` made during application setup are applied before route
-elements are created. You can keep using React Router APIs:
+`Router` is only a convenience wrapper around `useRoutes(routes)`. The
+lazy-loading behavior and `loadingFallback` configured through `configureRouter`
+are read at render time, so they take effect even when `generateRoutes()` runs
+at module scope before application setup finishes. Register middleware with
+`registerMiddleware` *before* calling `generateRoutes()`, because route elements
+are wrapped while the tree is built. You can keep using React Router APIs:
 
 ```tsx
 import {
@@ -213,6 +215,9 @@ configureRouter({
   loadingFallback: () => <div>Loading route...</div>,
 });
 ```
+
+The fallback is resolved when a route suspends during render, so the order of
+`configureRouter` relative to `generateRoutes()` does not matter.
 
 `enableLazyLoading: false` is available for compatibility and testing. It does
 not turn Vite's asynchronous imports into synchronous imports.

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test, describe, beforeEach } from "node:test";
 import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { matchRoutes } from "react-router-dom";
 import {
   buildRouteTree,
@@ -531,18 +532,35 @@ describe("route generator", () => {
     ]);
   });
 
-  test("creates lazy route elements with and without the loading fallback", () => {
-    let routes = createRoutes({
+  test("creates lazy route elements behind a Suspense boundary", () => {
+    const routes = createRoutes({
       pages: { "lazy/page.tsx": loader("lazy") },
     });
     assert.equal(routes[0].element.type, React.Suspense);
     assert.equal(typeof routes[0].element.props.fallback.type, "function");
+    // Default fallback renders an empty div.
+    assert.equal(
+      renderToStaticMarkup(routes[0].element.props.fallback),
+      "<div></div>",
+    );
+  });
+
+  test("reads configureRouter at render time, after routes are generated", () => {
+    // Reproduces the module-level `generateRoutes()` ordering: routes are built
+    // before the app calls `configureRouter`, yet the fallback must apply.
+    const routes = createRoutes({
+      pages: { "late/page.tsx": loader("late") },
+    });
+
+    configureRouter({
+      loadingFallback: () => React.createElement("p", null, "Loading…"),
+    });
+    assert.equal(
+      renderToStaticMarkup(routes[0].element.props.fallback),
+      "<p>Loading…</p>",
+    );
 
     configureRouter({ enableLazyLoading: false });
-    routes = createRoutes({
-      pages: { "direct/page.tsx": loader("direct") },
-    });
-    assert.equal(routes[0].element.type, React.Suspense);
-    assert.equal(routes[0].element.props.fallback, null);
+    assert.equal(renderToStaticMarkup(routes[0].element.props.fallback), "");
   });
 });
