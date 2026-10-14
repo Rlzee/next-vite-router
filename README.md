@@ -4,7 +4,7 @@ File-based routing for React + Vite.
 
 Define routes with folders and let the package generate the
 [React Router](https://reactrouter.com/) `RouteObject[]`. It does not replace
-React Router, navigation, history, loaders, or application state.
+React Router, navigation, history, or application state.
 
 ## Start here
 
@@ -121,10 +121,18 @@ export default function App() {
 }
 ```
 
-Use `useNavigate`, loaders, actions, and other React Router APIs from
-`react-router-dom`. The package `useParams` hook is also available from the
-virtual module and maps catch-all names such as `slug`. The package does not
-create competing navigation or data-loading APIs.
+Keep using React Router's navigation and hooks from `react-router-dom`
+(`useNavigate`, `useLocation`, `Link`, `Outlet`). For parameters, import
+`useParams` from the virtual module instead of `react-router-dom`: dynamic
+`[id]` segments work with either hook, but named catch-all segments
+(`[...slug]`, `[[...slug]]`) are only surfaced as `slug` through the package
+`useParams`. React Router's own `useParams` returns them under `params["*"]`.
+
+The generated `RouteObject[]` carries page, layout, and not-found elements only.
+There is no file convention that produces React Router route `loader` or
+`action` functions, and those data APIs run only under a data router
+(`createBrowserRouter` + `RouterProvider`), not under `BrowserRouter` with
+`useRoutes`. Fetch data inside your page components instead.
 
 ## File conventions
 
