@@ -5,6 +5,30 @@ on:
   pull_request:
 
 jobs:
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install package dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build package
+        run: pnpm run build
+
+      - name: Run unit tests
+        run: pnpm run test
+
   vite-react-router:
     name: React ${{ matrix.react }} / Router ${{ matrix.router }} / Vite ${{ matrix.vite }} / ${{ matrix.package_type }}
     runs-on: ubuntu-latest
