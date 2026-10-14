@@ -345,6 +345,52 @@ describe("route generator", () => {
       );
     });
 
+    test("strips the pages directory only once at the root", () => {
+      // A nested folder named like pagesDir must survive the prefix strip.
+      assert.equal(
+        extractRoutePath("/app/docs/app/page.tsx", { pagesDir: "app" }),
+        "docs/app",
+      );
+      assert.equal(extractRoutePath("/app/page.tsx", { pagesDir: "app" }), "");
+      assert.equal(
+        extractRoutePath("/src/app/docs/app/page.tsx", { pagesDir: "src/app" }),
+        "docs/app",
+      );
+    });
+
+    test("strips only the first app/pages root marker without pagesDir", () => {
+      assert.equal(
+        extractRoutePath("../../pages/docs/pages/page.tsx"),
+        "docs/pages",
+      );
+      assert.equal(extractRoutePath("app/blog/app/page.tsx"), "blog/app");
+    });
+
+    test("normalizes relative pagesDir spellings", () => {
+      // `./`, leading `/`, trailing `/`, and Windows separators must all resolve
+      // to the same root-relative base and match Vite glob keys.
+      const key = "/src/app/docs/app/page.tsx";
+      for (const pagesDir of ["src/app", "./src/app", "/src/app", "src/app/", "src\\app", ".\\src\\app"]) {
+        assert.equal(extractRoutePath(key, { pagesDir }), "docs/app", pagesDir);
+        assert.equal(extractRoutePath("/src/app/page.tsx", { pagesDir }), "", pagesDir);
+      }
+    });
+
+    test("does not treat a route as a duplicate when a folder matches pagesDir", () => {
+      // Runtime glob keys and generated types must agree on /docs/app.
+      assert.doesNotThrow(() =>
+        buildRouteTree(
+          {
+            "/app/page.tsx": loader("home"),
+            "/app/docs/app/page.tsx": loader("docs-app"),
+          },
+          {},
+          {},
+          { pagesDir: "app" },
+        ),
+      );
+    });
+
   test("supports nested layouts, layout-only nodes, and not-found routes", () => {
     const rootLayout = component("root");
     const adminLayout = component("admin");

@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { nextViteRouter } from "../dist/plugin.js";
+import { buildRouteTree } from "../dist/index.js";
 
 const projectRoot = path.resolve("test/fixture");
 const declarationPath = path.join(projectRoot, "src", "virtual-next-vite-router.d.ts");
@@ -200,6 +201,70 @@ void params;
 } finally {
   fs.rmSync(customProjectRoot, { recursive: true, force: true });
 }
+
+const nestedAppRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-nested-"));
+const nestedPagesRoot = path.join(nestedAppRoot, "app", "docs", "app");
+fs.mkdirSync(nestedPagesRoot, { recursive: true });
+fs.writeFileSync(path.join(nestedAppRoot, "app", "page.tsx"), "");
+fs.writeFileSync(path.join(nestedPagesRoot, "page.tsx"), "");
+try {
+  const nestedPlugin = nextViteRouter({ pagesDir: "app" });
+  nestedPlugin.configResolved({ root: nestedAppRoot });
+
+  const nestedDeclaration = fs.readFileSync(
+    path.join(nestedAppRoot, "virtual-next-vite-router.d.ts"),
+    "utf8",
+  );
+  assert.match(nestedDeclaration, /\| "\/"/);
+  assert.match(nestedDeclaration, /\| "\/docs\/app"/);
+
+  const nestedTree = buildRouteTree(
+    {
+      "/app/page.tsx": () => Promise.resolve({ default: () => null }),
+      "/app/docs/app/page.tsx": () => Promise.resolve({ default: () => null }),
+    },
+    {},
+    {},
+    { pagesDir: "app" },
+  );
+  assert.ok(nestedTree.page, "root page should be preserved");
+  assert.ok(
+    nestedTree.children.get("docs")?.children.get("app")?.page,
+    "docs/app route should exist as a distinct page, not collapse to /",
+  );
+} finally {
+  fs.rmSync(nestedAppRoot, { recursive: true, force: true });
+}
+console.log("✅ Nested folder matching pagesDir stays consistent between types and runtime");
+
+const relativePagesDirRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-relative-"));
+const relativeAppRoot = path.join(relativePagesDirRoot, "src", "app", "docs", "app");
+fs.mkdirSync(relativeAppRoot, { recursive: true });
+fs.writeFileSync(path.join(relativePagesDirRoot, "src", "app", "page.tsx"), "");
+fs.writeFileSync(path.join(relativeAppRoot, "page.tsx"), "");
+try {
+  // `./src/app` must behave identically to `src/app`: the emitted glob and the
+  // runtime base are normalized to the root-relative form Vite reports.
+  const relativePlugin = nextViteRouter({ pagesDir: "./src/app" });
+  relativePlugin.configResolved({ root: relativePagesDirRoot });
+
+  const relativeVirtualModule = relativePlugin.load("\0virtual:next-vite-router");
+  assert.match(
+    relativeVirtualModule,
+    /import\.meta\.glob\(["']\/src\/app\/\*\*\/page\.tsx["']\)/,
+  );
+  assert.match(relativeVirtualModule, /"pagesDir":"src\/app"/);
+
+  const relativeDeclaration = fs.readFileSync(
+    path.join(relativePagesDirRoot, "src", "virtual-next-vite-router.d.ts"),
+    "utf8",
+  );
+  assert.match(relativeDeclaration, /\| "\/"/);
+  assert.match(relativeDeclaration, /\| "\/docs\/app"/);
+} finally {
+  fs.rmSync(relativePagesDirRoot, { recursive: true, force: true });
+}
+console.log("✅ Relative ./ pagesDir spelling is normalized across glob, runtime, and types");
 
 const hmrProjectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-hmr-"));
 const hmrPagesRoot = path.join(hmrProjectRoot, "src", "app");
