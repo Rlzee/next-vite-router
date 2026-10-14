@@ -83,13 +83,25 @@ export type RouteFileOptions = {
  *
  * `pagesDir` may be relative or absolute. The plugin resolves it relative to
  * the Vite project root before passing it here.
+ * The prefix is stripped lazily so it matches the FIRST directory boundary
+ * that equals `pagesDir` (or the leading `app`/`pages` root marker when no
+ * `pagesDir` is supplied). A greedy match would instead consume up to the
+ * LAST such folder, which mangles routes that legitimately contain a nested
+ * folder named like the pages directory (e.g. `app/docs/app/page.tsx`).
  */
 export function extractRoutePath(
   filePath: string,
   { pagesDir, pageFile = "page.tsx", layoutFile = "layout.tsx", notFoundFile = "not-found.tsx" }: RouteFileOptions = {},
 ): string {
   const normalized = filePath.replace(/\\/g, "/");
-  const base = pagesDir?.replace(/\\/g, "/").replace(/^\/|\/$/g, "");
+  // Normalize `pagesDir` to a root-relative POSIX form so relative spellings
+  // like `./src/app`, `src\app`, or `/src/app` all match Vite's root-relative
+  // glob keys (`/src/app/...`). Without this, a `./` (or `.\`) prefix leaks
+  // into the match and the pages directory is never stripped.
+  const base = pagesDir
+    ?.replace(/\\/g, "/")
+    .replace(/^\.\//, "")
+    .replace(/^\/|\/$/g, "");
   const escapedBase = base?.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const fileNames = [pageFile, layoutFile, notFoundFile]
     .map((file) => file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
@@ -98,8 +110,8 @@ export function extractRoutePath(
   return normalized
     .replace(
       base
-        ? new RegExp(`^.*(?:^|/)${escapedBase}/`)
-        : /^.*(?:^|\/)(?:app|pages)\//,
+        ? new RegExp(`^.*?(?:^|/)${escapedBase}/`)
+        : /^.*?(?:^|\/)(?:app|pages)\//,
       "",
     )
     .replace(/\\/g, "/")

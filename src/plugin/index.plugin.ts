@@ -2,6 +2,7 @@ import type { Plugin, ViteDevServer } from "vite";
 import fs from "node:fs";
 import path from "node:path";
 import {
+  extractRoutePath,
   parseRouteSegments,
   routeSegmentToPath,
   type RouteFileOptions,
@@ -55,61 +56,55 @@ function validatePluginOptions(options: Required<NextViteRouterPluginOptions>): 
 }
 
 function normalizePluginPath(value: string): string {
-  return value.replace(/\\/g, "/").replace(/^\/|\/$/g, "");
+  return value
+    .replace(/\\/g, "/")
+    .replace(/^\.\//, "")
+    .replace(/^\/|\/$/g, "");
 }
 
 function collectRoutePaths(
   pagesRoot: string,
-  pageFile: string
+  fileOptions: RouteFileOptions,
+  globPrefix: string,
 ): RouteTypeEntry[] {
+  const pageFile = fileOptions.pageFile ?? "page.tsx";
   const paths = new Map<string, RouteTypeEntry>();
 
-  function visit(directory: string): void {
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-      const entryPath = path.join(directory, entry.name);
+  // Reuse the exact same file -> route derivation as the runtime
+  // (extractRoutePath + parseRouteSegments inside buildRouteTree) so the
+  // generated types can never diverge from the routes React Router builds.
+  for (const globKey of collectPageFiles(pagesRoot, pageFile, globPrefix)) {
+    const routePath = extractRoutePath(globKey, fileOptions);
+    const segments = parseRouteSegments(routePath);
+    const params = segments
+      .filter(
+        (segment): segment is Extract<RouteSegment, { kind: "dynamic" | "catchAll" }> =>
+          segment.kind === "dynamic" || segment.kind === "catchAll",
+      )
+      .map((segment) => ({
+        name: segment.name,
+        optional: segment.kind === "catchAll" && segment.optional,
+      }));
+    const computedPath = routePathFromSegments(segments);
+    paths.set(computedPath, { path: computedPath, params });
 
-      if (entry.isDirectory()) {
-        visit(entryPath);
-      } else if (entry.isFile() && entry.name === pageFile) {
-        const relativeDirectory = path.relative(pagesRoot, directory);
-        const segments = relativeDirectory
-          .split(path.sep)
-          .filter(Boolean);
-        const routeSegments = parseRouteSegments(segments.join("/"));
-        const params = routeSegments
-          .filter(
-            (segment): segment is Extract<RouteSegment, { kind: "dynamic" | "catchAll" }> =>
-              segment.kind === "dynamic" || segment.kind === "catchAll",
-          )
-          .map((segment) => ({
-            name: segment.name,
-            optional: segment.kind === "catchAll" && segment.optional,
-          }));
-        const routePath = routePathFromSegments(routeSegments);
-        paths.set(routePath, { path: routePath, params });
-
-        const lastSegment = routeSegments[routeSegments.length - 1];
-        if (lastSegment?.kind === "catchAll" && lastSegment.optional) {
-          const baseDirectory = segments.slice(0, -1).join(path.sep);
-          const basePath = routePathFromSegments(
-            parseRouteSegments(baseDirectory.split(path.sep).join("/")),
-          );
-          if (!paths.has(basePath)) {
-            paths.set(basePath, { path: basePath, params: [] });
-          }
-        }
+    const lastSegment = segments[segments.length - 1];
+    if (lastSegment?.kind === "catchAll" && lastSegment.optional) {
+      const basePath = routePathFromSegments(segments.slice(0, -1));
+      if (!paths.has(basePath)) {
+        paths.set(basePath, { path: basePath, params: [] });
       }
     }
-  }
-
-  if (fs.existsSync(pagesRoot)) {
-    visit(pagesRoot);
   }
 
   return [...paths.values()].sort((left, right) => left.path.localeCompare(right.path));
 }
 
-function collectPageFiles(pagesRoot: string, pageFile: string): string[] {
+function collectPageFiles(
+  pagesRoot: string,
+  pageFile: string,
+  globPrefix: string,
+): string[] {
   const files: string[] = [];
 
   function visit(directory: string): void {
@@ -118,7 +113,13 @@ function collectPageFiles(pagesRoot: string, pageFile: string): string[] {
       if (entry.isDirectory()) {
         visit(entryPath);
       } else if (entry.isFile() && entry.name === pageFile) {
-        files.push(path.relative(pagesRoot, entryPath));
+        const relative = path.relative(pagesRoot, entryPath).replace(/\\/g, "/");
+        // Match the exact root-relative keys Vite produces for
+        // `import.meta.glob("/<pagesDir>/**/<pageFile>")` so the config-time
+        // traversal feeds extractRoutePath the same input the runtime does.
+        // Passing an already-relative path would let a folder named like
+        // pagesDir (e.g. "app") be stripped again and collapse the route.
+        files.push(`/${globPrefix}/${relative}`);
       }
     }
   }
@@ -179,7 +180,11 @@ export function nextViteRouter(
   } = options;
   validatePluginOptions({ pagesDir, pageFile, layoutFile, notFoundFile });
   const normalizedPagesDir = normalizePluginPath(pagesDir);
-  const fileOptions: RouteFileOptions = { pagesDir, pageFile, layoutFile, notFoundFile };
+  // Use the normalized, root-relative form as the runtime base so the glob
+  // keys Vite emits (`/${normalizedPagesDir}/...`), the config-time
+  // collectPageFiles prefix, and buildRouteTree's extractRoutePath all agree
+  // even when the user writes `./src/app`, `src\app`, or `src/app/`.
+  const fileOptions: RouteFileOptions = { pagesDir: normalizedPagesDir, pageFile, layoutFile, notFoundFile };
 
   const virtualModuleId = "virtual:next-vite-router";
   const resolvedVirtualModuleId = "\0" + virtualModuleId;
@@ -188,7 +193,7 @@ export function nextViteRouter(
   let watchedServer: ViteDevServer | undefined;
   let removeWatcherListeners: (() => void) | undefined;
   function writeRouteTypes(): void {
-    const content = createRouteTypes(collectRoutePaths(pagesRoot, pageFile));
+    const content = createRouteTypes(collectRoutePaths(pagesRoot, fileOptions, normalizedPagesDir));
     fs.writeFileSync(declarationPath, content, "utf-8");
   }
 
@@ -198,8 +203,8 @@ export function nextViteRouter(
       pagesRoot = path.resolve(config.root, pagesDir);
       declarationPath = path.join(path.dirname(pagesRoot), "virtual-next-vite-router.d.ts");
       assertNoRouteConflicts(
-        collectPageFiles(pagesRoot, pageFile),
-        collectPageFiles(pagesRoot, notFoundFile),
+        collectPageFiles(pagesRoot, pageFile, normalizedPagesDir),
+        collectPageFiles(pagesRoot, notFoundFile, normalizedPagesDir),
         fileOptions,
       );
       writeRouteTypes();
@@ -223,8 +228,8 @@ export function nextViteRouter(
 
         try {
           assertNoRouteConflicts(
-            collectPageFiles(pagesRoot, pageFile),
-            collectPageFiles(pagesRoot, notFoundFile),
+            collectPageFiles(pagesRoot, pageFile, normalizedPagesDir),
+            collectPageFiles(pagesRoot, notFoundFile, normalizedPagesDir),
             fileOptions,
           );
         } catch (error) {
@@ -283,7 +288,6 @@ export function nextViteRouter(
         const pagesGlobPath = `/${normalizedPagesDir}/**/${pageFile}`;
         const layoutsGlobPath = `/${normalizedPagesDir}/**/${layoutFile}`;
         const notFoundGlobPath = `/${normalizedPagesDir}/**/${notFoundFile}`;
-        const transformPrefix = `/${normalizedPagesDir}/`;
         return `
 import { buildRouteTree, treeToRoutes, normalizeSegment, createLazyElement, useParams } from 'next-vite-router';
 import { Link, useRoutes } from 'react-router-dom';
@@ -292,17 +296,13 @@ const pagesGlob = import.meta.glob(${JSON.stringify(pagesGlobPath)});
 const layoutsGlob = import.meta.glob(${JSON.stringify(layoutsGlobPath)}, { eager: true });
 const notFoundsGlob = import.meta.glob(${JSON.stringify(notFoundGlobPath)});
 
-const transformPath = (path) => path.replace(${JSON.stringify(transformPrefix)}, '');
-
-const pages = Object.fromEntries(
-  Object.entries(pagesGlob).map(([key, value]) => [transformPath(key), value])
-);
-const layouts = Object.fromEntries(
-  Object.entries(layoutsGlob).map(([key, value]) => [transformPath(key), value])
-);
-const notFounds = Object.fromEntries(
-  Object.entries(notFoundsGlob).map(([key, value]) => [transformPath(key), value])
-);
+// Keep the raw root-relative glob keys. extractRoutePath (via buildRouteTree)
+// is the single place that strips the pagesDir prefix; stripping it here as
+// well would double-remove it and let the prefix regex match a same-named
+// nested folder (e.g. pagesDir "app" turning "app/docs/app" into "/").
+const pages = pagesGlob;
+const layouts = layoutsGlob;
+const notFounds = notFoundsGlob;
 
 export function generateRoutes() {
   const tree = buildRouteTree(pages, layouts, notFounds, ${JSON.stringify(fileOptions)});
