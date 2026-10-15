@@ -13,7 +13,7 @@ assert.equal(peers["react-router-dom"], ">=6 <8");
 assert.equal(peers.vite, ">=5 <9");
 
 const cliSource = fs.readFileSync(
-  path.resolve("src/command/init.ts"),
+  path.resolve("src/command/create.ts"),
   "utf8",
 );
 assert.match(cliSource, /react-router-dom@\^7\.0\.0/);

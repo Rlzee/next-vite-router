@@ -251,7 +251,7 @@ replace React Router.
 For an interactive setup:
 
 ```bash
-npx next-vite-router init
+npx next-vite-router create
 ```
 
 The CLI creates a Vite React project, installs the package and
