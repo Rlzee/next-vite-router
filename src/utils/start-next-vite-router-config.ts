@@ -16,8 +16,6 @@ import { execSync } from "child_process";
 import { detectPackageManager } from "./packageManager";
 import { logger } from "./logger";
 
-const pm = detectPackageManager();
-
 type Props = {
   projectDir?: string;
   src: boolean;
@@ -31,40 +29,42 @@ export function startNextViteRouterConfig({
 }: Props) {
   startViteConfig(projectDir, src);
 
+  // Remove only the Vite template files the generated structure replaces, so
+  // a scaffolded src/ folder is never wiped wholesale. Without a src folder
+  // the generated files live at the root and the scaffolded src/ is unused.
   const srcPath = path.join(projectDir, "src");
-  if (fs.existsSync(srcPath)) {
+  if (src) {
+    for (const entry of [
+      "App.tsx",
+      "App.css",
+      "index.css",
+      "main.tsx",
+      "assets",
+    ]) {
+      const entryPath = path.join(srcPath, entry);
+      if (fs.existsSync(entryPath)) {
+        fs.rmSync(entryPath, { recursive: true, force: true });
+      }
+    }
+  } else if (fs.existsSync(srcPath)) {
     fs.rmSync(srcPath, { recursive: true, force: true });
   }
 
-  // Update tsconfig.json with path aliases
   updateTsConfigJson(projectDir, src);
-
-  // Update tsconfig.app.json
   updateAppTsConfig(projectDir, src);
-
-  // Create virtual-next-vite-router.d.ts
   createVirtualDTS(projectDir, src);
-
-  // Create main.tsx
   createMainTSX(projectDir, src);
-
-  // THEN setup Tailwind if requested (modifies vite.config after next-vite-router)
   if (tailwindcss) {
     logger.info("Setting up Tailwind CSS...");
+    const pm = detectPackageManager();
     const addDevDepsCmd = pm.addDevDepsCommand([
       "tailwindcss",
       "@tailwindcss/vite",
     ]);
     execSync(addDevDepsCmd, { stdio: "inherit", cwd: projectDir });
-
-    // Add Tailwind to vite.config.ts
     addTailwindToViteConfig(projectDir);
   }
-
-  // Create globals.css
   createGlobalsCss({ projectDir, src, tailwind: tailwindcss });
-
-  // Create example structure
   createExampleStructure(projectDir, src, tailwindcss);
 }
 
@@ -78,7 +78,6 @@ export function startViteConfig(projectDir: string, src: boolean) {
   let viteConfigContent = readViteConfig(projectDir);
   if (!viteConfigContent) throw new Error("Vite config empty");
 
-  // Add path imports if not already present
   if (!viteConfigContent.includes('import { resolve }')) {
     viteConfigContent =
       `import { resolve } from "path";\n` +
@@ -96,7 +95,6 @@ export function startViteConfig(projectDir: string, src: boolean) {
       viteConfigContent;
   }
 
-  // Add resolve config with alias
   const resolveConfig = `  resolve: {
     alias: {
       "@": resolve(fileURLToPath(new URL("./${src ? "src" : "."}", import.meta.url))),

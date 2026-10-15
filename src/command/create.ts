@@ -1,19 +1,22 @@
 import { Command } from "commander";
 import { detectPackageManager } from "../utils/packageManager";
 import { execSync } from "child_process";
+import fs from "node:fs";
+import path from "node:path";
 import prompts from "prompts";
 import { logger } from "../utils/logger";
 import { startNextViteRouterConfig } from "../utils/start-next-vite-router-config";
 
-const pm = detectPackageManager();
+// Letters, digits, ".", "_" and "-" only, so the name is safe to embed in the
+// shell commands built below and cannot traverse outside the working directory.
+const PROJECT_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/i;
 
-export const init = new Command()
-  .name("init")
+export const create = new Command()
+  .name("create")
   .description(
-    "Initialize a new Vite project with next-vite-router configuration"
+    "Create a new Vite project with next-vite-router configuration"
   )
   .action(async () => {
-    // Prompt for project name
     const projectNameResponse = await prompts(
       {
         type: "text",
@@ -30,7 +33,21 @@ export const init = new Command()
     );
     const projectName = projectNameResponse.projectName;
 
-    // Prompt for template selection
+    // Guard before touching the filesystem or running any command: create-vite
+    // prints "Operation cancelled" and still exits with code 0 on an existing
+    // directory, which previously let create continue and wipe that folder's
+    // src/ content.
+    if (!PROJECT_NAME_RE.test(projectName)) {
+      logger.error(
+        "Invalid project name (letters, digits, '.', '_' and '-' only)."
+      );
+      process.exit(1);
+    }
+    if (fs.existsSync(path.resolve(projectName))) {
+      logger.error(`Directory "${projectName}" already exists.`);
+      process.exit(1);
+    }
+
     const variantResponse = await prompts(
       {
         type: "select",
@@ -54,7 +71,6 @@ export const init = new Command()
     );
     const variant = variantResponse.template;
 
-    // Prompt for src folder usage
     const srcFolderResponse = await prompts(
       {
         type: "confirm",
@@ -71,7 +87,6 @@ export const init = new Command()
     );
     const useSrc = srcFolderResponse.useSrc;
 
-    // Prompt for Tailwind CSS setup
     const tailwindResponse = await prompts(
       {
         type: "confirm",
@@ -88,21 +103,16 @@ export const init = new Command()
     );
     const useTailwind = tailwindResponse.useTailwind;
 
-    // Create the project using the detected package manager
+    const pm = detectPackageManager();
     const createCommand = pm.createProjectCommand(projectName, variant);
     logger.info(`Creating project "${projectName}" using ${pm.name}...`);
 
-    // Use input option to automatically answer 'n' to the install prompt.
-    execSync(createCommand, {
-      stdio: ["pipe", "inherit", "inherit"],
-      input: "n\n",
-    });
 
-    // Install dependencies manually
+    execSync(createCommand, { stdio: "inherit" });
+
     logger.info("Installing dependencies...");
     execSync(pm.installCommand, { stdio: "inherit", cwd: projectName });
 
-    // Install next-vite-router and react-router-dom as dependencies
     logger.info(
       "Adding next-vite-router and react-router-dom as dependencies..."
     );
@@ -112,7 +122,6 @@ export const init = new Command()
     ]);
     execSync(addDepsCmd, { stdio: "inherit", cwd: projectName });
 
-    // Configure next-vite-router (modifies vite.config)
     logger.info("Configuring next-vite-router in the project...");
     startNextViteRouterConfig({
       projectDir: `./${projectName}`,

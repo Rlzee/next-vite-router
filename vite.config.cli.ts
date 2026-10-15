@@ -10,7 +10,7 @@ export default defineConfig({
   build: {
     lib: {
       entry: resolve(__dirname, "src/cli.ts"),
-      name: "create-next-vite-router",
+      name: "next-vite-router",
       fileName: () => "cli.cjs",
       formats: ["cjs"],
     },
