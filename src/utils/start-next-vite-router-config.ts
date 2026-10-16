@@ -5,6 +5,7 @@ import {
 } from "./config-vite";
 import { updateAppTsConfig } from "./update-app-ts-config";
 import { updateTsConfigJson } from "./update-tsconfig-json";
+import { updateIndexHtml } from "./update-index-html";
 import { createVirtualDTS } from "./create-virtual-dts";
 import { createMainTSX } from "./create-main-tsx";
 import { createGlobalsCss } from "./create-globals-css";
@@ -54,6 +55,7 @@ export function startNextViteRouterConfig({
   updateAppTsConfig(projectDir, src);
   createVirtualDTS(projectDir, src);
   createMainTSX(projectDir, src);
+  updateIndexHtml(projectDir, src);
   if (tailwindcss) {
     logger.info("Setting up Tailwind CSS...");
     const pm = detectPackageManager();
@@ -112,7 +114,12 @@ export function startViteConfig(projectDir: string, src: boolean) {
   const pluginsRegex = /plugins\s*:\s*\[(.*?)\]/s;
   const match = viteConfigContent.match(pluginsRegex);
 
-  const pluginString = "nextViteRouter()";
+  // Without a src folder the pages live in a root-level app/ directory, which
+  // the plugin only scans when pagesDir points there instead of the default
+  // src/app.
+  const pluginString = src
+    ? "nextViteRouter()"
+    : 'nextViteRouter({ pagesDir: "app" })';
 
   if (match) {
     const existing = match[1].trim();
