@@ -17,7 +17,6 @@ export function updateAppTsConfig(projectDir: string, src: boolean) {
   const aliasPath = src ? "./src/*" : "./*";
   tsConfigApp.compilerOptions = {
     ...tsConfigApp.compilerOptions,
-    baseUrl: ".",
     paths: {
       ...tsConfigApp.compilerOptions?.paths,
       "@/*": [aliasPath],

@@ -14,12 +14,11 @@ export function updateTsConfigJson(projectDir: string, src: boolean) {
   const cleanedContent = stripJsonComments(content);
   const tsConfig = JSON.parse(cleanedContent);
 
-  // Update compilerOptions with baseUrl and paths
+  // Update compilerOptions with paths
   if (!tsConfig.compilerOptions) {
     tsConfig.compilerOptions = {};
   }
 
-  tsConfig.compilerOptions.baseUrl = ".";
   tsConfig.compilerOptions.paths = {
     "@/*": [src ? "./src/*" : "./*"],
   };
