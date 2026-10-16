@@ -1,4 +1,4 @@
-import type { Plugin, ViteDevServer } from "vite";
+import type { Logger, Plugin, ViteDevServer } from "vite";
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -190,11 +190,29 @@ export function nextViteRouter(
   const resolvedVirtualModuleId = "\0" + virtualModuleId;
   let pagesRoot = "";
   let declarationPath = "";
+  let viteLogger: Logger | undefined;
   let watchedServer: ViteDevServer | undefined;
   let removeWatcherListeners: (() => void) | undefined;
   function writeRouteTypes(): void {
     const content = createRouteTypes(collectRoutePaths(pagesRoot, fileOptions, normalizedPagesDir));
-    fs.writeFileSync(declarationPath, content, "utf-8");
+    try {
+      // The declaration file sits next to the pages directory, which may not
+      // exist on a misconfigured project; create it instead of letting the
+      // write crash the whole build with an unexplained ENOENT.
+      fs.mkdirSync(path.dirname(declarationPath), { recursive: true });
+      fs.writeFileSync(declarationPath, content, "utf-8");
+    } catch (error) {
+      // Route types only power editor completions, so a failed write degrades
+      // to a warning instead of failing the build or the dev server.
+      const message = `next-vite-router could not write route types to ${declarationPath}: ${
+        error instanceof Error ? error.message : String(error)
+      }`;
+      if (viteLogger) {
+        viteLogger.warn(message);
+      } else {
+        console.warn(message);
+      }
+    }
   }
 
   return {
@@ -202,6 +220,7 @@ export function nextViteRouter(
     configResolved(config) {
       pagesRoot = path.resolve(config.root, pagesDir);
       declarationPath = path.join(path.dirname(pagesRoot), "virtual-next-vite-router.d.ts");
+      viteLogger = config.logger;
       assertNoRouteConflicts(
         collectPageFiles(pagesRoot, pageFile, normalizedPagesDir),
         collectPageFiles(pagesRoot, notFoundFile, normalizedPagesDir),
