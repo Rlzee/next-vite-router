@@ -1,4 +1,4 @@
-import type { ComponentType, ReactElement } from 'react';
+import type { ComponentType } from 'react';
 
 export type RouteModuleLoader = () => Promise<{ default: ComponentType }>;
 
@@ -15,5 +15,3 @@ export type RouterConfig = {
   loadingFallback?: React.ComponentType;
   enableLazyLoading?: boolean;
 }
-
-export type RouteMiddleware = (element: ReactElement) => ReactElement;

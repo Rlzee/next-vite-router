@@ -6,12 +6,7 @@ import {
   parseRouteSegments,
   routeSegmentToPath,
 } from '../utils/index.utils';
-import { applyMiddlewares } from '../middleware/index.middleware';
 import { CatchAllParamProvider } from '../router-params-context';
-
-function applyLayoutMiddleware(path: string, layout: React.ComponentType): React.ReactElement {
-  return applyMiddlewares(path, React.createElement(layout));
-}
 
 function isOptionalCatchAll(segment: string): boolean {
   const parsed = parseRouteSegments(segment)[0];
@@ -42,8 +37,7 @@ function createPageRoute(
       const mod = await page();
       return { default: mod.default };
     },
-    `page:${node.fullPath || nodePath}`,
-    nodePath
+    `page:${node.fullPath || nodePath}`
   );
 
   const routeSegment = parseRouteSegments(node.segment)[0];
@@ -65,7 +59,6 @@ function createNotFoundRoute(node: RouteNode): RouteObject {
     throw new Error(`Route node "${node.fullPath}" has no not-found loader`);
   }
 
-  const routePath = node.fullPath ? `/${node.fullPath}` : "/";
   return {
     path: "*",
     element: createLazyElement(
@@ -74,7 +67,6 @@ function createNotFoundRoute(node: RouteNode): RouteObject {
         return { default: mod.default };
       },
       `notfound:${node.fullPath}`,
-      routePath,
     ),
   };
 }
@@ -84,14 +76,13 @@ function createNotFoundRoutes(node: RouteNode): RouteObject[] {
 }
 
 function createLayoutRoute(
-  nodePath: string,
   nodeSegment: string,
   layout: React.ComponentType,
   children: RouteObject[],
 ): RouteObject {
   return {
     ...(nodeSegment ? { path: nodeSegment } : {}),
-    element: applyLayoutMiddleware(nodePath, layout),
+    element: React.createElement(layout),
     children: children.length > 0 ? children : undefined,
   };
 }
@@ -190,7 +181,7 @@ function createRootRoutes(node: RouteNode): RouteObject[] {
   if (node.layout) {
     return [{
       path: "/",
-      element: applyLayoutMiddleware("/", node.layout),
+      element: React.createElement(node.layout),
       children,
     }];
   }
@@ -232,7 +223,6 @@ export function treeToRoutes(
 
   if (node.layout) {
     return [createLayoutRoute(
-      nodePath,
       isPathless ? "" : nodeSegment,
       node.layout,
       createNodeChildren(node, nodePath),

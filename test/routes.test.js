@@ -6,11 +6,9 @@ import { matchRoutes } from "react-router-dom";
 import {
   buildRouteTree,
   assertNoDuplicateRoutes,
-  clearMiddlewares,
   clearLazyCache,
   configureRouter,
   resetRouterConfig,
-  registerMiddleware,
   treeToRoutes,
 } from "../dist/index.js";
 import { extractRoutePath } from "../dist/index.js";
@@ -38,10 +36,9 @@ function routeShape(routes) {
 
 beforeEach(() => {
   // Reset every module-level singleton so state cannot leak between tests:
-  // the middleware registry, the router configuration, and the lazy component
-  // cache (previously unreset, so a shared route key reused a stale
-  // React.lazy component from an earlier test).
-  clearMiddlewares();
+  // the router configuration and the lazy component cache (previously
+  // unreset, so a shared route key reused a stale React.lazy component from
+  // an earlier test).
   resetRouterConfig();
   clearLazyCache();
 });
@@ -481,37 +478,6 @@ describe("route generator", () => {
     assert.deepEqual(routeShape(treeToRoutes(tree, true)), [
       { path: "my pages", children: [{ path: ":id", children: undefined }] },
     ]);
-  });
-
-  test("applies middleware to matching route paths", () => {
-    const wrapped = Symbol("wrapped");
-    registerMiddleware(/^\/users/, (element) =>
-      React.createElement("section", { "data-test": wrapped }, element),
-    );
-
-    const routes = createRoutes({
-      pages: { "users/[id]/page.tsx": loader("user") },
-    });
-
-    const element = routes[0].children[0].element;
-    assert.equal(element.props["data-test"], wrapped);
-  });
-
-  test("resets global middleware regex state between routes", () => {
-    const wrapped = Symbol("wrapped");
-    registerMiddleware(/\/users/g, (element) =>
-      React.createElement("section", { "data-test": wrapped }, element),
-    );
-
-    const routes = createRoutes({
-      pages: {
-        "users/first/page.tsx": loader("first"),
-        "users/second/page.tsx": loader("second"),
-      },
-    });
-
-    assert.equal(routes[0].children[0].element.props["data-test"], wrapped);
-    assert.equal(routes[0].children[1].element.props["data-test"], wrapped);
   });
 
   test("rejects colliding dynamic parameter names when building routes", () => {

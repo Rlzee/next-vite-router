@@ -95,9 +95,8 @@ npm run dev
 `Router` is only a convenience wrapper around `useRoutes(routes)`. The
 lazy-loading behavior and `loadingFallback` configured through `configureRouter`
 are read at render time, so they take effect even when `generateRoutes()` runs
-at module scope before application setup finishes. Register middleware with
-`registerMiddleware` *before* calling `generateRoutes()`, because route elements
-are wrapped while the tree is built. You can keep using React Router APIs:
+at module scope before application setup finishes. You can keep using React
+Router APIs:
 
 ```tsx
 import {
@@ -230,21 +229,22 @@ The fallback is resolved when a route suspends during render, so the order of
 `enableLazyLoading: false` is available for compatibility and testing. It does
 not turn Vite's asynchronous imports into synchronous imports.
 
-## Optional middleware
+## Auth guards
 
-Prefer layouts for route-scoped behavior. `registerMiddleware` is an optional
-escape hatch for cross-cutting wrappers:
+Protect a subtree with a layout inside a route group: the group name stays out
+of the URL, and the layout decides whether to render its `Outlet`:
 
 ```tsx
-import { registerMiddleware } from "next-vite-router";
+// src/app/(protected)/layout.tsx
+import { Navigate, Outlet } from "react-router-dom";
 
-registerMiddleware(/^\/dashboard/, (element) => (
-  <AuthGuard>{element}</AuthGuard>
-));
+export default function ProtectedLayout() {
+  const isAuthed = useAuth();
+  return isAuthed ? <Outlet /> : <Navigate to="/login" replace />;
+}
 ```
 
-Middleware wraps generated route elements; it does not create routes or
-replace React Router.
+Every page under `src/app/(protected)/` is then guarded by `useAuth()`.
 
 ## CLI
 
@@ -295,7 +295,7 @@ The repository includes a runnable showcase in [`examples/`](./examples/):
 - `basic`
 - `layouts`
 - `dynamic-routes`
-- `middleware`
+- `(protected)`
 - `typed-routes`
 
 Run it from the examples directory:

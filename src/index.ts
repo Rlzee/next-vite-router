@@ -5,9 +5,6 @@ export { assertNoDuplicateRoutes } from './routes/tree';
 export { assertNoRouteConflicts } from './routes/tree';
 export { treeToRoutes } from './routes/converter';
 
-// Middleware
-export { registerMiddleware, clearMiddlewares } from './middleware/index.middleware';
-
 // Config
 export { configureRouter, resetRouterConfig } from './config/index.config';
 
@@ -15,7 +12,6 @@ export { configureRouter, resetRouterConfig } from './config/index.config';
 export type {
   RouterConfig,
   RouteNode,
-  RouteMiddleware,
   RouteModuleLoader,
 } from './types/index.type';
 

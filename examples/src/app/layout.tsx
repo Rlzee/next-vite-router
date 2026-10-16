@@ -8,7 +8,7 @@ export default function RootLayout() {
         <Link to="/basic">Basic</Link>
         <Link to="/layouts">Layouts</Link>
         <Link to="/dynamic-routes/42">Dynamic routes</Link>
-        <Link to="/middleware">Middleware</Link>
+        <Link to="/dashboard">Auth guard</Link>
         <Link to="/typed-routes">Typed routes</Link>
       </nav>
       <hr />

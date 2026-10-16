@@ -1,6 +1,5 @@
 import React, { lazy, Suspense } from "react";
 import { getRouterConfig } from '../config/index.config';
-import { applyMiddlewares } from '../middleware/index.middleware';
 
 const DefaultLoadingFallback = () => React.createElement("div");
 const lazyComponentCache = new Map<string, React.LazyExoticComponent<any>>();
@@ -39,22 +38,20 @@ function RouteLoadingFallback() {
  * `React.lazy` component created in one context (for example a previous test)
  * is reused whenever another context requests the same key with a different
  * loader. Exposing an explicit reset keeps that state from leaking, mirroring
- * `clearMiddlewares` for the middleware registry.
+ * `resetRouterConfig` for the router configuration.
  */
 export function clearLazyCache(): void {
   lazyComponentCache.clear();
 }
 
 /**
- * Create a lazy element wrapped with Suspense and apply middlewares
+ * Create a lazy element wrapped with Suspense
  * @param loader - Function that loads the component
  * @param cacheKey - Unique key for the cache
- * @param routePath - Route path for middlewares
  */
 export function createLazyElement(
   loader: () => Promise<any>,
-  cacheKey: string,
-  routePath?: string
+  cacheKey: string
 ): React.ReactElement {
   let LazyComponent = lazyComponentCache.get(cacheKey);
 
@@ -63,15 +60,9 @@ export function createLazyElement(
     lazyComponentCache.set(cacheKey, LazyComponent);
   }
 
-  const suspenseElement = React.createElement(
+  return React.createElement(
     Suspense,
     { fallback: React.createElement(RouteLoadingFallback) },
     React.createElement(LazyComponent)
   );
-
-  if (routePath) {
-    return applyMiddlewares(routePath, suspenseElement);
-  }
-
-  return suspenseElement;
 }

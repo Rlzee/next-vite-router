@@ -2,11 +2,10 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createRouteGenerator, configureRouter, registerMiddleware } from '../dist/index.js';
+import { createRouteGenerator, configureRouter } from '../dist/index.js';
 
 console.log('✅ createRouteGenerator:', typeof createRouteGenerator);
 console.log('✅ configureRouter:', typeof configureRouter);
-console.log('✅ registerMiddleware:', typeof registerMiddleware);
 
 const packageJson = JSON.parse(
   fs.readFileSync(path.resolve('package.json'), 'utf8'),
