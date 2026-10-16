@@ -2,6 +2,37 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.3.1] - 2026-10-16
+
+### Changed
+
+- Renamed the CLI command from `init` to `create` and the published binary
+  from `create-next-vite-router` to `next-vite-router`; projects are now
+  scaffolded with `npx next-vite-router create`.
+- The `create` command prompts for the project name, template, `src` folder
+  usage, and Tailwind CSS setup before scaffolding.
+
+### Fixed
+
+- Generated TypeScript configs no longer set the deprecated `baseUrl`, so
+  freshly scaffolded projects build again on the TypeScript version installed
+  by the current Vite template; the `@/*` path aliases are preserved.
+- Rejected invalid project names and existing target directories before
+  scaffolding, guarding against `create-vite` exiting 0 on an existing
+  directory and the scaffold then deleting that project's `src/` folder.
+- Scaffold cleanup is limited to the Vite template files it replaces when a
+  `src` folder is used, so unrelated files in `src/` are preserved.
+- CLI errors are logged as a single readable message and exit with code 1
+  instead of surfacing a raw unhandled rejection stack trace.
+- Fixed the no-`src` scaffold mode:
+  - Generated Vite configs target the root-level `app/` directory through
+    `nextViteRouter({ pagesDir: "app" })`.
+  - `index.html` loads the root-level `main.tsx` entry instead of
+    `/src/main.tsx`.
+- Route-type generation creates the declaration directory when missing and
+  warns instead of crashing the build or dev server when the
+  `virtual-next-vite-router.d.ts` file cannot be written.
+
 ## [1.3.0] - 2026-10-14
 
 ### Added
@@ -230,3 +261,4 @@ No unreleased changes.
 [1.2.3]: https://github.com/Rlzee/next-vite-router/releases/tag/v1.2.3
 [1.2.4]: https://github.com/Rlzee/next-vite-router/releases/tag/v1.2.4
 [1.3.0]: https://github.com/Rlzee/next-vite-router/compare/v1.2.4...v1.3.0
+[1.3.1]: https://github.com/Rlzee/next-vite-router/compare/v1.3.0...v1.3.1
