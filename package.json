@@ -29,7 +29,8 @@
         "types": "./dist/plugin.d.cts",
         "default": "./dist/plugin.cjs"
       }
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
