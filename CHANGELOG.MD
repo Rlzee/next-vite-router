@@ -27,6 +27,15 @@ All notable changes to this project are documented in this file.
   argument. Existing calls still execute at runtime, but TypeScript code that
   passes the argument must drop it to compile.
 
+### Changed
+
+- Declared `engines.node` (`>=18`); consumers on an older Node now get a clear
+  warning at install time instead of an obscure runtime error, and the unit
+  tests run across a Node 18, 20, and 22 matrix to back that promise.
+- Exposed `package.json` in the `exports` map, so
+  `require("next-vite-router/package.json")` now resolves instead of throwing
+  `ERR_PACKAGE_PATH_NOT_EXPORTED`.
+
 ### Documentation
 
 - Replaced the "Optional middleware" README section with an "Auth guards"
