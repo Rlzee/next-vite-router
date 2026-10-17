@@ -158,8 +158,8 @@ For the Vite plugin, `pagesDir` is relative to the Vite project root (the
 default is `src/app`). The lower-level route path utility also accepts an
 absolute `pagesDir`, which is useful for custom route generators.
 
-Layouts are the recommended way to add route-scoped navigation, providers, or
-authorization:
+A nested `layout.tsx` wraps its subtree and renders an `Outlet` where the child
+route appears:
 
 ```text
 src/app/
@@ -174,12 +174,16 @@ import { Outlet } from "react-router-dom";
 
 export default function DashboardLayout() {
   return (
-    <AuthGuard>
+    <div>
+      <nav>{/* dashboard-scoped navigation and providers */}</nav>
       <Outlet />
-    </AuthGuard>
+    </div>
   );
 }
 ```
+
+Authorization belongs in the same place; see [Auth guards](#auth-guards) for the
+guard pattern.
 
 The Vite plugin is a Node/Vite integration and should be imported from
 `next-vite-router/plugin`; the main `next-vite-router` entry remains safe for
