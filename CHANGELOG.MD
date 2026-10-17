@@ -2,6 +2,38 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.0.0] - 2026-10-17
+
+### Removed (breaking)
+
+- Removed the optional middleware API. `registerMiddleware`,
+  `clearMiddlewares`, and the `RouteMiddleware` type are no longer exported.
+  Move cross-cutting wrappers such as auth guards into a layout inside a route
+  group:
+
+  ```tsx
+  // src/app/(protected)/layout.tsx
+  import { Navigate, Outlet } from "react-router-dom";
+
+  export default function ProtectedLayout() {
+    const isAuthed = useAuth();
+    return isAuthed ? <Outlet /> : <Navigate to="/login" replace />;
+  }
+  ```
+
+  The route group keeps the guard out of the URL, and every page beneath the
+  layout is protected.
+- `createLazyElement` no longer accepts its optional third `routePath`
+  argument. Existing calls still execute at runtime, but TypeScript code that
+  passes the argument must drop it to compile.
+
+### Documentation
+
+- Replaced the "Optional middleware" README section with an "Auth guards"
+  guide built on layouts and route groups, and swapped the middleware example
+  in `examples/` for a runnable `(protected)` auth-guard demo with a login
+  page.
+
 ## [1.3.1] - 2026-10-16
 
 ### Changed
@@ -262,3 +294,4 @@ No unreleased changes.
 [1.2.4]: https://github.com/Rlzee/next-vite-router/releases/tag/v1.2.4
 [1.3.0]: https://github.com/Rlzee/next-vite-router/compare/v1.2.4...v1.3.0
 [1.3.1]: https://github.com/Rlzee/next-vite-router/compare/v1.3.0...v1.3.1
+[2.0.0]: https://github.com/Rlzee/next-vite-router/compare/v1.3.1...v2.0.0
