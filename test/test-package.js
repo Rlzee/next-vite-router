@@ -12,6 +12,16 @@ const packageJson = JSON.parse(
 );
 
 for (const [entry, conditions] of Object.entries(packageJson.exports)) {
+  // Conditional exports map to an object of conditions; shorthand entries such
+  // as "./package.json" map straight to a file path and carry no conditions.
+  if (typeof conditions !== "object") {
+    assert.match(
+      conditions,
+      /^\.\/.+/,
+      `${entry} must resolve to a local file path`,
+    );
+    continue;
+  }
   assert.equal(
     Object.keys(conditions.import)[0],
     'types',

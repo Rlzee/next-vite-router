@@ -42,7 +42,7 @@
   },
   "scripts": {
     "dev": "vite build --watch",
-    "build": "vite build && vite build -c vite.config.cli.ts && node -e \"import fs from 'node:fs'; for (const f of ['index','plugin']) fs.copyFileSync('dist/'+f+'.d.ts','dist/'+f+'.d.cts')\"",
+    "build": "vite build && vite build -c vite.config.cli.ts && node --input-type=commonjs -e \"const fs = require('node:fs'); for (const f of ['index','plugin']) fs.copyFileSync('dist/'+f+'.d.ts','dist/'+f+'.d.cts')\"",
     "test": "pnpm run test:params && pnpm run test:generator && pnpm run test:routes && pnpm run test:local && pnpm run test:compatibility",
     "test:local": "node test/test-package.js",
     "test:routes": "node test/test-route-types.js",
