@@ -672,4 +672,31 @@ describe("lazy component cache", () => {
     // fresh React.lazy component instead of reusing the earlier call's.
     assert.notEqual(lazyOf(first[0].element), lazyOf(second[0].element));
   });
+
+  test("a generator ignores a loader swapped for an already-cached route", () => {
+    const pages = { "users/page.tsx": loader("A") };
+    const generate = createRouteGenerator(pages, {}, {});
+    const first = lazyOf(generate()[0].element);
+
+    // Replace the loader for the same key and regenerate on the SAME generator.
+    pages["users/page.tsx"] = loader("B");
+    const second = lazyOf(generate()[0].element);
+
+    // The cache hit keeps the original memoized component; loader B is ignored.
+    assert.equal(first, second);
+  });
+
+  test("a fresh generator resolves the swapped loader", () => {
+    const pages = { "users/page.tsx": loader("A") };
+    const generateV1 = createRouteGenerator(pages, {}, {});
+    const oldComponent = lazyOf(generateV1()[0].element);
+
+    pages["users/page.tsx"] = loader("B");
+    const generateV2 = createRouteGenerator(pages, {}, {});
+    const newComponent = lazyOf(generateV2()[0].element);
+
+    // The documented workaround: a new generator owns a new cache, so the
+    // changed source produces a component wrapping the current loader.
+    assert.notEqual(oldComponent, newComponent);
+  });
 });

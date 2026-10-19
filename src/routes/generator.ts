@@ -21,11 +21,20 @@ import type { RouteFileOptions } from '../utils/path';
  * // Then use it
  * const routes = generateCustomRoutes();
  *
+ * Loader stability:
  * The generator owns a single lazy component cache, so repeated calls reuse the
  * memoized `React.lazy` component for each route key. This assumes the supplied
- * sources stay stable for the generator's lifetime: if you swap a loader for the
- * same route between calls, the cached component (old loader) is kept. Create a
- * new generator (or pass a fresh cache) when the sources change.
+ * sources stay stable for the generator's lifetime. If you replace a loader for
+ * a route that was already generated (for example `pages["users/page.tsx"] =
+ * loaderB`), the existing cache hit means the new loader is ignored: the route
+ * keeps resolving the component built from the original loader. When sources
+ * change, build a new generator (it starts from a fresh cache):
+ *
+ * @example
+ * const generateV1 = createRouteGenerator(pages, layouts, notFounds);
+ * // ...later, after swapping a loader in `pages`...
+ * const generateV2 = createRouteGenerator(pages, layouts, notFounds);
+ * const routes = generateV2(); // fresh cache, resolves the current loaders
  */
 export function createRouteGenerator(
   pages: Record<string, () => Promise<any>>,
