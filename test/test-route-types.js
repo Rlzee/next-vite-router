@@ -295,6 +295,37 @@ try {
 }
 console.log("✅ Relative ./ pagesDir spelling is normalized across glob, runtime, and types");
 
+const backslashPagesDirRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-backslash-"));
+const backslashAppRoot = path.join(backslashPagesDirRoot, "src", "app", "docs");
+fs.mkdirSync(backslashAppRoot, { recursive: true });
+fs.writeFileSync(path.join(backslashPagesDirRoot, "src", "app", "page.tsx"), "");
+fs.writeFileSync(path.join(backslashAppRoot, "page.tsx"), "");
+try {
+  // `src\\app` must behave identically to `src/app`. On POSIX, resolving the
+  // raw backslash form points at a folder literally named `src\\app`, so the
+  // filesystem scan would find no pages and the generated types would lose the
+  // routes; the physical pages root is normalized to guard against that.
+  const backslashPlugin = nextViteRouter({ pagesDir: "src\\app" });
+  backslashPlugin.configResolved({ root: backslashPagesDirRoot });
+
+  const backslashVirtualModule = backslashPlugin.load("\0virtual:next-vite-router");
+  assert.match(
+    backslashVirtualModule,
+    /import\.meta\.glob\(["']\/src\/app\/\*\*\/page\.tsx["']\)/,
+  );
+  assert.match(backslashVirtualModule, /"pagesDir":"src\/app"/);
+
+  const backslashDeclaration = fs.readFileSync(
+    path.join(backslashPagesDirRoot, "src", "virtual-next-vite-router.d.ts"),
+    "utf8",
+  );
+  assert.match(backslashDeclaration, /\| "\/"/);
+  assert.match(backslashDeclaration, /\| "\/docs"/);
+} finally {
+  fs.rmSync(backslashPagesDirRoot, { recursive: true, force: true });
+}
+console.log("✅ Backslash pagesDir is normalized to POSIX separators across glob, runtime, and types");
+
 const hmrProjectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-hmr-"));
 const hmrPagesRoot = path.join(hmrProjectRoot, "src", "app");
 fs.mkdirSync(hmrPagesRoot, { recursive: true });

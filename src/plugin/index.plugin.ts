@@ -218,7 +218,7 @@ export function nextViteRouter(
   return {
     name: "next-vite-router",
     configResolved(config) {
-      pagesRoot = path.resolve(config.root, pagesDir);
+      pagesRoot = path.resolve(config.root, normalizedPagesDir);
       declarationPath = path.join(path.dirname(pagesRoot), "virtual-next-vite-router.d.ts");
       viteLogger = config.logger;
       assertNoRouteConflicts(
