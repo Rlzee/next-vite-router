@@ -2,6 +2,60 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.0.1] - 2026-10-19
+
+### Added
+
+- Exported `createLazyCache()` and the `LazyComponentCache` type so route
+  generators can own an explicit `React.lazy` component cache instead of sharing
+  a package-wide singleton.
+
+### Changed
+
+- Isolated the `React.lazy` component cache per route generator. Each
+  `createRouteGenerator()` call, and each standalone `treeToRoutes()` call, now
+  uses its own cache, so two independent generators can no longer collide on the
+  same route key and resolve each other's loaders.
+- `treeToRoutes()` gained an optional trailing `cache` parameter. Existing
+  `treeToRoutes(node, isRoot, currentPath)` calls still work and simply build
+  their own cache, and the same cache instance is threaded through the whole
+  route-tree build.
+- `createLazyElement()` now takes its owning cache as the third argument.
+- `clearLazyCache()` clears the specific cache passed to it. Calling it with no
+  argument is deprecated: there is no shared cache left to reset, so the
+  no-argument form only emits a warning. Because a generator reuses a single
+  cache, swapping a loader for an already-generated route key keeps the memoized
+  component; create a new generator (with a fresh cache) when the sources change.
+
+### Fixed
+
+- Rejected catch-all segments that are not the final route segment (for example
+  `docs/[...slug]/edit/page.tsx`), which previously parsed successfully but
+  generated a route that could never match. The error names the offending file.
+- Resolved the plugin's physical pages root from the normalized `pagesDir`, so a
+  backslash-spelled value such as `src\\app` now works on POSIX instead of
+  scanning a folder literally named `src\\app` and emitting a declaration with no
+  routes.
+
+### Tests
+
+- Added coverage for misplaced required and optional catch-all segments, and for
+  the faulty file named in the error.
+- Added a dedicated suite for the Vite plugin dev-server lifecycle: page
+  creation in an existing folder, deletion, dynamic-segment rename, route
+  conflicts, conflict recovery without a restart, and cancelling a pending full
+  reload when the server closes.
+- Added coverage for the per-generator cache: reuse within one cache, isolation
+  across caches, `clearLazyCache(cache)`, loader swaps ignored by a generator,
+  and a fresh generator resolving the swapped loader.
+- Added a POSIX regression case verifying `pagesDir: "src\\app"` still generates
+  routes.
+
+### Documentation
+
+- Updated README guidance for layout usage and the authorization pattern, and
+  documented the generator's loader-stability contract and cache scoping.
+
 ## [2.0.0] - 2026-10-17
 
 ### Removed (breaking)
@@ -304,3 +358,4 @@ No unreleased changes.
 [1.3.0]: https://github.com/Rlzee/next-vite-router/compare/v1.2.4...v1.3.0
 [1.3.1]: https://github.com/Rlzee/next-vite-router/compare/v1.3.0...v1.3.1
 [2.0.0]: https://github.com/Rlzee/next-vite-router/compare/v1.3.1...v2.0.0
+[2.0.1]: https://github.com/Rlzee/next-vite-router/compare/v2.0.0...v2.0.1
