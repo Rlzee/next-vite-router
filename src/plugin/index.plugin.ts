@@ -75,7 +75,7 @@ function collectRoutePaths(
   // generated types can never diverge from the routes React Router builds.
   for (const globKey of collectPageFiles(pagesRoot, pageFile, globPrefix)) {
     const routePath = extractRoutePath(globKey, fileOptions);
-    const segments = parseRouteSegments(routePath);
+    const segments = parseRouteSegments(routePath, globKey);
     const params = segments
       .filter(
         (segment): segment is Extract<RouteSegment, { kind: "dynamic" | "catchAll" }> =>

@@ -27,12 +27,34 @@ export function routeSegmentToPath(segment: RouteSegment): string {
   return segment.name;
 }
 
-export function parseRouteSegments(routePath: string): RouteSegment[] {
+/**
+ * Parse a route path into normalized segments.
+ *
+ * `source` optionally names the file the path came from so validation errors
+ * can point at the offending file instead of only the derived route path.
+ * Callers that already know the file (the runtime tree builder and the plugin
+ * type generator) pass it; the converter parses single segments and omits it.
+ */
+export function parseRouteSegments(routePath: string, source?: string): RouteSegment[] {
   const segments = routePath ? routePath.split("/").filter(Boolean) : [];
   const parsed: RouteSegment[] = [];
   const parameterNames = new Set<string>();
+  const routeLabel = source ?? (routePath || "/");
+  let catchAllSegment: string | undefined;
 
   for (const segment of segments) {
+    // A catch-all maps to React Router's `*` splat, which consumes the rest of
+    // the path, so nothing can meaningfully follow it. Reject any segment that
+    // appears after one instead of silently generating a route that can never
+    // match (e.g. `docs/[...slug]/edit/page.tsx`).
+    if (catchAllSegment !== undefined) {
+      throw new Error(
+        `Invalid route "${routeLabel}": catch-all segment "${catchAllSegment}" must be the last segment. ` +
+        `The "${segment}" segment that follows it can never match, because React Router's "*" captures the rest of the path. ` +
+        "Move the catch-all to the end of the route or remove the segments after it.",
+      );
+    }
+
     const groupMatch = segment.match(/^\(([^)]+)\)$/);
     const optionalCatchAllMatch = segment.match(/^\[\[\.\.\.(.+)\]\]$/);
     const catchAllMatch = segment.match(/^\[\.\.\.(.+)\]$/);
@@ -56,10 +78,11 @@ export function parseRouteSegments(routePath: string): RouteSegment[] {
       }
       if (parameterNames.has(parameter.name)) {
         throw new Error(
-          `Duplicate route parameter "${parameter.name}" in route "${routePath || "/"}".`,
+          `Duplicate route parameter "${parameter.name}" in route "${routeLabel}".`,
         );
       }
       parameterNames.add(parameter.name);
+      if (parameter.kind === "catchAll") catchAllSegment = segment;
       parsed.push(parameter);
     } else {
       parsed.push({ kind: "static", name: segment });

@@ -11,7 +11,7 @@ import {
   resetRouterConfig,
   treeToRoutes,
 } from "../dist/index.js";
-import { extractRoutePath } from "../dist/index.js";
+import { extractRoutePath, parseRouteSegments } from "../dist/index.js";
 
 const loader = (name) => async () => ({ default: name });
 const component = (name) => function Component() {
@@ -228,6 +228,54 @@ describe("route generator", () => {
           "  docs/[[...rest]]/page.tsx",
         ].join("\n"),
       },
+    );
+  });
+
+  test("allows a required or optional catch-all as the final segment", () => {
+    assert.doesNotThrow(() => parseRouteSegments("docs/[...slug]"));
+    assert.doesNotThrow(() => parseRouteSegments("docs/[[...slug]]"));
+  });
+
+  test("rejects a segment after a required catch-all", () => {
+    assert.throws(
+      () => parseRouteSegments("docs/[...slug]/edit"),
+      /catch-all segment "\[\.\.\.slug\]" must be the last segment/,
+    );
+  });
+
+  test("rejects a segment after an optional catch-all", () => {
+    assert.throws(
+      () => parseRouteSegments("docs/[[...slug]]/edit"),
+      /catch-all segment "\[\[\.\.\.slug\]\]" must be the last segment/,
+    );
+  });
+
+  test("rejects a route group placed after a catch-all", () => {
+    assert.throws(
+      () => parseRouteSegments("docs/[...slug]/(marketing)"),
+      /The "\(marketing\)" segment that follows it can never match/,
+    );
+  });
+
+  test("rejects a misplaced catch-all when building routes", () => {
+    assert.throws(
+      () => createRoutes({
+        pages: { "docs/[...slug]/edit/page.tsx": loader("edit") },
+      }),
+      /catch-all segment "\[\.\.\.slug\]" must be the last segment/,
+    );
+    assert.throws(
+      () => createRoutes({
+        pages: { "docs/[[...slug]]/edit/page.tsx": loader("edit") },
+      }),
+      /catch-all segment "\[\[\.\.\.slug\]\]" must be the last segment/,
+    );
+  });
+
+  test("names the faulty file when a catch-all is misplaced", () => {
+    assert.throws(
+      () => assertNoDuplicateRoutes(["src/app/docs/[...slug]/edit/page.tsx"]),
+      /Invalid route "src\/app\/docs\/\[\.\.\.slug\]\/edit\/page\.tsx"/,
     );
   });
 

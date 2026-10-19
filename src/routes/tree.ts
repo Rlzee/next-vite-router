@@ -20,7 +20,7 @@ function canonicalSegment(segment: ReturnType<typeof parseRouteSegments>[number]
 
 function normalizedRoutePaths(filePath: string, fileOptions?: RouteFileOptions): string[] {
   const routePath = extractRoutePath(filePath, fileOptions);
-  const segments = parseRouteSegments(routePath);
+  const segments = parseRouteSegments(routePath, filePath);
   const canonicalSegments = segments.map(canonicalSegment).filter(Boolean);
   const paths = [
     canonicalSegments.length > 0 ? `/${canonicalSegments.join("/")}` : "/",
@@ -46,7 +46,7 @@ function assertNoCatchAllFallbackCollisions(
 ): void {
   const catchAllRoutes = pageFiles.flatMap((filePath) => {
     const routePath = extractRoutePath(filePath, fileOptions);
-    const segments = parseRouteSegments(routePath);
+    const segments = parseRouteSegments(routePath, filePath);
     const lastSegment = segments[segments.length - 1];
     if (lastSegment?.kind !== "catchAll") {
       return [];

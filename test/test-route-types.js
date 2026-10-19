@@ -121,6 +121,23 @@ for (const invalidDirectory of ["compare/[id]/[id]", "users/[foo-bar]", "users/[
 }
 console.log("✅ Invalid and repeated parameter names rejected");
 
+for (const invalidDirectory of ["docs/[...slug]/edit", "docs/[[...slug]]/edit"]) {
+  const invalidRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-catchall-"));
+  const invalidPagesRoot = path.join(invalidRoot, "src", "app", invalidDirectory);
+  fs.mkdirSync(invalidPagesRoot, { recursive: true });
+  fs.writeFileSync(path.join(invalidPagesRoot, "page.tsx"), "");
+
+  try {
+    assert.throws(
+      () => nextViteRouter().configResolved({ root: invalidRoot }),
+      /catch-all segment .* must be the last segment/,
+    );
+  } finally {
+    fs.rmSync(invalidRoot, { recursive: true, force: true });
+  }
+}
+console.log("✅ Catch-all segments required to be the last segment");
+
 assert.throws(
   () => nextViteRouter({ pageFile: "" }),
   /option "pageFile" must not be empty/,
