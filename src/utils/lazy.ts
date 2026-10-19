@@ -2,7 +2,41 @@ import React, { lazy, Suspense } from "react";
 import { getRouterConfig } from '../config/index.config';
 
 const DefaultLoadingFallback = () => React.createElement("div");
-const lazyComponentCache = new Map<string, React.LazyExoticComponent<any>>();
+
+/**
+ * A cache of `React.lazy` components keyed by a route-derived string (see the
+ * converter: `page:<fullPath>` / `notfound:<fullPath>`).
+ *
+ * Caches are no longer a package-wide singleton. Each route generator (and each
+ * standalone `treeToRoutes` call) owns its own instance, so components stay
+ * memoized within one generation while separate generators can never collide on
+ * the same key with different loaders.
+ */
+export type LazyComponentCache = Map<string, React.LazyExoticComponent<any>>;
+
+/** Create a fresh, empty lazy component cache to hand to a single generator. */
+export function createLazyCache(): LazyComponentCache {
+  return new Map();
+}
+
+/**
+ * Drop every memoized lazy component held by `cache`.
+ *
+ * @param cache - The cache to clear. Omitting it is the deprecated global form,
+ *   kept only so older callers do not throw; there is no shared cache left to
+ *   clear, so calling it without an argument just warns.
+ */
+export function clearLazyCache(cache?: LazyComponentCache): void {
+  if (cache) {
+    cache.clear();
+    return;
+  }
+
+  console.warn(
+    "next-vite-router: clearLazyCache() no longer clears a global cache. " +
+    "Pass the cache to reset, e.g. clearLazyCache(myCache).",
+  );
+}
 
 /**
  * Resolve the configured loading fallback at render time rather than at route
@@ -32,37 +66,35 @@ function RouteLoadingFallback() {
 }
 
 /**
- * Clear the module-level lazy component cache.
+ * Create a lazy element wrapped in a Suspense boundary.
  *
- * `lazyComponentCache` is a package-wide singleton keyed by route path, so a
- * `React.lazy` component created in one context (for example a previous test)
- * is reused whenever another context requests the same key with a different
- * loader. Exposing an explicit reset keeps that state from leaking, mirroring
- * `resetRouterConfig` for the router configuration.
- */
-export function clearLazyCache(): void {
-  lazyComponentCache.clear();
-}
-
-/**
- * Create a lazy element wrapped with Suspense
- * @param loader - Function that loads the component
- * @param cacheKey - Unique key for the cache
+ * The `React.lazy` component is memoized in the provided `cache` under
+ * `cacheKey`. Thread the SAME cache instance through an entire route generation
+ * so components are reused; create it once with `createLazyCache` (per
+ * generator) rather than per call. A separate cache for the same key memoizes a
+ * fresh component, which is exactly what keeps independent generators isolated.
+ *
+ * @param loader - Loads the component; used only on the first call for a given
+ *   `cacheKey` within `cache`. Later calls with the same key reuse the memoized
+ *   component and ignore the passed loader.
+ * @param cacheKey - Route-unique key identifying the lazy component.
+ * @param cache - The cache instance that owns this route generation.
  */
 export function createLazyElement(
   loader: () => Promise<any>,
-  cacheKey: string
+  cacheKey: string,
+  cache: LazyComponentCache,
 ): React.ReactElement {
-  let LazyComponent = lazyComponentCache.get(cacheKey);
+  let LazyComponent = cache.get(cacheKey);
 
   if (!LazyComponent) {
     LazyComponent = lazy(loader);
-    lazyComponentCache.set(cacheKey, LazyComponent);
+    cache.set(cacheKey, LazyComponent);
   }
 
   return React.createElement(
     Suspense,
     { fallback: React.createElement(RouteLoadingFallback) },
-    React.createElement(LazyComponent)
+    React.createElement(LazyComponent),
   );
 }

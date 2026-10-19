@@ -2,9 +2,11 @@ import React from "react";
 import type { RouteObject } from "react-router-dom";
 import type { RouteNode } from '../index';
 import {
+  createLazyCache,
   createLazyElement,
   parseRouteSegments,
   routeSegmentToPath,
+  type LazyComponentCache,
 } from '../utils/index.utils';
 import { CatchAllParamProvider } from '../router-params-context';
 
@@ -18,13 +20,18 @@ function normalizedSegment(segment: string): string {
   return parsed ? routeSegmentToPath(parsed) : "";
 }
 
-function createIndexRoute(node: RouteNode, nodePath: string): RouteObject {
-  return createPageRoute(node, nodePath, true);
+function createIndexRoute(
+  node: RouteNode,
+  nodePath: string,
+  cache: LazyComponentCache,
+): RouteObject {
+  return createPageRoute(node, nodePath, cache, true);
 }
 
 function createPageRoute(
   node: RouteNode,
   nodePath: string,
+  cache: LazyComponentCache,
   isIndex: boolean = false
 ): RouteObject {
   const page = node.page;
@@ -37,7 +44,8 @@ function createPageRoute(
       const mod = await page();
       return { default: mod.default };
     },
-    `page:${node.fullPath || nodePath}`
+    `page:${node.fullPath || nodePath}`,
+    cache,
   );
 
   const routeSegment = parseRouteSegments(node.segment)[0];
@@ -53,7 +61,10 @@ function createPageRoute(
     : { path: normalizedSegment(node.segment), element: routeElement };
 }
 
-function createNotFoundRoute(node: RouteNode): RouteObject {
+function createNotFoundRoute(
+  node: RouteNode,
+  cache: LazyComponentCache,
+): RouteObject {
   const notFound = node.notFound;
   if (!notFound) {
     throw new Error(`Route node "${node.fullPath}" has no not-found loader`);
@@ -67,12 +78,16 @@ function createNotFoundRoute(node: RouteNode): RouteObject {
         return { default: mod.default };
       },
       `notfound:${node.fullPath}`,
+      cache,
     ),
   };
 }
 
-function createNotFoundRoutes(node: RouteNode): RouteObject[] {
-  return node.notFound ? [createNotFoundRoute(node)] : [];
+function createNotFoundRoutes(
+  node: RouteNode,
+  cache: LazyComponentCache,
+): RouteObject[] {
+  return node.notFound ? [createNotFoundRoute(node, cache)] : [];
 }
 
 function createLayoutRoute(
@@ -89,7 +104,8 @@ function createLayoutRoute(
 
 function processChildren(
   node: RouteNode,
-  currentPath: string
+  currentPath: string,
+  cache: LazyComponentCache,
 ): RouteObject[] {
   const children: RouteObject[] = [];
   
@@ -101,22 +117,26 @@ function processChildren(
       ? (currentPath ? `${currentPath}/${childSegment}` : `/${childSegment}`)
       : currentPath;
     
-      children.push(...treeToRoutes(childNode, false, childPath));
+      children.push(...treeToRoutes(childNode, false, childPath, cache));
     });
   
   return children;
 }
 
-function createNodeChildren(node: RouteNode, currentPath: string): RouteObject[] {
+function createNodeChildren(
+  node: RouteNode,
+  currentPath: string,
+  cache: LazyComponentCache,
+): RouteObject[] {
   const children: RouteObject[] = [];
 
   if (node.page) {
-    children.push(createIndexRoute(node, currentPath || "/"));
+    children.push(createIndexRoute(node, currentPath || "/", cache));
   }
 
-  children.push(...processChildren(node, currentPath));
+  children.push(...processChildren(node, currentPath, cache));
 
-  children.push(...createNotFoundRoutes(node));
+  children.push(...createNotFoundRoutes(node, cache));
 
   return children;
 }
@@ -128,14 +148,15 @@ function createPageRoutes(
   nodeSegment: string,
   descendants: RouteObject[],
   notFound: RouteObject[],
+  cache: LazyComponentCache,
 ): RouteObject[] {
   if (isOptionalCatchAll(node.segment)) {
     const catchAllChildren = [...descendants, ...notFound];
     return [
-      createIndexRoute(node, currentPath),
+      createIndexRoute(node, currentPath, cache),
       {
         path: nodeSegment,
-        element: createPageRoute(node, nodePath).element,
+        element: createPageRoute(node, nodePath, cache).element,
         children: catchAllChildren.length > 0 ? catchAllChildren : undefined,
       },
     ];
@@ -145,7 +166,7 @@ function createPageRoutes(
     return [{
       path: nodeSegment,
       children: [
-        createIndexRoute(node, nodePath),
+        createIndexRoute(node, nodePath, cache),
         ...descendants,
         ...notFound,
       ],
@@ -154,7 +175,7 @@ function createPageRoutes(
 
   return [{
     path: nodeSegment,
-    element: createPageRoute(node, nodePath).element,
+    element: createPageRoute(node, nodePath, cache).element,
   }];
 }
 
@@ -163,9 +184,10 @@ function createPathlessNodeRoutes(
   nodePath: string,
   descendants: RouteObject[],
   notFound: RouteObject[],
+  cache: LazyComponentCache,
 ): RouteObject[] {
   const children = [
-    ...(node.page ? [createIndexRoute(node, nodePath)] : []),
+    ...(node.page ? [createIndexRoute(node, nodePath, cache)] : []),
     ...descendants,
     ...notFound,
   ];
@@ -175,8 +197,11 @@ function createPathlessNodeRoutes(
   }];
 }
 
-function createRootRoutes(node: RouteNode): RouteObject[] {
-  const children = createNodeChildren(node, "");
+function createRootRoutes(
+  node: RouteNode,
+  cache: LazyComponentCache,
+): RouteObject[] {
+  const children = createNodeChildren(node, "", cache);
 
   if (node.layout) {
     return [{
@@ -193,7 +218,7 @@ function createRootRoutes(node: RouteNode): RouteObject[] {
 
     return [{
       path: "/",
-      element: createPageRoute(node, "/", false).element,
+      element: createPageRoute(node, "/", cache, false).element,
     }];
   }
 
@@ -207,10 +232,11 @@ function createRootRoutes(node: RouteNode): RouteObject[] {
 export function treeToRoutes(
   node: RouteNode,
   isRoot = false,
-  currentPath = ""
+  currentPath = "",
+  cache: LazyComponentCache = createLazyCache(),
 ): RouteObject[] {
   if (isRoot) {
-    return createRootRoutes(node);
+    return createRootRoutes(node, cache);
   }
 
   const nodeSegment = normalizedSegment(node.segment);
@@ -218,14 +244,14 @@ export function treeToRoutes(
   const nodePath = isPathless
     ? currentPath
     : currentPath + "/" + nodeSegment;
-  const descendants = processChildren(node, nodePath);
-  const notFound = createNotFoundRoutes(node);
+  const descendants = processChildren(node, nodePath, cache);
+  const notFound = createNotFoundRoutes(node, cache);
 
   if (node.layout) {
     return [createLayoutRoute(
       isPathless ? "" : nodeSegment,
       node.layout,
-      createNodeChildren(node, nodePath),
+      createNodeChildren(node, nodePath, cache),
     )];
   }
 
@@ -237,16 +263,17 @@ export function treeToRoutes(
       nodeSegment,
       descendants,
       notFound,
+      cache,
     );
   }
 
   if (node.page || node.notFound || !isPathless) {
     return isPathless
-      ? createPathlessNodeRoutes(node, nodePath, descendants, notFound)
+      ? createPathlessNodeRoutes(node, nodePath, descendants, notFound, cache)
       : [{
           path: nodeSegment,
           children: [
-            ...(node.page ? [createIndexRoute(node, nodePath)] : []),
+            ...(node.page ? [createIndexRoute(node, nodePath, cache)] : []),
             ...descendants,
             ...notFound,
           ],

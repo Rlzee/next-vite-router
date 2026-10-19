@@ -6,8 +6,11 @@ import { matchRoutes } from "react-router-dom";
 import {
   buildRouteTree,
   assertNoDuplicateRoutes,
-  clearLazyCache,
   configureRouter,
+  createLazyCache,
+  createLazyElement,
+  createRouteGenerator,
+  clearLazyCache,
   resetRouterConfig,
   treeToRoutes,
 } from "../dist/index.js";
@@ -35,12 +38,11 @@ function routeShape(routes) {
 }
 
 beforeEach(() => {
-  // Reset every module-level singleton so state cannot leak between tests:
-  // the router configuration and the lazy component cache (previously
-  // unreset, so a shared route key reused a stale React.lazy component from
-  // an earlier test).
+  // Reset the module-level router configuration singleton so state cannot leak
+  // between tests. The lazy component cache no longer needs resetting: every
+  // treeToRoutes() call (and every generator) owns its own cache, so a shared
+  // route key can no longer reuse a stale React.lazy component.
   resetRouterConfig();
-  clearLazyCache();
 });
 
 describe("route generator", () => {
@@ -583,5 +585,91 @@ describe("route generator", () => {
 
     configureRouter({ enableLazyLoading: false });
     assert.equal(renderToStaticMarkup(routes[0].element.props.fallback), "");
+  });
+});
+
+describe("lazy component cache", () => {
+  // The lazy component is the single child rendered inside the Suspense
+  // boundary that `createLazyElement` returns.
+  const lazyOf = (element) => element.props.children.type;
+
+  test("reuses the memoized component for the same key within one cache", () => {
+    const cache = createLazyCache();
+    const first = createLazyElement(loader("a"), "page:/x", cache);
+    const second = createLazyElement(loader("b"), "page:/x", cache);
+
+    // Same key hits the cache, so the second loader is ignored.
+    assert.equal(lazyOf(first), lazyOf(second));
+  });
+
+  test("keeps components separate across independent caches", () => {
+    const first = createLazyElement(loader("a"), "page:/x", createLazyCache());
+    const second = createLazyElement(loader("b"), "page:/x", createLazyCache());
+
+    assert.notEqual(lazyOf(first), lazyOf(second));
+  });
+
+  test("clearLazyCache(cache) forgets the components held by that cache", () => {
+    const cache = createLazyCache();
+    const before = lazyOf(createLazyElement(loader("a"), "page:/x", cache));
+
+    clearLazyCache(cache);
+    const after = lazyOf(createLazyElement(loader("a"), "page:/x", cache));
+
+    assert.notEqual(before, after);
+  });
+
+  test("clearLazyCache() without a cache warns and clears nothing", () => {
+    const warnings = [];
+    const originalWarn = console.warn;
+    console.warn = (message) => warnings.push(message);
+    try {
+      clearLazyCache();
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /no longer clears a global cache/);
+  });
+
+  test("repeated calls to one generator reuse its components", () => {
+    const generate = createRouteGenerator(
+      { "page.tsx": loader("home") },
+      {},
+      {},
+    );
+
+    assert.equal(lazyOf(generate()[0].element), lazyOf(generate()[0].element));
+  });
+
+  test("independent generators use their own loaders for the same route", () => {
+    const generateA = createRouteGenerator(
+      { "users/page.tsx": loader("a") },
+      {},
+      {},
+    );
+    const generateB = createRouteGenerator(
+      { "users/page.tsx": loader("b") },
+      {},
+      {},
+    );
+
+    // Both resolve the same `page:users` key, but per-generator caches keep the
+    // components (and therefore the wrapped loaders) isolated.
+    assert.notEqual(
+      lazyOf(generateA()[0].element),
+      lazyOf(generateB()[0].element),
+    );
+  });
+
+  test("two treeToRoutes() calls without a cache stay isolated", () => {
+    const tree = buildRouteTree({ "users/page.tsx": loader("users") }, {}, {});
+    const first = treeToRoutes(tree, true);
+    const second = treeToRoutes(tree, true);
+
+    // Each call builds its own default cache, so the same route key yields a
+    // fresh React.lazy component instead of reusing the earlier call's.
+    assert.notEqual(lazyOf(first[0].element), lazyOf(second[0].element));
   });
 });
