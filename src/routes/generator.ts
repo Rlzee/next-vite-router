@@ -3,6 +3,7 @@ import { buildRouteTree } from './index.routes';
 import { treeToRoutes } from './index.routes';
 import { createLazyCache } from '../utils/lazy';
 import type { RouteFileOptions } from '../utils/path';
+import type { RouteTreeOptions } from '../types/index.type';
 
 /**
  * Create a custom route generator function using your own files
@@ -35,12 +36,28 @@ import type { RouteFileOptions } from '../utils/path';
  * // ...later, after swapping a loader in `pages`...
  * const generateV2 = createRouteGenerator(pages, layouts, notFounds);
  * const routes = generateV2(); // fresh cache, resolves the current loaders
+ *
+ * Lazy layouts:
+ * Layouts are eager by default, which keeps the shell in the entry chunk. Pass a
+ * non-eager glob plus `{ lazyLayouts: true }` to code-split them as well; the
+ * layout then suspends, so its subtree waits for the layout chunk:
+ *
+ * @example
+ * const layouts = import.meta.glob("../../pages/**\\/layout.tsx");
+ * export const generateCustomRoutes = createRouteGenerator(
+ *   pages,
+ *   layouts,
+ *   notFounds,
+ *   fileOptions,
+ *   { lazyLayouts: true },
+ * );
  */
 export function createRouteGenerator(
   pages: Record<string, () => Promise<any>>,
   layouts: Record<string, any>,
   notFounds: Record<string, () => Promise<any>>,
-  fileOptions?: RouteFileOptions
+  fileOptions?: RouteFileOptions,
+  options?: RouteTreeOptions
 ) {
   // One cache per generator: lazy components stay memoized across repeated calls
   // to the returned function, while separate generators never share (and so can
@@ -48,7 +65,13 @@ export function createRouteGenerator(
   const lazyCache = createLazyCache();
 
   return (): RouteObject[] => {
-    const routeTree = buildRouteTree(pages, layouts, notFounds, fileOptions);
+    const routeTree = buildRouteTree(
+      pages,
+      layouts,
+      notFounds,
+      fileOptions,
+      options,
+    );
     const routes = treeToRoutes(routeTree, true, "", lazyCache);
     return routes;
   };

@@ -270,15 +270,33 @@ the value returned by `href` when you need them:
 ## Lazy loading
 
 Pages and `not-found.tsx` files use Vite's non-eager `import.meta.glob`, so
-Vite can emit separate chunks for pages. Layouts are eager because they wrap
-the generated route tree. Vite handles ordinary content changes to pages,
-layouts, and `not-found.tsx` through its normal HMR mechanism. Creating,
-deleting, or renaming a route-related file also refreshes the generated route
-module and route declarations. Because Vite cannot reliably preserve a cached
-route tree when an `import.meta.glob` entry is added or removed, these
-structural changes trigger a full-page reload as a fallback. Lazy-loaded route
-components remain lazy-loaded during normal navigation. Lazy loading is
-enabled by default:
+Vite can emit separate chunks for pages. Layouts are eager by default: a layout
+wraps its whole subtree, so keeping it in the entry chunk avoids a fallback
+flash and a chunk round-trip before the page can even be requested.
+
+`lazyLayouts` code-splits layouts like pages:
+
+```ts
+// vite.config.ts
+import { nextViteRouter } from "next-vite-router/plugin";
+
+export default defineConfig({
+  plugins: [react(), nextViteRouter({ lazyLayouts: true })],
+});
+```
+
+Each layout then gets its own chunk, rendered behind a `Suspense` boundary that
+the `loadingFallback` covers. Its subtree renders through the layout's own
+`Outlet`, so a nested page is requested only after the layout chunk arrived;
+that trade is worth it for large or rarely visited shells, not for the root.
+
+Vite handles ordinary content changes to pages, layouts, and `not-found.tsx`
+through its normal HMR mechanism. Creating, deleting, or renaming a route-related
+file also refreshes the generated route module and route declarations. Because
+Vite cannot reliably preserve a cached route tree when an `import.meta.glob`
+entry is added or removed, these structural changes trigger a full-page reload
+as a fallback. Lazy-loaded route components remain lazy-loaded during normal
+navigation. Lazy loading is enabled by default:
 
 ```tsx
 import { configureRouter } from "next-vite-router";
@@ -357,6 +375,12 @@ The normal pipeline is:
 ```text
 filesystem -> buildRouteTree() -> treeToRoutes() -> RouteObject[] -> React Router
 ```
+
+`buildRouteTree()` and `createRouteGenerator()` receive the glob records as Vite
+produces them. Their last argument, `{ lazyLayouts: true }`, says the layouts
+record comes from a non-eager glob, so each entry is a loader; without it an
+entry is read as an eagerly imported module or component. The flag has to match
+the glob, because a loader and a component are both functions.
 
 ## Examples
 

@@ -6,6 +6,7 @@ import { matchRoutes, MemoryRouter } from "react-router-dom";
 import {
   buildRouteTree,
   assertNoDuplicateRoutes,
+  CatchAllParamProvider,
   configureRouter,
   createLazyCache,
   createLazyElement,
@@ -765,6 +766,140 @@ describe("lazy component cache", () => {
     // The documented workaround: a new generator owns a new cache, so the
     // changed source produces a component wrapping the current loader.
     assert.notEqual(oldComponent, newComponent);
+  });
+});
+
+describe("lazy layouts", () => {
+  // The lazy component is the single child rendered inside the Suspense
+  // boundary that `createLazyElement` returns.
+  const lazyOf = (element) => element.props.children.type;
+  const componentLoader = (name) => async () => ({ default: component(name) });
+
+  /**
+   * Tree built from a non-eager layout glob: every layout entry is a loader, and
+   * `{ lazyLayouts: true }` is what tells `buildRouteTree` to read it that way.
+   */
+  function createLazyLayoutRoutes({ pages, layouts }) {
+    const tree = buildRouteTree(pages, layouts, {}, undefined, {
+      lazyLayouts: true,
+    });
+    return { tree, routes: treeToRoutes(tree, true) };
+  }
+
+  test("reads a layout function as a loader only when lazyLayouts is on", async () => {
+    const Shell = component("shell");
+    const layouts = { "dashboard/layout.tsx": async () => ({ default: Shell }) };
+    const pages = { "dashboard/page.tsx": componentLoader("dashboard") };
+
+    // Without the option a function is the component itself, the shape an
+    // `{ eager: true, import: "default" }` glob produces.
+    const eager = buildRouteTree(pages, layouts, {});
+    assert.equal(eager.children.get("dashboard").layout, layouts["dashboard/layout.tsx"]);
+    assert.equal(eager.children.get("dashboard").lazyLayout, undefined);
+
+    const lazy = buildRouteTree(pages, layouts, {}, undefined, { lazyLayouts: true });
+    assert.equal(lazy.children.get("dashboard").layout, undefined);
+    assert.equal(typeof lazy.children.get("dashboard").lazyLayout, "function");
+    assert.deepEqual(await lazy.children.get("dashboard").lazyLayout(), {
+      default: Shell,
+    });
+  });
+
+  test("suspends a lazy layout and paints it once its chunk resolves", async () => {
+    const Shell = component("shell");
+    configureRouter({
+      loadingFallback: () => React.createElement("p", null, "Loading shell…"),
+    });
+    const { routes } = createLazyLayoutRoutes({
+      pages: { "dashboard/page.tsx": componentLoader("dashboard") },
+      layouts: { "dashboard/layout.tsx": componentLoader("shell") },
+    });
+
+    assert.deepEqual(routeShape(routes), [
+      { path: "dashboard", children: [{ index: true, children: undefined }] },
+    ]);
+    assert.equal(routes[0].element.type, React.Suspense);
+    // The first paint starts the import and shows the fallback; once the module
+    // promise settles, the boundary renders the layout itself, which proves the
+    // loader is wired to the lazy component instead of a stand-in.
+    assert.match(
+      renderToStaticMarkup(routes[0].element),
+      /<p>Loading shell…<\/p>/,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.match(renderToStaticMarkup(routes[0].element), /<div>shell<\/div>/);
+  });
+
+  test("suspends the root layout too", () => {
+    const { routes } = createLazyLayoutRoutes({
+      pages: { "page.tsx": componentLoader("home") },
+      layouts: { "layout.tsx": componentLoader("shell") },
+    });
+
+    assert.equal(routes[0].path, "/");
+    assert.equal(routes[0].element.type, React.Suspense);
+  });
+
+  test("keeps the catch-all provider around a lazy layout", () => {
+    const { routes } = createLazyLayoutRoutes({
+      pages: { "docs/[...slug]/page.tsx": componentLoader("docs") },
+      layouts: { "docs/[...slug]/layout.tsx": componentLoader("docs-shell") },
+    });
+
+    const layoutRoute = routes[0].children[0];
+    assert.equal(layoutRoute.element.type, CatchAllParamProvider);
+    assert.equal(layoutRoute.element.props.name, "slug");
+    assert.equal(layoutRoute.element.props.children.type, React.Suspense);
+  });
+
+  test("accepts an eager module next to a lazy loader", () => {
+    const Shell = component("shell");
+    const { routes } = createLazyLayoutRoutes({
+      pages: {
+        "dashboard/page.tsx": componentLoader("dashboard"),
+        "reports/page.tsx": componentLoader("reports"),
+      },
+      layouts: {
+        "dashboard/layout.tsx": { default: Shell },
+        "reports/layout.tsx": componentLoader("reports-shell"),
+      },
+    });
+
+    const byPath = new Map(routes.map((route) => [route.path, route]));
+    assert.equal(byPath.get("dashboard").element.type, Shell);
+    assert.equal(byPath.get("reports").element.type, React.Suspense);
+  });
+
+  test("reuses one lazy component per layout within a generator", () => {
+    const generate = createRouteGenerator(
+      { "dashboard/page.tsx": componentLoader("dashboard") },
+      { "dashboard/layout.tsx": componentLoader("shell") },
+      {},
+      undefined,
+      { lazyLayouts: true },
+    );
+
+    assert.equal(lazyOf(generate()[0].element), lazyOf(generate()[0].element));
+  });
+
+  test("reports a lazy layout that resolves without a default export", async () => {
+    const { tree, routes } = createLazyLayoutRoutes({
+      pages: { "dashboard/page.tsx": componentLoader("dashboard") },
+      layouts: { "dashboard/layout.tsx": async () => ({ metadata: "no default" }) },
+    });
+
+    // The route is still generated; the module only exists once its chunk
+    // loads, so the check has to be deferred to the loader.
+    assert.equal(routes[0].element.type, React.Suspense);
+    await assert.rejects(
+      () => tree.children.get("dashboard").lazyLayout(),
+      {
+        message: [
+          'Route layout "dashboard/layout.tsx" does not default-export a React component.',
+          "Add `export default` to the file, for example: `export default function Layout({ children }) { ... }`.",
+        ].join("\n"),
+      },
+    );
   });
 });
 

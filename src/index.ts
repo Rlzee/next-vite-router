@@ -13,6 +13,7 @@ export type {
   RouterConfig,
   RouteNode,
   RouteModuleLoader,
+  RouteTreeOptions,
 } from './types/index.type';
 
 // Utils

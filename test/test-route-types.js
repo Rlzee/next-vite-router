@@ -95,6 +95,9 @@ try {
   assert.match(virtualModule, /import\.meta\.glob\(["']\/src\/app\/\*\*\/page\.tsx["']\)/);
   assert.match(virtualModule, /import\.meta\.glob\(["']\/src\/app\/\*\*\/not-found\.tsx["']\)/);
   assert.match(virtualModule, /import\.meta\.glob\(["']\/src\/app\/\*\*\/layout\.tsx["'], \{ eager: true \}\)/);
+  // Layouts stay eager unless `lazyLayouts` is on, so the default module must
+  // not carry the runtime flag either.
+  assert.doesNotMatch(virtualModule, /\{ lazyLayouts:/);
   assert.match(virtualModule, /import\.meta\.hot\.accept\(\(\) => \{\s*routes = undefined;/);
 
   runTypeScript(path.join(projectRoot, "src", "route-types.ts"), [declarationPath]);
@@ -296,6 +299,37 @@ void params;
   console.log("✅ Custom page, layout, not-found, and directory names verified");
 } finally {
   fs.rmSync(customProjectRoot, { recursive: true, force: true });
+}
+
+const lazyLayoutRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-lazy-layout-"));
+fs.mkdirSync(path.join(lazyLayoutRoot, "src", "app"), { recursive: true });
+fs.writeFileSync(path.join(lazyLayoutRoot, "src", "app", "page.tsx"), "");
+try {
+  // `lazyLayouts` has to flip both halves of the pair at once: the glob shape
+  // Vite compiles, and the record shape the runtime reads. Only the option can
+  // tell them apart, because a layout loader and a layout component are both
+  // functions.
+  const lazyLayoutPlugin = nextViteRouter({ lazyLayouts: true });
+  lazyLayoutPlugin.configResolved({ root: lazyLayoutRoot });
+
+  const lazyLayoutModule = lazyLayoutPlugin.load("\0virtual:next-vite-router");
+  assert.match(
+    lazyLayoutModule,
+    /const layoutsGlob = import\.meta\.glob\(["']\/src\/app\/\*\*\/layout\.tsx["']\);/,
+  );
+  assert.doesNotMatch(lazyLayoutModule, /layout\.tsx["'], \{ eager: true \}/);
+  assert.match(
+    lazyLayoutModule,
+    /buildRouteTree\(pages, layouts, notFounds, \{[^}]*\}, \{ lazyLayouts: true \}\)/,
+  );
+  // Pages and not-found files keep their own non-eager globs.
+  assert.match(
+    lazyLayoutModule,
+    /const pagesGlob = import\.meta\.glob\(["']\/src\/app\/\*\*\/page\.tsx["']\);/,
+  );
+  console.log("✅ lazyLayouts pairs a non-eager layout glob with the runtime flag");
+} finally {
+  fs.rmSync(lazyLayoutRoot, { recursive: true, force: true });
 }
 
 const nestedAppRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-nested-"));

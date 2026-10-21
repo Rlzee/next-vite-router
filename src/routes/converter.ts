@@ -104,17 +104,47 @@ function createNotFoundRoutes(
   return node.notFound ? [createNotFoundRoute(node, cache)] : [];
 }
 
+/**
+ * Element a layout route renders.
+ *
+ * An eager layout renders its component directly, inside the entry chunk. A
+ * layout coming from a non-eager glob (`lazyLayout`) goes through the shared
+ * lazy cache, so one generation memoizes a single `React.lazy` component per
+ * layout and suspends behind the configured fallback while Vite loads its
+ * chunk. The subtree is rendered by the layout's own `Outlet`, so it waits for
+ * the layout chunk instead of being requested alongside it.
+ *
+ * The catch-all provider wraps the layout element itself, not only the page, so
+ * a layout declared inside the catch-all folder can read the parameter.
+ */
+function createLayoutElement(
+  node: RouteNode,
+  nodePath: string,
+  cache: LazyComponentCache,
+): React.ReactElement {
+  const element = node.lazyLayout
+    ? createLazyElement(
+        node.lazyLayout,
+        `layout:${node.fullPath || nodePath}`,
+        cache,
+      )
+    : React.createElement(node.layout!);
+
+  return withCatchAllParam(node.segment, element);
+}
+
+function hasLayout(node: RouteNode): boolean {
+  return Boolean(node.layout || node.lazyLayout);
+}
+
 function createLayoutRoute(
-  rawSegment: string,
   nodeSegment: string,
-  layout: React.ComponentType,
+  element: React.ReactElement,
   children: RouteObject[],
 ): RouteObject {
   return {
     ...(nodeSegment ? { path: nodeSegment } : {}),
-    // The provider wraps the layout element itself, not only the page, so a
-    // layout declared inside the catch-all folder can read the parameter.
-    element: withCatchAllParam(rawSegment, React.createElement(layout)),
+    element,
     children: children.length > 0 ? children : undefined,
   };
 }
@@ -220,10 +250,10 @@ function createRootRoutes(
 ): RouteObject[] {
   const children = createNodeChildren(node, "", cache);
 
-  if (node.layout) {
+  if (hasLayout(node)) {
     return [{
       path: "/",
-      element: React.createElement(node.layout),
+      element: createLayoutElement(node, "/", cache),
       children,
     }];
   }
@@ -266,11 +296,10 @@ export function treeToRoutes(
   // walk must do it exactly once. Computing the descendants eagerly here and
   // letting `createNodeChildren` walk the subtree again doubled the work per
   // nested layout level, which grows as 2^depth.
-  if (node.layout) {
+  if (hasLayout(node)) {
     return [createLayoutRoute(
-      node.segment,
       isPathless ? "" : nodeSegment,
-      node.layout,
+      createLayoutElement(node, nodePath, cache),
       createNodeChildren(node, nodePath, cache),
     )];
   }

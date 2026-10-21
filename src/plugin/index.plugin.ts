@@ -15,6 +15,15 @@ export type NextViteRouterPluginOptions = {
   pageFile?: string;
   layoutFile?: string;
   notFoundFile?: string;
+  /**
+   * Import `layout.tsx` files with a non-eager glob so Vite emits a separate
+   * chunk per layout instead of keeping them in the entry chunk.
+   *
+   * Defaults to `false`: a layout wraps its whole subtree, so loading it eagerly
+   * avoids a fallback flash and a chunk round-trip before the page can even be
+   * requested. Turn it on for large, rarely visited shells.
+   */
+  lazyLayouts?: boolean;
 };
 
 function routePathFromSegments(segments: RouteSegment[]): string {
@@ -30,7 +39,9 @@ type RouteTypeEntry = {
   params: Array<{ name: string; optional: boolean }>;
 };
 
-function validatePluginOptions(options: Required<NextViteRouterPluginOptions>): void {
+function validatePluginOptions(
+  options: Required<Omit<NextViteRouterPluginOptions, "lazyLayouts">>,
+): void {
   const entries = [
     ["pagesDir", options.pagesDir],
     ["pageFile", options.pageFile],
@@ -202,6 +213,7 @@ export function nextViteRouter(
     pageFile = "page.tsx",
     layoutFile = "layout.tsx",
     notFoundFile = "not-found.tsx",
+    lazyLayouts = false,
   } = options;
   validatePluginOptions({ pagesDir, pageFile, layoutFile, notFoundFile });
   const normalizedPagesDir = normalizePluginPath(pagesDir);
@@ -332,12 +344,20 @@ export function nextViteRouter(
         const pagesGlobPath = `/${normalizedPagesDir}/**/${pageFile}`;
         const layoutsGlobPath = `/${normalizedPagesDir}/**/${layoutFile}`;
         const notFoundGlobPath = `/${normalizedPagesDir}/**/${notFoundFile}`;
+        // Layouts stay eager unless asked otherwise, so the default output is
+        // unchanged. `lazyLayouts` flips the glob AND tells the runtime to read
+        // the record's function values as loaders: a loader and a component are
+        // both functions, so the shape cannot be inferred from the value.
+        const layoutsGlobSource = lazyLayouts
+          ? `import.meta.glob(${JSON.stringify(layoutsGlobPath)})`
+          : `import.meta.glob(${JSON.stringify(layoutsGlobPath)}, { eager: true })`;
+        const routeTreeOptions = lazyLayouts ? ", { lazyLayouts: true }" : "";
         return `
 import { buildRouteTree, treeToRoutes, useParams, useCatchAll, href, RouteLink } from 'next-vite-router';
 import { Link, useRoutes } from 'react-router-dom';
 
 const pagesGlob = import.meta.glob(${JSON.stringify(pagesGlobPath)});
-const layoutsGlob = import.meta.glob(${JSON.stringify(layoutsGlobPath)}, { eager: true });
+const layoutsGlob = ${layoutsGlobSource};
 const notFoundsGlob = import.meta.glob(${JSON.stringify(notFoundGlobPath)});
 
 // Keep the raw root-relative glob keys. extractRoutePath (via buildRouteTree)
@@ -349,7 +369,7 @@ const layouts = layoutsGlob;
 const notFounds = notFoundsGlob;
 
 export function generateRoutes() {
-  const tree = buildRouteTree(pages, layouts, notFounds, ${JSON.stringify(fileOptions)});
+  const tree = buildRouteTree(pages, layouts, notFounds, ${JSON.stringify(fileOptions)}${routeTreeOptions});
   const routes = treeToRoutes(tree, true);
   return routes;
 }

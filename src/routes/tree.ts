@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import type { RouteModuleLoader, RouteNode } from '../index';
+import type { RouteModuleLoader, RouteNode, RouteTreeOptions } from '../index';
 import {
   extractRoutePath,
   parseRouteSegments,
@@ -144,6 +144,12 @@ export function assertNoRouteConflicts(
 
 type RouteFileType = 'layout' | 'page' | 'notFound';
 
+/**
+ * The slots a route node stores route files in. `lazyLayout` shares the
+ * `layout` label and validation, but holds a loader instead of a component.
+ */
+type RouteFileSlot = RouteFileType | 'lazyLayout';
+
 const ROUTE_FILE_LABELS: Record<RouteFileType, string> = {
   layout: 'layout',
   page: 'page',
@@ -199,6 +205,8 @@ function resolveRouteComponent(value: any): ComponentType | undefined {
  *
  * The layout used to be stored as `undefined` when the file had no default
  * export, which dropped the layout from the generated routes without any error.
+ * Layouts imported lazily go through `checkedLoader` instead, because their
+ * module only exists once the chunk resolves.
  */
 function readLayoutComponent(filePath: string, module: any): RouteNode['layout'] {
   const layout = resolveRouteComponent(module);
@@ -207,16 +215,16 @@ function readLayoutComponent(filePath: string, module: any): RouteNode['layout']
 }
 
 /**
- * Keep a page or not-found loader, but report a missing default export with the
- * source file instead of letting React fail during render with an "Element type
- * is invalid" error that names nothing.
+ * Keep a page, layout, or not-found loader, but report a missing default export
+ * with the source file instead of letting React fail during render with an
+ * "Element type is invalid" error that names nothing.
  *
  * These modules are code-split, so their exports only exist once the dynamic
  * import resolves; the check cannot run while the tree is being built.
  */
 function checkedLoader(
   filePath: string,
-  fileType: 'page' | 'notFound',
+  fileType: RouteFileType,
   loader: unknown,
 ): RouteModuleLoader {
   if (typeof loader !== 'function') {
@@ -240,7 +248,7 @@ function addFileToTree(
   root: RouteNode,
   filePath: string,
   fileContent: any,
-  fileType: RouteFileType,
+  fileType: RouteFileSlot,
   fileOptions?: RouteFileOptions,
 ): void {
   const routePath = extractRoutePath(filePath, fileOptions);
@@ -277,6 +285,7 @@ export function buildRouteTree(
   layouts: Record<string, any>,
   notFounds: Record<string, () => Promise<any>>,
   fileOptions?: RouteFileOptions,
+  options?: RouteTreeOptions,
 ): RouteNode {
   assertNoRouteConflicts(
     Object.keys(pages),
@@ -290,8 +299,23 @@ export function buildRouteTree(
     children: new Map(),
   };
 
+  // `lazyLayouts` only says how to read a function: a non-eager layout glob
+  // yields `() => import("...")` loaders, while a component and a loader are
+  // indistinguishable once they are plain values. Module entries stay eager
+  // either way, so an `eager: true` glob is still accepted in lazy mode.
+  const lazyLayouts = options?.lazyLayouts === true;
+
   Object.entries(layouts).forEach(([filePath, module]) => {
-    addFileToTree(root, filePath, readLayoutComponent(filePath, module), 'layout', fileOptions);
+    const lazy = lazyLayouts && typeof module === 'function';
+    addFileToTree(
+      root,
+      filePath,
+      lazy
+        ? checkedLoader(filePath, 'layout', module)
+        : readLayoutComponent(filePath, module),
+      lazy ? 'lazyLayout' : 'layout',
+      fileOptions,
+    );
   });
 
   Object.entries(pages).forEach(([filePath, loader]) => {
