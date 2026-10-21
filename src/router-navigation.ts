@@ -1,0 +1,126 @@
+import React from "react";
+import { Link, generatePath, type LinkProps } from "react-router-dom";
+
+/**
+ * Values for the parameters of a route pattern (`/users/:id`, `/blog/*`).
+ *
+ * The keys are the names the route declares: `:id` for a `[id]` folder, and the
+ * catch-all folder name (`slug` for `[...slug]`) rather than React Router's
+ * unnamed `*` splat, which is what `useParams` from this package already exposes.
+ */
+export type RouteHrefParams = Record<string, string>;
+
+export type RouteLinkProps = Omit<LinkProps, "to"> & {
+  /** A route pattern taken from the generated `RoutePath` union. */
+  to: string;
+  /** Values substituted into that pattern; required whenever it has parameters. */
+  params?: RouteHrefParams;
+};
+
+/**
+ * True when a pattern declares at least one token to substitute, which is the
+ * only case where rewriting it can change the result.
+ */
+function hasSubstitutableTokens(pattern: string): boolean {
+  const segments = pattern.split("/").filter(Boolean);
+  return (
+    segments.some((segment) => segment.startsWith(":")) ||
+    segments[segments.length - 1] === "*"
+  );
+}
+
+/**
+ * Build a concrete URL from a route pattern and its parameter values.
+ *
+ * `RoutePath` holds patterns (`/users/:id`), not URLs, so navigating needs the
+ * pattern filled in. `generatePath` alone is not enough here: a catch-all folder
+ * (`docs/[...segments]`) becomes the unnamed `*` splat, and
+ * `generatePath("/docs/*", { segments: "a/b" })` silently drops the value and
+ * returns `/docs`. This helper maps the named catch-all onto the splat, the same
+ * translation `CatchAllParamProvider` performs when reading parameters, and it
+ * reports unmatched parameters instead of letting React Router render a broken
+ * link.
+ *
+ * Values are inserted verbatim, exactly like `generatePath`, so encode anything
+ * that may contain `/`, `?`, or `#` before passing it (a catch-all value is
+ * expected to contain slashes).
+ *
+ * @example
+ * href("/users/:id", { id: "42" });            // "/users/42"
+ * href("/blog/*", { slug: "guide/api" });      // "/blog/guide/api"
+ * href("/docs/*", {});                         // "/docs" (optional catch-all)
+ * href("/typed-routes");                       // "/typed-routes"
+ */
+export function href(pattern: string, params: RouteHrefParams = {}): string {
+  if (!pattern.startsWith("/")) {
+    throw new Error(
+      `Route pattern "${pattern}" must be root-relative, like the generated RoutePath values ("/users/:id").`,
+    );
+  }
+
+  const segments = pattern.split("/").filter(Boolean);
+  const names = new Set(
+    segments
+      .filter((segment) => segment.startsWith(":"))
+      .map((segment) => segment.slice(1)),
+  );
+  // React Router only ever puts the splat in the last segment, which is where a
+  // catch-all folder lands (a segment after one is rejected while routing).
+  const hasCatchAll = segments[segments.length - 1] === "*";
+
+  const values: Record<string, string> = {};
+  const catchAllKeys: string[] = [];
+
+  for (const [key, value] of Object.entries(params)) {
+    if (names.has(key)) {
+      values[key] = value;
+    } else if (hasCatchAll) {
+      values["*"] = value;
+      catchAllKeys.push(key);
+    } else {
+      throw new Error(
+        `Route "${pattern}" has no "${key}" parameter. ` +
+        (names.size > 0
+          ? `Expected: ${[...names].map((name) => `"${name}"`).join(", ")}.`
+          : "This route takes no parameters."),
+      );
+    }
+  }
+
+  if (catchAllKeys.length > 1) {
+    throw new Error(
+      `Route "${pattern}" takes one catch-all value, but ${catchAllKeys.length} params ` +
+      `were supplied (${catchAllKeys.map((key) => `"${key}"`).join(", ")}).`,
+    );
+  }
+
+  for (const name of names) {
+    if (values[name] === undefined) {
+      throw new Error(`Route "${pattern}" is missing the required ":${name}" param.`);
+    }
+  }
+
+  return generatePath(pattern, values);
+}
+
+/**
+ * `Link` bound to a route pattern instead of a hand-written URL.
+ *
+ * With the plugin's generated types, `to` must be a known `RoutePath` and
+ * `params` is required as soon as that path has parameters, so a renamed folder
+ * or a missing id fails to compile instead of 404ing at runtime. Every other
+ * `Link` prop (`className`, `replace`, `state`, …) is forwarded untouched.
+ *
+ * A `to` that carries no token is handed to React Router unchanged, so an
+ * absolute URL is not rewritten (`generatePath` would collapse its `//`).
+ *
+ * @example
+ * <RouteLink to="/users/:id" params={{ id: user.id }}>Profile</RouteLink>
+ */
+export function RouteLink({ to, params, ...rest }: RouteLinkProps): React.ReactElement {
+  const target = params === undefined && !hasSubstitutableTokens(to)
+    ? to
+    : href(to, params);
+
+  return React.createElement(Link, { ...rest, to: target });
+}

@@ -49,6 +49,23 @@ try {
   const declaration = fs.readFileSync(declarationPath, "utf8");
   const virtualModule = plugin.load("\0virtual:next-vite-router");
 
+  // The fixture keeps a checked-in copy of this declaration so that
+  // `virtual:next-vite-router` resolves in an editor before anything has been
+  // generated. Compare it against what the plugin just emitted (comments and
+  // line endings ignored) so that copy can never drift from the real template.
+  const withoutComments = (text) => text
+    .split(/\r?\n/)
+    .filter((line) => !line.trimStart().startsWith("//"))
+    .join("\n")
+    .trim();
+  assert.equal(
+    withoutComments(
+      fs.readFileSync(path.join(fixtureSource, "src", "virtual.d.ts"), "utf8"),
+    ),
+    withoutComments(declaration),
+    "test/fixture/src/virtual.d.ts no longer matches the generated declaration; refresh it",
+  );
+
   assert.match(declaration, /export type RoutePath =/);
   assert.match(declaration, /\| "\/"/);
   assert.match(declaration, /\| "\/users"/);
@@ -62,8 +79,13 @@ try {
   assert.match(declaration, /slug: string;/);
   assert.match(declaration, /segments\?: string;/);
   assert.match(declaration, /export function Router/);
+  assert.match(declaration, /export function href<P extends RoutePath>/);
+  assert.match(declaration, /export type RouteLinkProps =/);
+  assert.match(declaration, /export function RouteLink\(props: RouteLinkProps\)/);
   assert.match(declaration, /export \{ Link, useRoutes \}/);
   assert.match(virtualModule, /import \{ Link, useRoutes \} from 'react-router-dom'/);
+  assert.match(virtualModule, /export \{ Link, useRoutes \};/);
+  assert.match(virtualModule, /export \{ href, RouteLink \};/);
   assert.match(virtualModule, /routes \?\?= generateRoutes\(\)/);
   assert.match(virtualModule, /import\.meta\.glob\(["']\/src\/app\/\*\*\/page\.tsx["']\)/);
   assert.match(virtualModule, /import\.meta\.glob\(["']\/src\/app\/\*\*\/not-found\.tsx["']\)/);
@@ -74,6 +96,7 @@ try {
 
   const invalidTypesPath = path.join(projectRoot, "src", "invalid-route-types.ts");
   fs.writeFileSync(invalidTypesPath, `
+import { href } from "virtual:next-vite-router";
 import type { RouteParams, RoutePath } from "virtual:next-vite-router";
 import type { RouterConfig } from "../../../dist/index.js";
 
@@ -85,6 +108,16 @@ const missingParam: RouteParams<"/users/:id"> = {};
 const extraParam: RouteParams<"/users/:id"> = { id: "123", extra: "nope" };
 // @ts-expect-error pagesDir belongs to the plugin options, not RouterConfig
 const invalidConfig: RouterConfig = { pagesDir: "src/app" };
+// @ts-expect-error href requires the params of a pattern that has them
+href("/users/:id");
+// @ts-expect-error href rejects a parameter the pattern does not declare
+href("/users/:id", { userId: "123" });
+// @ts-expect-error href only accepts generated route patterns
+href("/users/:missing", { id: "123" });
+// @ts-expect-error href takes no params for a static route
+href("/users", { id: "123" });
+// @ts-expect-error a catch-all is addressed by its folder name, not by "*"
+href("/blog/*", { "*": "guide/api" });
 
 void invalidPath;
 void missingParam;
@@ -95,6 +128,35 @@ void invalidConfig;
     runTypeScript(invalidTypesPath, [declarationPath]);
   } finally {
     fs.rmSync(invalidTypesPath, { force: true });
+  }
+
+  const invalidLinkPath = path.join(projectRoot, "src", "invalid-route-links.tsx");
+  fs.writeFileSync(invalidLinkPath, `
+import { RouteLink } from "virtual:next-vite-router";
+
+const profileLink = <RouteLink to="/users/:id" params={{ id: "123" }}>Profile</RouteLink>;
+const missingParams = (
+  // @ts-expect-error RouteLink requires params for a pattern that has them
+  <RouteLink to="/users/:id">Profile</RouteLink>
+);
+const unknownRoute = (
+  // @ts-expect-error RouteLink only accepts generated route patterns
+  <RouteLink to="/users/:missing" params={{ id: "123" }}>Profile</RouteLink>
+);
+const staticWithParams = (
+  // @ts-expect-error RouteLink rejects params for a static route
+  <RouteLink to="/users" params={{ id: "123" }}>Users</RouteLink>
+);
+
+void profileLink;
+void missingParams;
+void unknownRoute;
+void staticWithParams;
+`, "utf8");
+  try {
+    runTypeScript(invalidLinkPath, [declarationPath]);
+  } finally {
+    fs.rmSync(invalidLinkPath, { force: true });
   }
 
   console.log("✅ Route declaration generated");

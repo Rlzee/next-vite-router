@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test, describe, beforeEach } from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { matchRoutes } from "react-router-dom";
+import { matchRoutes, MemoryRouter } from "react-router-dom";
 import {
   buildRouteTree,
   assertNoDuplicateRoutes,
@@ -11,7 +11,9 @@ import {
   createLazyElement,
   createRouteGenerator,
   clearLazyCache,
+  href,
   resetRouterConfig,
+  RouteLink,
   treeToRoutes,
 } from "../dist/index.js";
 import { extractRoutePath, parseRouteSegments } from "../dist/index.js";
@@ -879,5 +881,137 @@ describe("route file default exports", () => {
 
     assert.equal(tree.children.get("about").layout, Layout);
     assert.deepEqual(await tree.children.get("about").page(), { default: About });
+  });
+});
+
+describe("typed navigation helpers", () => {
+  test("fills dynamic parameters into a route pattern", () => {
+    assert.equal(href("/users/:id", { id: "42" }), "/users/42");
+    assert.equal(
+      href("/compare/:from/:to", { from: "paris", to: "berlin" }),
+      "/compare/paris/berlin",
+    );
+    assert.equal(href("/typed-routes"), "/typed-routes");
+    assert.equal(href("/"), "/");
+  });
+
+  test("maps a named catch-all parameter onto the splat", () => {
+    // React Router only reads the unnamed "*" segment, so
+    // generatePath("/blog/*", { slug: "guide/api" }) silently returns "/blog".
+    assert.equal(href("/blog/*", { slug: "guide/api" }), "/blog/guide/api");
+    assert.equal(href("/blog/*", { "*": "guide/api" }), "/blog/guide/api");
+    assert.equal(href("/*", { slug: "a/b" }), "/a/b");
+  });
+
+  test("resolves an empty optional catch-all to the base path", () => {
+    assert.equal(href("/docs/*", { segments: "a/b" }), "/docs/a/b");
+    assert.equal(href("/docs/*", { segments: "" }), "/docs");
+    assert.equal(href("/docs/*", {}), "/docs");
+    assert.equal(href("/*", { slug: "" }), "/");
+  });
+
+  test("reports a parameter the pattern cannot consume", () => {
+    assert.throws(
+      () => href("/users/:id", { userId: "42" }),
+      {
+        message: 'Route "/users/:id" has no "userId" parameter. Expected: "id".',
+      },
+    );
+    assert.throws(
+      () => href("/about", { id: "1" }),
+      {
+        message: 'Route "/about" has no "id" parameter. This route takes no parameters.',
+      },
+    );
+    assert.throws(
+      () => href("/blog/*", { slug: "a", other: "b" }),
+      {
+        message: 'Route "/blog/*" takes one catch-all value, but 2 params were supplied ("slug", "other").',
+      },
+    );
+  });
+
+  test("reports a missing required parameter with its route", () => {
+    assert.throws(
+      () => href("/users/:id"),
+      { message: 'Route "/users/:id" is missing the required ":id" param.' },
+    );
+    assert.throws(
+      () => href("/users/:id", { id: undefined }),
+      { message: 'Route "/users/:id" is missing the required ":id" param.' },
+    );
+  });
+
+  test("rejects a pattern that is not root-relative", () => {
+    assert.throws(
+      () => href("users/:id", { id: "42" }),
+      {
+        message:
+          'Route pattern "users/:id" must be root-relative, like the generated RoutePath values ("/users/:id").',
+      },
+    );
+  });
+
+  test("RouteLink renders the resolved href and forwards other link props", () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(
+        MemoryRouter,
+        { initialEntries: ["/"] },
+        React.createElement(
+          RouteLink,
+          {
+            to: "/users/:id",
+            params: { id: "42" },
+            className: "user-link",
+            title: "Open the profile",
+          },
+          "Profile",
+        ),
+      ),
+    );
+
+    assert.match(markup, /href="\/users\/42"/);
+    assert.match(markup, /class="user-link"/);
+    assert.match(markup, /title="Open the profile"/);
+    assert.match(markup, /<a[^>]*>Profile<\/a>/);
+  });
+
+  test("RouteLink accepts a pattern without parameters as-is", () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(
+        MemoryRouter,
+        { initialEntries: ["/"] },
+        React.createElement(RouteLink, { to: "/about" }, "About"),
+      ),
+    );
+
+    assert.match(markup, /href="\/about"/);
+  });
+
+  test("RouteLink leaves an address with nothing to substitute alone", () => {
+    // generatePath() collapses the "//" of an absolute URL, so a `to` without a
+    // token is passed to React Router untouched instead of being rewritten.
+    const markup = renderToStaticMarkup(
+      React.createElement(
+        MemoryRouter,
+        { initialEntries: ["/"] },
+        React.createElement(RouteLink, { to: "https://example.com/a/b" }, "Docs"),
+      ),
+    );
+
+    assert.match(markup, /href="https:\/\/example\.com\/a\/b"/);
+  });
+
+  test("RouteLink fails with the route instead of rendering a broken link", () => {
+    assert.throws(
+      () => renderToStaticMarkup(
+        React.createElement(
+          MemoryRouter,
+          { initialEntries: ["/"] },
+          React.createElement(RouteLink, { to: "/users/:id" }, "Profile"),
+        ),
+      ),
+      { message: 'Route "/users/:id" is missing the required ":id" param.' },
+    );
   });
 });

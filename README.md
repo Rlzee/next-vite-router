@@ -206,6 +206,48 @@ const params: RouteParams<typeof path> = { id: "123" };
 Invalid paths and missing dynamic parameters are reported by TypeScript.
 No manual declaration for the virtual module is required.
 
+### Turning a pattern into a URL
+
+`RoutePath` lists patterns (`/users/:id`), not URLs, so `href` fills the pattern
+in and returns the address to navigate to:
+
+```ts
+import { href } from "virtual:next-vite-router";
+
+href("/users/:id", { id: "123" }); // "/users/123"
+href("/blog/*", { slug: "guide/api" }); // "/blog/guide/api"
+href("/about"); // "/about"
+```
+
+A catch-all is addressed by its folder name, the same key `useParams` reports,
+instead of React Router's unnamed `*` splat: `blog/[...slug]` becomes
+`href("/blog/*", { slug: "..." })`, and the optional `docs/[[...segments]]`
+resolves to its base path when empty (`href("/docs/*", {})` is `/docs`).
+TypeScript requires the second argument as soon as the chosen pattern has
+parameters, and rejects a pattern that is not a route. `href` inserts values
+verbatim, like `generatePath`, so encode anything that can contain `/`, `?`, or
+`#` before passing it.
+
+### `RouteLink`
+
+`RouteLink` is `Link` with the same guarantee on its `to` prop: a renamed folder
+or a missing id fails to compile instead of rendering a 404 link. Every other
+`Link` prop (`className`, `replace`, `state`, children, ...) is forwarded.
+
+```tsx
+import { RouteLink } from "virtual:next-vite-router";
+
+<RouteLink to="/users/:id" params={{ id: user.id }}>Profile</RouteLink>
+<RouteLink to="/users">All users</RouteLink>
+```
+
+React Router's `Link`, `NavLink`, and `useNavigate` remain available; give them
+the value returned by `href` when you need them:
+
+```tsx
+<Link to={href("/users/:id", { id: user.id })}>Profile</Link>
+```
+
 ## Lazy loading
 
 Pages and `not-found.tsx` files use Vite's non-eager `import.meta.glob`, so
@@ -282,9 +324,14 @@ For custom glob layouts, the package exports:
 import {
   buildRouteTree,
   createRouteGenerator,
+  href,
+  RouteLink,
   treeToRoutes,
 } from "next-vite-router";
 ```
+
+`href` and `RouteLink` are untyped here; the strict `RoutePath` checking comes
+from the declaration file the Vite plugin generates.
 
 The normal pipeline is:
 
