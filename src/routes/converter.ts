@@ -244,9 +244,11 @@ export function treeToRoutes(
   const nodePath = isPathless
     ? currentPath
     : currentPath + "/" + nodeSegment;
-  const descendants = processChildren(node, nodePath, cache);
-  const notFound = createNotFoundRoutes(node, cache);
 
+  // `processChildren` walks the whole subtree, so every branch that needs the
+  // walk must do it exactly once. Computing the descendants eagerly here and
+  // letting `createNodeChildren` walk the subtree again doubled the work per
+  // nested layout level, which grows as 2^depth.
   if (node.layout) {
     return [createLayoutRoute(
       isPathless ? "" : nodeSegment,
@@ -254,6 +256,9 @@ export function treeToRoutes(
       createNodeChildren(node, nodePath, cache),
     )];
   }
+
+  const descendants = processChildren(node, nodePath, cache);
+  const notFound = createNotFoundRoutes(node, cache);
 
   if (node.page && !isPathless) {
     return createPageRoutes(

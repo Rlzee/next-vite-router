@@ -37,6 +37,34 @@ function routeShape(routes) {
   });
 }
 
+/**
+ * Replace every node's `children` map with a getter that counts how often the
+ * subtree is enumerated, so traversal cost can be asserted without timing.
+ *
+ * @param {object} root - The route tree returned by `buildRouteTree`.
+ * @returns {Map<object, number>} Visits per node, keyed by the node itself.
+ */
+function instrumentChildrenReads(root) {
+  const reads = new Map();
+  const queue = [root];
+
+  while (queue.length > 0) {
+    const node = queue.pop();
+    const children = node.children;
+    reads.set(node, 0);
+    Object.defineProperty(node, "children", {
+      configurable: true,
+      get() {
+        reads.set(node, reads.get(node) + 1);
+        return children;
+      },
+    });
+    queue.push(...children.values());
+  }
+
+  return reads;
+}
+
 beforeEach(() => {
   // Reset the module-level router configuration singleton so state cannot leak
   // between tests. The lazy component cache no longer needs resetting: every
@@ -485,6 +513,43 @@ describe("route generator", () => {
       ["/", "dashboard", "*"],
     );
     assert.equal(matchRoutes(routes, "/unknown")?.at(-1)?.route.path, "*");
+  });
+
+  test("walks every node of a nested layout subtree exactly once", () => {
+    // Layout levels used to enumerate their own subtree twice: once for the
+    // eager `descendants` list that the layout branch discarded, and once
+    // through `createNodeChildren`. That made generation cost grow as 2^depth.
+    const depth = 12;
+    const segments = [];
+    const layouts = {};
+    const pages = {};
+
+    for (let level = 0; level < depth; level++) {
+      segments.push(`l${level}`);
+      const dir = segments.join("/");
+      layouts[`${dir}/layout.tsx`] = { default: component(`l${level}`) };
+      pages[`${dir}/page.tsx`] = loader(`l${level}`);
+    }
+
+    const tree = buildRouteTree(pages, layouts, {});
+    const childrenReads = instrumentChildrenReads(tree);
+    const routes = treeToRoutes(tree, true);
+
+    // Root plus one node per layout level, each enumerated a single time.
+    assert.equal(childrenReads.size, depth + 1);
+    assert.deepEqual(
+      [...childrenReads.values()],
+      [...childrenReads.values()].map(() => 1),
+    );
+
+    // The generated tree is still complete: every layout matches, then the
+    // deepest page as an index route.
+    assert.deepEqual(
+      matchRoutes(routes, `/${segments.join("/")}`)?.map(
+        ({ route }) => route.path ?? route.index,
+      ),
+      [...segments, true],
+    );
   });
 
   test("resolves catch-all pages under layouts", () => {
