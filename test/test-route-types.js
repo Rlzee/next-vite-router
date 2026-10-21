@@ -76,8 +76,11 @@ try {
   assert.match(declaration, /\| "\/docs"/);
   assert.doesNotMatch(declaration, /marketing/);
   assert.match(declaration, /id: string;/);
-  assert.match(declaration, /slug: string;/);
-  assert.match(declaration, /segments\?: string;/);
+  // A catch-all also accepts the `useCatchAll()` segment array; a single-segment
+  // param stays a plain string even when the folder names it `slug` too.
+  assert.match(declaration, /"\/blog\/\*": \{\n\s+slug: string \| string\[\];/);
+  assert.match(declaration, /"\/posts\/:slug": \{\n\s+slug: string;\n\s+\};/);
+  assert.match(declaration, /segments\?: string \| string\[\];/);
   assert.match(declaration, /export function Router/);
   assert.match(declaration, /export function href<P extends RoutePath>/);
   assert.match(declaration, /export type LinkProps =/);
@@ -133,6 +136,11 @@ href("/users/:missing", { id: "123" });
 href("/users", { id: "123" });
 // @ts-expect-error a catch-all is addressed by its folder name, not by "*"
 href("/blog/*", { "*": "guide/api" });
+// A catch-all also takes the segment array \`useCatchAll()\` returns...
+href("/blog/*", { slug: ["guide", "api"] });
+// ...while a single-segment param stays a string.
+// @ts-expect-error an array is only accepted for a catch-all value
+href("/users/:id", { id: ["123"] });
 
 void invalidPath;
 void missingParam;
@@ -168,12 +176,24 @@ const linkStaticWithParams = (
   <Link href="/users" params={{ id: "123" }}>Users</Link>
 );
 
+// A catch-all param accepts the segment array useCatchAll() returns...
+const catchAllFromSegments = (
+  <Link href="/blog/*" params={{ slug: ["guide", "api"] }}>Docs</Link>
+);
+// ...while a single-segment param stays a string.
+const dynamicFromSegments = (
+  // @ts-expect-error an array is only accepted for a catch-all value
+  <Link href="/users/:id" params={{ id: ["123"] }}>Profile</Link>
+);
+
 void profileLink;
 void usersLink;
 void linkWithRouterProp;
 void linkMissingParams;
 void linkUnknownRoute;
 void linkStaticWithParams;
+void catchAllFromSegments;
+void dynamicFromSegments;
 `, "utf8");
   try {
     runTypeScript(invalidLinkPath, [declarationPath]);

@@ -1045,6 +1045,15 @@ describe("typed navigation helpers", () => {
     assert.equal(href("/*", { slug: "" }), "/");
   });
 
+  test("accepts the segment array useCatchAll returns", () => {
+    assert.equal(href("/blog/*", { slug: ["guide", "api"] }), "/blog/guide/api");
+    assert.equal(href("/docs/*", { segments: ["a", "b"] }), "/docs/a/b");
+    // `useCatchAll()` reports [] on the base path of an optional catch-all, which
+    // joins to "" and resolves back to that base path.
+    assert.equal(href("/docs/*", { segments: [] }), "/docs");
+    assert.equal(href("/*", { slug: [] }), "/");
+  });
+
   test("reports a parameter the pattern cannot consume", () => {
     assert.throws(
       () => href("/users/:id", { userId: "42" }),
@@ -1062,6 +1071,18 @@ describe("typed navigation helpers", () => {
       () => href("/blog/*", { slug: "a", other: "b" }),
       {
         message: 'Route "/blog/*" takes one catch-all value, but 2 params were supplied ("slug", "other").',
+      },
+    );
+  });
+
+  test("rejects a segment array for a single-segment param", () => {
+    // Only a catch-all spans several segments; an array on `[id]` is a mistake,
+    // and joining it would silently build a path the route cannot match.
+    assert.throws(
+      () => href("/users/:id", { id: ["1", "2"] }),
+      {
+        message:
+          'Route "/users/:id" expects a string for its ":id" param; only a catch-all value accepts an array of segments.',
       },
     );
   });
@@ -1110,6 +1131,14 @@ describe("typed navigation helpers", () => {
     assert.match(markup, /class="user-link"/);
     assert.match(markup, /title="Open the profile"/);
     assert.match(markup, /<a[^>]*>Profile<\/a>/);
+  });
+
+  test("Link accepts a catch-all segment array", () => {
+    // The value `useCatchAll()` returns can be handed straight back to `Link`.
+    assert.match(
+      renderLink({ href: "/blog/*", params: { slug: ["guide", "api"] } }, "Docs"),
+      /href="\/blog\/guide\/api"/,
+    );
   });
 
   test("Link accepts a pattern without parameters as-is", () => {

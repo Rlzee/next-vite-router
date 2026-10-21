@@ -25,13 +25,13 @@ declare module 'virtual:next-vite-router' {
     [key: string]: never;
   };
   "/blog/*": {
-    slug: string;
+    slug: string | string[];
   };
   "/docs": {
     [key: string]: never;
   };
   "/docs/*": {
-    segments?: string;
+    segments?: string | string[];
   };
   "/posts/:slug": {
     slug: string;

@@ -11,8 +11,12 @@ import {
  * The keys are the names the route declares: `:id` for a `[id]` folder, and the
  * catch-all folder name (`slug` for `[...slug]`) rather than React Router's
  * unnamed `*` splat, which is what `useParams` from this package already exposes.
+ *
+ * A catch-all also accepts the segment array `useCatchAll()` returns, so reading
+ * a catch-all route and building a link to it use the same value. A `:name`
+ * param stays a string: it is always exactly one path segment.
  */
-export type RouteHrefParams = Record<string, string>;
+export type RouteHrefParams = Record<string, string | string[]>;
 
 /**
  * Props of the typed `Link`: a route pattern in `href`, the values it needs in
@@ -56,6 +60,7 @@ function hasSubstitutableTokens(pattern: string): boolean {
  * @example
  * href("/users/:id", { id: "42" });            // "/users/42"
  * href("/blog/*", { slug: "guide/api" });      // "/blog/guide/api"
+ * href("/blog/*", { slug: ["guide", "api"] }); // "/blog/guide/api", from useCatchAll()
  * href("/docs/*", {});                         // "/docs" (optional catch-all)
  * href("/typed-routes");                       // "/typed-routes"
  */
@@ -81,9 +86,20 @@ export function href(pattern: string, params: RouteHrefParams = {}): string {
 
   for (const [key, value] of Object.entries(params)) {
     if (names.has(key)) {
+      // A `:name` folder is exactly one path segment, so an array there is a
+      // mistake rather than a value this helper could join.
+      if (Array.isArray(value)) {
+        throw new Error(
+          `Route "${pattern}" expects a string for its ":${key}" param; ` +
+          "only a catch-all value accepts an array of segments.",
+        );
+      }
       values[key] = value;
     } else if (hasCatchAll) {
-      values["*"] = value;
+      // `useCatchAll()` hands back segments, so accepting them here lets a read
+      // and a link build share one value. An empty array joins to `""`, which
+      // already resolves an optional catch-all to its base path.
+      values["*"] = Array.isArray(value) ? value.join("/") : value;
       catchAllKeys.push(key);
     } else {
       throw new Error(

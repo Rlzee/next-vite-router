@@ -29,6 +29,10 @@ const docsCatchAllParams: RouteParams<typeof docsCatchAll> = {};
 // when the pattern carries no parameter.
 const userHref: string = href("/users/:id", { id: "123" });
 const blogHref: string = href("/blog/*", { slug: "guide/api" });
+// A catch-all also takes the segment array `useCatchAll()` returns, so a read and
+// a link build share one value.
+const blogHrefFromSegments: string = href("/blog/*", { slug: ["guide", "api"] });
+const docsBaseFromSegments: string = href("/docs/*", { segments: [] });
 const docsHref: string = href("/docs/*", { segments: "guide/api" });
 const docsBaseHref: string = href("/docs/*", {});
 const usersHref: string = href("/users");
@@ -58,6 +62,8 @@ void docsParams;
 void docsCatchAllParams;
 void userHref;
 void blogHref;
+void blogHrefFromSegments;
+void docsBaseFromSegments;
 void docsHref;
 void docsBaseHref;
 void usersHref;

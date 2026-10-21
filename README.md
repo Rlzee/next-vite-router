@@ -128,7 +128,7 @@ that takes `to` — comes from `react-router-dom`. For parameters, import
 (`[...slug]`, `[[...slug]]`) are only surfaced as `slug` through the package
 `useParams`. React Router's own `useParams` returns them under `params["*"]`.
 
-A catch-all stays a single string, unlike Next.js, which hands the same
+A catch-all param stays a single string, unlike Next.js, which hands the same
 parameter over as an array: `/docs/guide/api` matched by
 `docs/[[...segments]]` gives `params.segments === "guide/api"`. `useCatchAll`
 returns the array form, split on `/`:
@@ -143,6 +143,16 @@ const named = useCatchAll("segments"); // the same, by folder name
 
 It yields `[]` whenever no catch-all matched, which includes the base path of an
 optional catch-all and any layout rendered above the catch-all segment.
+
+The string shape is deliberate: `useParams` keeps the same value type as
+React Router's own, so a `[id]` param and a catch-all both arrive as strings and
+need no narrowing. The array is not second-class either — every catch-all value
+accepted by `href` and `Link` also takes the `string[]` `useCatchAll()` returns,
+so reading a route and linking back to it share one shape:
+
+```tsx
+<Link href="/blog/*" params={{ slug: useCatchAll() }}>This article</Link>
+```
 
 The generated `RouteObject[]` carries page, layout, and not-found elements only.
 There is no file convention that produces React Router route `loader` or
@@ -243,10 +253,12 @@ A catch-all is addressed by its folder name, the same key `useParams` reports,
 instead of React Router's unnamed `*` splat: `blog/[...slug]` becomes
 `href("/blog/*", { slug: "..." })`, and the optional `docs/[[...segments]]`
 resolves to its base path when empty (`href("/docs/*", {})` is `/docs`).
-TypeScript requires the second argument as soon as the chosen pattern has
-parameters, and rejects a pattern that is not a route. `href` inserts values
-verbatim, like `generatePath`, so encode anything that can contain `/`, `?`, or
-`#` before passing it.
+A catch-all value may also be the segment array `useCatchAll()` returns
+(`href("/blog/*", { slug: ["guide", "api"] })`); a `:name` param stays a string,
+because one folder matches exactly one segment. TypeScript requires the second
+argument as soon as the chosen pattern has parameters, and rejects a pattern that
+is not a route. `href` inserts values verbatim, like `generatePath`, so encode
+anything that can contain `/`, `?`, or `#` before passing it.
 
 ### `Link`
 

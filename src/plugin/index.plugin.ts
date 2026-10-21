@@ -36,7 +36,7 @@ function routePathFromSegments(segments: RouteSegment[]): string {
 
 type RouteTypeEntry = {
   path: string;
-  params: Array<{ name: string; optional: boolean }>;
+  params: Array<{ name: string; optional: boolean; variadic: boolean }>;
 };
 
 function validatePluginOptions(
@@ -95,6 +95,9 @@ function collectRoutePaths(
       .map((segment) => ({
         name: segment.name,
         optional: segment.kind === "catchAll" && segment.optional,
+        // A catch-all spans several segments, so `href` and `Link` also take the
+        // array form `useCatchAll()` returns; a `:name` param stays a string.
+        variadic: segment.kind === "catchAll",
       }));
     const computedPath = routePathFromSegments(segments);
     paths.set(computedPath, { path: computedPath, params });
@@ -149,8 +152,8 @@ function createRouteTypes(routePaths: RouteTypeEntry[]): string {
   const params = routePaths.map(({ path: route, params }) => {
     const fields = params.length > 0
       ? [
-          ...params.map(({ name, optional }) =>
-            `    ${name}${optional ? "?" : ""}: string;`),
+          ...params.map(({ name, optional, variadic }) =>
+            `    ${name}${optional ? "?" : ""}: ${variadic ? "string | string[]" : "string"};`),
         ].join("\n")
       : "    [key: string]: never;";
 

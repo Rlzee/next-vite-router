@@ -3,7 +3,9 @@ declare module "virtual:next-vite-router" {
   import type { LinkProps as ReactRouterLinkProps, RouteObject } from "react-router-dom";
 
   export type RoutePath = string;
-  export type RouteParams<Path extends RoutePath> = Record<string, string>;
+  // A catch-all value may be the string `useParams` reports or the segment array
+  // `useCatchAll()` returns; `href` and `Link` join the array form.
+  export type RouteParams<Path extends RoutePath> = Record<string, string | string[]>;
 
   // Fallback shape for editors before the plugin writes the generated
   // declaration; a literal still selects its own branch here.

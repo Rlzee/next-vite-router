@@ -15,10 +15,14 @@ export function useParams<T extends Record<string, string | undefined> = Record<
 /**
  * Read a catch-all folder as its individual path segments.
  *
- * A catch-all is a single string, not an array: `/docs/guide/api` matched by
- * `docs/[[...segments]]` yields `"guide/api"`, because that is what a React
- * Router splat holds. Next.js hands the same value over as `string[]`, so this
- * hook supplies the array form and saves every page from repeating the split.
+ * A catch-all param is a single string, not an array: `/docs/guide/api` matched
+ * by `docs/[[...segments]]` yields `"guide/api"`, because that is what a React
+ * Router splat holds and what keeps every param the same value type as
+ * `react-router-dom` reports. Next.js hands the same value over as `string[]`,
+ * so this hook supplies that form and saves each page from repeating the split.
+ *
+ * `href` and `Link` accept the array back, so a route can be read and re-linked
+ * with one value: `href("/blog/*", { slug: useCatchAll() })`.
  *
  * Only usable at or below the route that declares the catch-all: a layout above
  * that segment has not matched it yet, so it reads `[]`.
