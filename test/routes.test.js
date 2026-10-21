@@ -765,3 +765,119 @@ describe("lazy component cache", () => {
     assert.notEqual(oldComponent, newComponent);
   });
 });
+
+describe("route file default exports", () => {
+  const componentLoader = (name) => async () => ({ default: component(name) });
+
+  test("rejects a layout module that has no default export", () => {
+    // Layouts are imported eagerly, so the missing component used to be stored
+    // as `undefined` and the layout silently vanished from the routes.
+    assert.throws(
+      () => buildRouteTree(
+        { "dashboard/page.tsx": componentLoader("dashboard") },
+        { "dashboard/layout.tsx": { metadata: "only named exports" } },
+        {},
+      ),
+      {
+        message: [
+          'Route layout "dashboard/layout.tsx" does not default-export a React component.',
+          "Add `export default` to the file, for example: `export default function Layout({ children }) { ... }`.",
+        ].join("\n"),
+      },
+    );
+  });
+
+  test("rejects a page that resolves without a default export", () => {
+    // Pages stay code-split, so the file is only known once its loader resolves;
+    // the error must still name the file rather than surface as a render error.
+    const tree = buildRouteTree(
+      { "about/page.tsx": async () => ({ title: "about" }) },
+      {},
+      {},
+    );
+
+    assert.deepEqual(routeShape(treeToRoutes(tree, true)), [
+      { path: "about", children: undefined },
+    ]);
+
+    return assert.rejects(
+      () => tree.children.get("about").page(),
+      {
+        message: [
+          'Route page "about/page.tsx" does not default-export a React component.',
+          "Add `export default` to the file, for example: `export default function Page() { ... }`.",
+        ].join("\n"),
+      },
+    );
+  });
+
+  test("rejects a not-found file that resolves without a default export", () => {
+    const tree = buildRouteTree(
+      { "dashboard/page.tsx": componentLoader("dashboard") },
+      {},
+      { "dashboard/not-found.tsx": async () => ({}) },
+    );
+
+    return assert.rejects(
+      () => tree.children.get("dashboard").notFound(),
+      {
+        message: [
+          'Route not-found "dashboard/not-found.tsx" does not default-export a React component.',
+          "Add `export default` to the file, for example: `export default function NotFound() { ... }`.",
+        ].join("\n"),
+      },
+    );
+  });
+
+  test("rejects a route file supplied as an eagerly imported module", () => {
+    assert.throws(
+      () => buildRouteTree(
+        { "about/page.tsx": { default: component("about") } },
+        {},
+        {},
+      ),
+      {
+        message: [
+          'Route page "about/page.tsx" must be a lazy loader function such as `async () => import("...")`.',
+          "Keep the page glob lazy (no `{ eager: true }`); received object.",
+        ].join("\n"),
+      },
+    );
+  });
+
+  test("accepts wrapped components as default exports", async () => {
+    const Base = component("base");
+    const tree = buildRouteTree(
+      {
+        "memo/page.tsx": async () => ({ default: React.memo(Base) }),
+        "ref/page.tsx": async () => ({ default: React.forwardRef(Base) }),
+      },
+      {
+        "memo/layout.tsx": { default: React.memo(Base) },
+        "ref/layout.tsx": { default: React.lazy(async () => ({ default: Base })) },
+      },
+      {},
+    );
+
+    // Layouts were validated while building the tree; `memo`, `forwardRef` and
+    // `lazy` wrappers are components too, so the pages must resolve as well.
+    await assert.doesNotReject(() => tree.children.get("memo").page());
+    await assert.doesNotReject(() => tree.children.get("ref").page());
+  });
+
+  test("accepts route values unwrapped by the glob import option", async () => {
+    // `import.meta.glob(pattern, { import: "default" })` yields the component
+    // itself instead of a module namespace, so it must not be reported as a
+    // missing default export.
+    const About = component("about");
+    const Layout = component("layout");
+    const tree = buildRouteTree(
+      { "about/page.tsx": async () => About },
+      { "about/layout.tsx": Layout },
+      {},
+    );
+
+    assert.equal(tree.children.get("about").layout, Layout);
+    assert.deepEqual(await tree.children.get("about").page(), { default: About });
+  });
+});

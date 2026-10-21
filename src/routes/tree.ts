@@ -1,4 +1,5 @@
-import type { RouteNode } from '../index';
+import type { ComponentType } from 'react';
+import type { RouteModuleLoader, RouteNode } from '../index';
 import {
   extractRoutePath,
   parseRouteSegments,
@@ -141,11 +142,105 @@ export function assertNoRouteConflicts(
   assertNoCatchAllFallbackCollisions(pageFiles, notFoundFiles, fileOptions);
 }
 
+type RouteFileType = 'layout' | 'page' | 'notFound';
+
+const ROUTE_FILE_LABELS: Record<RouteFileType, string> = {
+  layout: 'layout',
+  page: 'page',
+  notFound: 'not-found',
+};
+
+const DEFAULT_EXPORT_EXAMPLES: Record<RouteFileType, string> = {
+  layout: 'export default function Layout({ children }) { ... }',
+  page: 'export default function Page() { ... }',
+  notFound: 'export default function NotFound() { ... }',
+};
+
+/**
+ * A route file can only be rendered when its default export is usable as a
+ * React component type: a function (plain or class component) or an object
+ * carrying `$$typeof` (`memo`, `forwardRef`, `lazy`, …).
+ */
+function isComponentType(value: unknown): value is ComponentType {
+  return typeof value === 'function'
+    || (typeof value === 'object' && value !== null && '$$typeof' in value);
+}
+
+function assertComponentType(
+  filePath: string,
+  fileType: RouteFileType,
+  value: unknown,
+): asserts value is ComponentType {
+  if (isComponentType(value)) {
+    return;
+  }
+
+  const label = ROUTE_FILE_LABELS[fileType];
+  throw new Error(
+    `Route ${label} "${filePath}" does not default-export a React component.\n` +
+    `Add \`export default\` to the file, for example: \`${DEFAULT_EXPORT_EXAMPLES[fileType]}\`.`,
+  );
+}
+
+/**
+ * Read a component out of a route file value, accepting both a module namespace
+ * (`import.meta.glob(pattern, { eager: true })`) and an already unwrapped
+ * default export (`import.meta.glob(pattern, { eager: true, import: "default" })`).
+ */
+function resolveRouteComponent(value: any): ComponentType | undefined {
+  if (isComponentType(value)) {
+    return value;
+  }
+  return isComponentType(value?.default) ? value.default : undefined;
+}
+
+/**
+ * Read the component out of an eagerly imported layout module.
+ *
+ * The layout used to be stored as `undefined` when the file had no default
+ * export, which dropped the layout from the generated routes without any error.
+ */
+function readLayoutComponent(filePath: string, module: any): RouteNode['layout'] {
+  const layout = resolveRouteComponent(module);
+  assertComponentType(filePath, 'layout', layout);
+  return layout;
+}
+
+/**
+ * Keep a page or not-found loader, but report a missing default export with the
+ * source file instead of letting React fail during render with an "Element type
+ * is invalid" error that names nothing.
+ *
+ * These modules are code-split, so their exports only exist once the dynamic
+ * import resolves; the check cannot run while the tree is being built.
+ */
+function checkedLoader(
+  filePath: string,
+  fileType: 'page' | 'notFound',
+  loader: unknown,
+): RouteModuleLoader {
+  if (typeof loader !== 'function') {
+    const label = ROUTE_FILE_LABELS[fileType];
+    throw new Error(
+      `Route ${label} "${filePath}" must be a lazy loader function such as \`async () => import("...")\`.\n` +
+      `Keep the ${label} glob lazy (no \`{ eager: true }\`); received ` +
+      `${loader === null ? 'null' : typeof loader}.`,
+    );
+  }
+
+  const source = loader as RouteModuleLoader;
+  return async () => {
+    const component = resolveRouteComponent(await source());
+    assertComponentType(filePath, fileType, component);
+    return { default: component };
+  };
+}
+
 function addFileToTree(
   root: RouteNode,
   filePath: string,
   fileContent: any,
-  fileType: 'layout' | 'page' | 'notFound',
+  fileType: RouteFileType,
   fileOptions?: RouteFileOptions,
 ): void {
   const routePath = extractRoutePath(filePath, fileOptions);
@@ -196,15 +291,15 @@ export function buildRouteTree(
   };
 
   Object.entries(layouts).forEach(([filePath, module]) => {
-    addFileToTree(root, filePath, (module as any).default, 'layout', fileOptions);
+    addFileToTree(root, filePath, readLayoutComponent(filePath, module), 'layout', fileOptions);
   });
 
   Object.entries(pages).forEach(([filePath, loader]) => {
-    addFileToTree(root, filePath, loader, 'page', fileOptions);
+    addFileToTree(root, filePath, checkedLoader(filePath, 'page', loader), 'page', fileOptions);
   });
 
   Object.entries(notFounds).forEach(([filePath, loader]) => {
-    addFileToTree(root, filePath, loader, 'notFound', fileOptions);
+    addFileToTree(root, filePath, checkedLoader(filePath, 'notFound', loader), 'notFound', fileOptions);
   });
 
   return root;
