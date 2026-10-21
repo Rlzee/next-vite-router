@@ -80,14 +80,21 @@ try {
   assert.match(declaration, /segments\?: string;/);
   assert.match(declaration, /export function Router/);
   assert.match(declaration, /export function href<P extends RoutePath>/);
-  assert.match(declaration, /export type RouteLinkProps =/);
-  assert.match(declaration, /export function RouteLink\(props: RouteLinkProps\)/);
+  assert.match(declaration, /export type LinkProps =/);
+  assert.match(declaration, /export function Link\(props: LinkProps\)/);
   assert.match(declaration, /export function useCatchAll\(name\?: string\): string\[\];/);
-  assert.match(declaration, /export \{ Link, useRoutes \}/);
-  assert.match(virtualModule, /import \{ Link, useRoutes \} from 'react-router-dom'/);
-  assert.match(virtualModule, /export \{ Link, useRoutes \};/);
+  // The typed `Link` owns the `Link` name now, so React Router's own `Link` is
+  // no longer re-exported; only `useRoutes` still comes from `react-router-dom`.
+  assert.match(declaration, /export \{ useRoutes \}/);
+  assert.doesNotMatch(declaration, /export \{ Link,/);
+  assert.match(virtualModule, /import \{ useRoutes \} from 'react-router-dom'/);
+  assert.match(virtualModule, /export \{ useRoutes \};/);
   assert.match(virtualModule, /export \{ useParams, useCatchAll \};/);
-  assert.match(virtualModule, /export \{ href, RouteLink \};/);
+  assert.match(virtualModule, /export \{ href, Link \};/);
+  assert.match(
+    virtualModule,
+    /import \{ buildRouteTree, treeToRoutes, useParams, useCatchAll, href, Link \} from 'next-vite-router'/,
+  );
   // The generated module may only import what it uses or re-exports; a dead
   // import stays in the module graph of every app that loads the virtual module.
   assert.doesNotMatch(virtualModule, /normalizeSegment|createLazyElement/);
@@ -140,26 +147,33 @@ void invalidConfig;
 
   const invalidLinkPath = path.join(projectRoot, "src", "invalid-route-links.tsx");
   fs.writeFileSync(invalidLinkPath, `
-import { RouteLink } from "virtual:next-vite-router";
+import { Link } from "virtual:next-vite-router";
 
-const profileLink = <RouteLink to="/users/:id" params={{ id: "123" }}>Profile</RouteLink>;
-const missingParams = (
-  // @ts-expect-error RouteLink requires params for a pattern that has them
-  <RouteLink to="/users/:id">Profile</RouteLink>
+const profileLink = <Link href="/users/:id" params={{ id: "123" }}>Profile</Link>;
+const usersLink = <Link href="/users" className="list">Users</Link>;
+const linkWithRouterProp = (
+  // @ts-expect-error Link takes the Next.js \`href\`, not React Router's \`to\`
+  <Link to="/users">Users</Link>
 );
-const unknownRoute = (
-  // @ts-expect-error RouteLink only accepts generated route patterns
-  <RouteLink to="/users/:missing" params={{ id: "123" }}>Profile</RouteLink>
+const linkMissingParams = (
+  // @ts-expect-error Link requires params for a pattern that has them
+  <Link href="/users/:id">Profile</Link>
 );
-const staticWithParams = (
-  // @ts-expect-error RouteLink rejects params for a static route
-  <RouteLink to="/users" params={{ id: "123" }}>Users</RouteLink>
+const linkUnknownRoute = (
+  // @ts-expect-error Link only accepts generated route patterns
+  <Link href="/users/:missing" params={{ id: "123" }}>Profile</Link>
+);
+const linkStaticWithParams = (
+  // @ts-expect-error Link rejects params for a static route
+  <Link href="/users" params={{ id: "123" }}>Users</Link>
 );
 
 void profileLink;
-void missingParams;
-void unknownRoute;
-void staticWithParams;
+void usersLink;
+void linkWithRouterProp;
+void linkMissingParams;
+void linkUnknownRoute;
+void linkStaticWithParams;
 `, "utf8");
   try {
     runTypeScript(invalidLinkPath, [declarationPath]);

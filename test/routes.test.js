@@ -13,8 +13,8 @@ import {
   createRouteGenerator,
   clearLazyCache,
   href,
+  Link,
   resetRouterConfig,
-  RouteLink,
   treeToRoutes,
 } from "../dist/index.js";
 import { extractRoutePath, parseRouteSegments } from "../dist/index.js";
@@ -1087,22 +1087,23 @@ describe("typed navigation helpers", () => {
     );
   });
 
-  test("RouteLink renders the resolved href and forwards other link props", () => {
-    const markup = renderToStaticMarkup(
-      React.createElement(
-        MemoryRouter,
-        { initialEntries: ["/"] },
-        React.createElement(
-          RouteLink,
-          {
-            to: "/users/:id",
-            params: { id: "42" },
-            className: "user-link",
-            title: "Open the profile",
-          },
-          "Profile",
-        ),
-      ),
+  const renderLink = (props, ...children) => renderToStaticMarkup(
+    React.createElement(
+      MemoryRouter,
+      { initialEntries: ["/"] },
+      React.createElement(Link, props, ...children),
+    ),
+  );
+
+  test("Link renders the resolved href and forwards other link props", () => {
+    const markup = renderLink(
+      {
+        href: "/users/:id",
+        params: { id: "42" },
+        className: "user-link",
+        title: "Open the profile",
+      },
+      "Profile",
     );
 
     assert.match(markup, /href="\/users\/42"/);
@@ -1111,42 +1112,32 @@ describe("typed navigation helpers", () => {
     assert.match(markup, /<a[^>]*>Profile<\/a>/);
   });
 
-  test("RouteLink accepts a pattern without parameters as-is", () => {
-    const markup = renderToStaticMarkup(
-      React.createElement(
-        MemoryRouter,
-        { initialEntries: ["/"] },
-        React.createElement(RouteLink, { to: "/about" }, "About"),
-      ),
-    );
-
-    assert.match(markup, /href="\/about"/);
+  test("Link accepts a pattern without parameters as-is", () => {
+    assert.match(renderLink({ href: "/about" }, "About"), /href="\/about"/);
   });
 
-  test("RouteLink leaves an address with nothing to substitute alone", () => {
-    // generatePath() collapses the "//" of an absolute URL, so a `to` without a
-    // token is passed to React Router untouched instead of being rewritten.
-    const markup = renderToStaticMarkup(
-      React.createElement(
-        MemoryRouter,
-        { initialEntries: ["/"] },
-        React.createElement(RouteLink, { to: "https://example.com/a/b" }, "Docs"),
-      ),
+  test("Link leaves an address with nothing to substitute alone", () => {
+    // generatePath() collapses the "//" of an absolute URL, so a `href` without
+    // a token is passed to React Router untouched instead of being rewritten.
+    assert.match(
+      renderLink({ href: "https://example.com/a/b" }, "Docs"),
+      /href="https:\/\/example\.com\/a\/b"/,
     );
-
-    assert.match(markup, /href="https:\/\/example\.com\/a\/b"/);
   });
 
-  test("RouteLink fails with the route instead of rendering a broken link", () => {
+  test("Link fails with the route instead of rendering an empty anchor", () => {
     assert.throws(
-      () => renderToStaticMarkup(
-        React.createElement(
-          MemoryRouter,
-          { initialEntries: ["/"] },
-          React.createElement(RouteLink, { to: "/users/:id" }, "Profile"),
-        ),
-      ),
+      () => renderLink({ href: "/users/:id" }, "Profile"),
       { message: 'Route "/users/:id" is missing the required ":id" param.' },
+    );
+  });
+
+  test("Link names the prop it wants when handed React Router's to", () => {
+    // Upgrading apps used to get React Router's `Link` from the virtual module,
+    // so a `to` here has to be reported instead of rendering a dead link.
+    assert.throws(
+      () => renderLink({ to: "/users" }, "Users"),
+      /Link takes a route pattern in `href`/,
     );
   });
 });

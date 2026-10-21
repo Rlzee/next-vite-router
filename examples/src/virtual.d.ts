@@ -1,6 +1,6 @@
 declare module "virtual:next-vite-router" {
   import type { ReactElement } from "react";
-  import type { LinkProps, RouteObject } from "react-router-dom";
+  import type { LinkProps as ReactRouterLinkProps, RouteObject } from "react-router-dom";
 
   export type RoutePath = string;
   export type RouteParams<Path extends RoutePath> = Record<string, string>;
@@ -19,16 +19,16 @@ declare module "virtual:next-vite-router" {
       : [params?: RouteParams<P>]
   ): string;
 
-  export type RouteLinkProps = Omit<LinkProps, "to"> & {
-    to: RoutePath;
+  export type LinkProps = Omit<ReactRouterLinkProps, "to" | "href"> & {
+    href: RoutePath;
     params?: Record<string, string>;
   };
 
-  export function RouteLink(props: RouteLinkProps): ReactElement | null;
+  export function Link(props: LinkProps): ReactElement | null;
 
   export const generateRoutes: () => RouteObject[];
   export function Router(): ReactElement | null;
   export function useParams<T extends Record<string, string | undefined> = Record<string, string | undefined>>(): T;
   export function useCatchAll(name?: string): string[];
-  export { Link, useRoutes } from "react-router-dom";
+  export { useRoutes } from "react-router-dom";
 }

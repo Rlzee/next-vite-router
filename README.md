@@ -100,12 +100,11 @@ Router APIs:
 
 ```tsx
 import {
-  Link,
   generateRoutes,
   useRoutes,
   useParams,
 } from "virtual:next-vite-router";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 const routes = generateRoutes();
 
@@ -121,7 +120,9 @@ export default function App() {
 ```
 
 Keep using React Router's navigation and hooks from `react-router-dom`
-(`useNavigate`, `useLocation`, `Link`, `Outlet`). For parameters, import
+(`useNavigate`, `useLocation`, `Link`, `Outlet`). The virtual module's own `Link`
+is the typed, Next.js-shaped one (`href`), so React Router's `Link` — the one
+that takes `to` — comes from `react-router-dom`. For parameters, import
 `useParams` from the virtual module instead of `react-router-dom`: dynamic
 `[id]` segments work with either hook, but named catch-all segments
 (`[...slug]`, `[[...slug]]`) are only surfaced as `slug` through the package
@@ -247,23 +248,30 @@ parameters, and rejects a pattern that is not a route. `href` inserts values
 verbatim, like `generatePath`, so encode anything that can contain `/`, `?`, or
 `#` before passing it.
 
-### `RouteLink`
+### `Link`
 
-`RouteLink` is `Link` with the same guarantee on its `to` prop: a renamed folder
-or a missing id fails to compile instead of rendering a 404 link. Every other
-`Link` prop (`className`, `replace`, `state`, children, ...) is forwarded.
+`Link` puts a route pattern in `href`, the way Next.js does, and checks it
+against the generated routes: a renamed folder or a missing id fails to compile
+instead of rendering a 404 link. Every other `Link` prop (`className`,
+`replace`, `state`, children, ...) is forwarded to React Router.
 
 ```tsx
-import { RouteLink } from "virtual:next-vite-router";
+import { Link } from "virtual:next-vite-router";
 
-<RouteLink to="/users/:id" params={{ id: user.id }}>Profile</RouteLink>
-<RouteLink to="/users">All users</RouteLink>
+<Link href="/users/:id" params={{ id: user.id }}>Profile</Link>
+<Link href="/users">All users</Link>
 ```
 
-React Router's `Link`, `NavLink`, and `useNavigate` remain available; give them
-the value returned by `href` when you need them:
+`href` has to be a generated route. Anything outside the route tree — an
+external URL, for instance — goes through React Router's `Link` or a plain
+anchor instead.
+
+React Router's own `Link`, `NavLink`, and `useNavigate` remain available from
+`react-router-dom`; give them the value returned by `href` when you need them:
 
 ```tsx
+import { Link } from "react-router-dom";
+
 <Link to={href("/users/:id", { id: user.id })}>Profile</Link>
 ```
 
@@ -362,13 +370,13 @@ import {
   buildRouteTree,
   createRouteGenerator,
   href,
-  RouteLink,
+  Link,
   treeToRoutes,
 } from "next-vite-router";
 ```
 
-`href` and `RouteLink` are untyped here; the strict `RoutePath` checking comes
-from the declaration file the Vite plugin generates.
+`href` and `Link` are untyped here; the strict `RoutePath` checking comes from
+the declaration file the Vite plugin generates.
 
 The normal pipeline is:
 

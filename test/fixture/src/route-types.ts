@@ -3,7 +3,7 @@
 // against a freshly generated one.
 import { href, useCatchAll } from "virtual:next-vite-router";
 import type {
-  RouteLinkProps,
+  LinkProps,
   RouteParams,
   RoutePath,
 } from "virtual:next-vite-router";
@@ -34,17 +34,18 @@ const docsBaseHref: string = href("/docs/*", {});
 const usersHref: string = href("/users");
 const homeHref: string = href("/");
 
-const profileLink: RouteLinkProps = {
-  to: "/users/:id",
+// `Link` is the Next.js spelling: the pattern goes in `href`.
+const profileLinkWithHref: LinkProps = {
+  href: "/users/:id",
   params: { id: "123" },
   children: "Profile",
 };
-const blogLink: RouteLinkProps = {
-  to: "/blog/*",
+const blogLinkWithHref: LinkProps = {
+  href: "/blog/*",
   params: { slug: "guide/api" },
   className: "post-link",
 };
-const usersLink: RouteLinkProps = { to: "/users" };
+const usersLinkWithHref: LinkProps = { href: "/users" };
 
 // Checked as a value, not called: a catch-all is a string in `useParams` and an
 // array in `useCatchAll`.
@@ -61,7 +62,7 @@ void docsHref;
 void docsBaseHref;
 void usersHref;
 void homeHref;
-void profileLink;
-void blogLink;
-void usersLink;
+void profileLinkWithHref;
+void blogLinkWithHref;
+void usersLinkWithHref;
 void catchAllHook;

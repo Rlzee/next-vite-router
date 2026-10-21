@@ -1,5 +1,9 @@
 import React from "react";
-import { Link, generatePath, type LinkProps } from "react-router-dom";
+import {
+  Link as RouterLink,
+  generatePath,
+  type LinkProps as RouterLinkProps,
+} from "react-router-dom";
 
 /**
  * Values for the parameters of a route pattern (`/users/:id`, `/blog/*`).
@@ -10,9 +14,13 @@ import { Link, generatePath, type LinkProps } from "react-router-dom";
  */
 export type RouteHrefParams = Record<string, string>;
 
-export type RouteLinkProps = Omit<LinkProps, "to"> & {
+/**
+ * Props of the typed `Link`: a route pattern in `href`, the values it needs in
+ * `params`, and everything else forwarded to React Router's `Link`.
+ */
+export type LinkProps = Omit<RouterLinkProps, "to" | "href"> & {
   /** A route pattern taken from the generated `RoutePath` union. */
-  to: string;
+  href: string;
   /** Values substituted into that pattern; required whenever it has parameters. */
   params?: RouteHrefParams;
 };
@@ -104,23 +112,48 @@ export function href(pattern: string, params: RouteHrefParams = {}): string {
 }
 
 /**
- * `Link` bound to a route pattern instead of a hand-written URL.
+ * Resolve a pattern into a URL and hand it to React Router's `Link`.
  *
- * With the plugin's generated types, `to` must be a known `RoutePath` and
+ * A pattern with nothing to substitute is passed through unchanged, so an
+ * absolute URL keeps its `//` (`generatePath` would collapse it).
+ */
+function renderTypedLink(
+  pattern: string,
+  params: RouteHrefParams | undefined,
+  rest: Omit<RouterLinkProps, "to">,
+): React.ReactElement {
+  const target = params === undefined && !hasSubstitutableTokens(pattern)
+    ? pattern
+    : href(pattern, params);
+
+  return React.createElement(RouterLink, { ...rest, to: target });
+}
+
+/**
+ * Next.js-style `Link` bound to a route pattern instead of a hand-written URL.
+ *
+ * With the plugin's generated types, `href` must be a known `RoutePath` and
  * `params` is required as soon as that path has parameters, so a renamed folder
  * or a missing id fails to compile instead of 404ing at runtime. Every other
  * `Link` prop (`className`, `replace`, `state`, …) is forwarded untouched.
  *
- * A `to` that carries no token is handed to React Router unchanged, so an
- * absolute URL is not rewritten (`generatePath` would collapse its `//`).
+ * React Router's own `Link`, the one that spells this prop `to`, stays available
+ * from `react-router-dom`; the virtual module no longer re-exports it because
+ * `Link` there now means this typed component.
  *
  * @example
- * <RouteLink to="/users/:id" params={{ id: user.id }}>Profile</RouteLink>
+ * <Link href="/users/:id" params={{ id: user.id }}>Profile</Link>
+ * <Link href="/users">All users</Link>
  */
-export function RouteLink({ to, params, ...rest }: RouteLinkProps): React.ReactElement {
-  const target = params === undefined && !hasSubstitutableTokens(to)
-    ? to
-    : href(to, params);
+export function Link(props: LinkProps): React.ReactElement {
+  const { href: pattern, params, ...rest } = props;
 
-  return React.createElement(Link, { ...rest, to: target });
+  if (typeof pattern !== "string") {
+    throw new Error(
+      'Link takes a route pattern in `href`, as in <Link href="/users/:id" params={{ id }} />.\n' +
+      'Use the `Link` from "react-router-dom" for its `to` prop instead.',
+    );
+  }
+
+  return renderTypedLink(pattern, params, rest);
 }

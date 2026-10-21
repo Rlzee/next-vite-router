@@ -159,7 +159,7 @@ function createRouteTypes(routePaths: RouteTypeEntry[]): string {
 
   return `declare module 'virtual:next-vite-router' {
   import type { ReactElement } from 'react';
-  import type { LinkProps, RouteObject } from 'react-router-dom';
+  import type { LinkProps as ReactRouterLinkProps, RouteObject } from 'react-router-dom';
 
   export type RoutePath =
 ${routeLiterals || '  | "/"'};
@@ -186,21 +186,21 @@ ${params}
       : [params?: RouteParams<P>]
   ): string;
 
-  // One member per route, so \`to\` alone decides whether \`params\` is required:
+  // One member per route, so \`href\` alone decides whether \`params\` is required:
   // a union of concrete prop shapes avoids any generic inference in JSX.
-  export type RouteLinkProps = {
-    [P in RoutePath]: Omit<LinkProps, 'to'> & (HasRouteParams<P> extends true
-      ? { to: P; params: RouteParams<P> }
-      : { to: P; params?: RouteParams<P> });
+  export type LinkProps = {
+    [P in RoutePath]: Omit<ReactRouterLinkProps, 'to' | 'href'> & (HasRouteParams<P> extends true
+      ? { href: P; params: RouteParams<P> }
+      : { href: P; params?: RouteParams<P> });
   }[RoutePath];
 
-  export function RouteLink(props: RouteLinkProps): ReactElement | null;
+  export function Link(props: LinkProps): ReactElement | null;
 
   export const generateRoutes: () => RouteObject[];
   export function Router(): ReactElement | null;
   export function useParams<T extends Record<string, string | undefined> = Record<string, string | undefined>>(): T;
   export function useCatchAll(name?: string): string[];
-  export { Link, useRoutes } from 'react-router-dom';
+  export { useRoutes } from 'react-router-dom';
 }
 `;
 }
@@ -353,8 +353,8 @@ export function nextViteRouter(
           : `import.meta.glob(${JSON.stringify(layoutsGlobPath)}, { eager: true })`;
         const routeTreeOptions = lazyLayouts ? ", { lazyLayouts: true }" : "";
         return `
-import { buildRouteTree, treeToRoutes, useParams, useCatchAll, href, RouteLink } from 'next-vite-router';
-import { Link, useRoutes } from 'react-router-dom';
+import { buildRouteTree, treeToRoutes, useParams, useCatchAll, href, Link } from 'next-vite-router';
+import { useRoutes } from 'react-router-dom';
 
 const pagesGlob = import.meta.glob(${JSON.stringify(pagesGlobPath)});
 const layoutsGlob = ${layoutsGlobSource};
@@ -387,9 +387,9 @@ if (import.meta.hot) {
   });
 }
 
-export { Link, useRoutes };
+export { useRoutes };
 export { useParams, useCatchAll };
-export { href, RouteLink };
+export { href, Link };
 `;
       }
     },

@@ -7,7 +7,7 @@ This is one runnable Vite app with five route examples:
 - `src/app/dynamic-routes` — a `[id]` segment and `useParams`;
 - `src/app/(protected)` — an auth-guard `layout.tsx` inside a route group;
 - `src/app/typed-routes` — the generated `RoutePath` type, `href()`, and
-  `RouteLink`.
+  `Link`.
 
 Run it from this directory:
 

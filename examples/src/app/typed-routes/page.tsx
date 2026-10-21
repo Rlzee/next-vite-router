@@ -1,4 +1,4 @@
-import { RouteLink, href } from "virtual:next-vite-router";
+import { Link, href } from "virtual:next-vite-router";
 import type { RoutePath } from "virtual:next-vite-router";
 
 const currentPath = "/typed-routes" satisfies RoutePath;
@@ -15,14 +15,14 @@ export default function TypedRoutesExample() {
         <code>{href("/dynamic-routes/:id", { id: userId })}</code>
       </p>
       <p>
-        <RouteLink to="/dynamic-routes/:id" params={{ id: userId }}>
+        <Link href="/dynamic-routes/:id" params={{ id: userId }}>
           Open the dynamic route
-        </RouteLink>
+        </Link>
       </p>
       <p>
-        TypeScript rejects a <code>RouteLink</code> whose{" "}
-        <code>to</code> is not a generated route, and one that omits{" "}
-        <code>params</code> for a pattern that has them.
+        TypeScript rejects a <code>Link</code> whose <code>href</code> is not a
+        generated route, and one that omits <code>params</code> for a pattern
+        that has them.
       </p>
     </section>
   );
