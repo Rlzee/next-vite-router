@@ -26,7 +26,7 @@ export type { RouteFileOptions } from './utils/path';
 export type { RouteSegment } from './utils/path';
 export { createLazyCache, createLazyElement, clearLazyCache } from './utils/lazy';
 export type { LazyComponentCache } from './utils/lazy';
-export { useParams } from './router-params';
+export { useParams, useCatchAll } from './router-params';
 export { CatchAllParamProvider } from './router-params-context';
 export { href, RouteLink } from './router-navigation';
 export type { RouteHrefParams, RouteLinkProps } from './router-navigation';

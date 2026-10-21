@@ -7,6 +7,7 @@ import {
   buildRouteTree,
   CatchAllParamProvider,
   treeToRoutes,
+  useCatchAll,
   useParams,
 } from "../dist/index.js";
 
@@ -93,4 +94,96 @@ test("optional catch-all routes preserve layout matching at base and nested path
   );
   assert.equal(baseMatch?.[0]?.route.element.type, DocsLayout);
   assert.equal(nestedMatch?.at(-1)?.params["*"], "reference/api");
+});
+
+function renderRoutes(routes, url) {
+  function App() {
+    return useRoutes(routes);
+  }
+
+  return renderToStaticMarkup(
+    React.createElement(
+      MemoryRouter,
+      { initialEntries: [url] },
+      React.createElement(App),
+    ),
+  );
+}
+
+// React Router reports a catch-all under the unnamed "*" splat, so these cover
+// where the renamed value is reachable from: the page, the layout declared in
+// the same folder, and not the layout above that segment.
+function renderCatchAllLayout(layoutPath, Layout, url = "/docs/guide/api") {
+  return renderRoutes(treeToRoutes(buildRouteTree(
+    { "docs/[...slug]/page.tsx": async () => ({ default: Probe }) },
+    { [layoutPath]: { default: Layout } },
+    {},
+  ), true), url);
+}
+
+test("renames the catch-all parameter for a layout in the same folder", () => {
+  function SlugLayout() {
+    const params = useParams();
+    return React.createElement("p", null, `slug=${params.slug ?? "missing"}`);
+  }
+
+  assert.match(
+    renderCatchAllLayout("docs/[...slug]/layout.tsx", SlugLayout),
+    /slug=guide\/api/,
+  );
+});
+
+test("keeps React Router's splat key readable", () => {
+  function SplatLayout() {
+    const params = useParams();
+    return React.createElement("p", null, `star=${params["*"] ?? "missing"}`);
+  }
+
+  assert.match(
+    renderCatchAllLayout("docs/[...slug]/layout.tsx", SplatLayout),
+    /star=guide\/api/,
+  );
+});
+
+test("leaves a layout above the catch-all segment without the parameter", () => {
+  function SlugLayout() {
+    const params = useParams();
+    return React.createElement("p", null, `slug=${params.slug ?? "missing"}`);
+  }
+
+  // `docs/layout.tsx` renders before the `[...slug]` child matches, so the
+  // splat is not part of its match yet; this is the documented limit.
+  assert.match(
+    renderCatchAllLayout("docs/layout.tsx", SlugLayout),
+    /slug=missing/,
+  );
+});
+
+test("useCatchAll splits the value into segments", () => {
+  function SegmentsLayout() {
+    const anonymous = useCatchAll().join("|");
+    const named = useCatchAll("slug").join("|");
+    const misnamed = useCatchAll("other").join("|");
+    return React.createElement("p", null, `${anonymous} ${named} ${misnamed}`);
+  }
+
+  assert.match(
+    renderCatchAllLayout("docs/[...slug]/layout.tsx", SegmentsLayout),
+    /guide\|api guide\|api guide\|api/,
+  );
+});
+
+test("useCatchAll returns an empty array when nothing matched", () => {
+  function SegmentsLayout() {
+    return React.createElement("p", null, `n=${useCatchAll().length}`);
+  }
+
+  // The layout renders synchronously; a page alone would still be lazy.
+  const routes = treeToRoutes(buildRouteTree(
+    { "about/page.tsx": async () => ({ default: Probe }) },
+    { "about/layout.tsx": { default: SegmentsLayout } },
+    {},
+  ), true);
+
+  assert.match(renderRoutes(routes, "/about"), /n=0/);
 });

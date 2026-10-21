@@ -28,6 +28,26 @@ function createIndexRoute(
   return createPageRoute(node, nodePath, cache, true);
 }
 
+/**
+ * Expose a catch-all folder under the name it declares (`[...slug]` -> `slug`)
+ * to everything rendered below this element.
+ *
+ * React Router only ever reports the splat under the unnamed `*` key, so the
+ * package's `useParams` and `useCatchAll` read this context to rename it.
+ */
+function withCatchAllParam(
+  rawSegment: string,
+  element: React.ReactElement,
+): React.ReactElement {
+  const routeSegment = parseRouteSegments(rawSegment)[0];
+  return routeSegment?.kind === "catchAll"
+    ? React.createElement(CatchAllParamProvider, {
+        name: routeSegment.name,
+        children: element,
+      })
+    : element;
+}
+
 function createPageRoute(
   node: RouteNode,
   nodePath: string,
@@ -48,13 +68,7 @@ function createPageRoute(
     cache,
   );
 
-  const routeSegment = parseRouteSegments(node.segment)[0];
-  const routeElement = routeSegment?.kind === "catchAll"
-    ? React.createElement(CatchAllParamProvider, {
-        name: routeSegment.name,
-        children: element,
-      })
-    : element;
+  const routeElement = withCatchAllParam(node.segment, element);
 
   return isIndex
     ? { index: true, element: routeElement }
@@ -91,13 +105,16 @@ function createNotFoundRoutes(
 }
 
 function createLayoutRoute(
+  rawSegment: string,
   nodeSegment: string,
   layout: React.ComponentType,
   children: RouteObject[],
 ): RouteObject {
   return {
     ...(nodeSegment ? { path: nodeSegment } : {}),
-    element: React.createElement(layout),
+    // The provider wraps the layout element itself, not only the page, so a
+    // layout declared inside the catch-all folder can read the parameter.
+    element: withCatchAllParam(rawSegment, React.createElement(layout)),
     children: children.length > 0 ? children : undefined,
   };
 }
@@ -251,6 +268,7 @@ export function treeToRoutes(
   // nested layout level, which grows as 2^depth.
   if (node.layout) {
     return [createLayoutRoute(
+      node.segment,
       isPathless ? "" : nodeSegment,
       node.layout,
       createNodeChildren(node, nodePath, cache),

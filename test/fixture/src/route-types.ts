@@ -1,7 +1,7 @@
 // The ambient module comes from ./virtual.d.ts in this project, and from the
 // declaration passed on the command line when the test suite compiles this file
 // against a freshly generated one.
-import { href } from "virtual:next-vite-router";
+import { href, useCatchAll } from "virtual:next-vite-router";
 import type {
   RouteLinkProps,
   RouteParams,
@@ -46,6 +46,10 @@ const blogLink: RouteLinkProps = {
 };
 const usersLink: RouteLinkProps = { to: "/users" };
 
+// Checked as a value, not called: a catch-all is a string in `useParams` and an
+// array in `useCatchAll`.
+const catchAllHook: (name?: string) => string[] = useCatchAll;
+
 void home;
 void userParams;
 void postParams;
@@ -60,3 +64,4 @@ void homeHref;
 void profileLink;
 void blogLink;
 void usersLink;
+void catchAllHook;

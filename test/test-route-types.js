@@ -82,9 +82,11 @@ try {
   assert.match(declaration, /export function href<P extends RoutePath>/);
   assert.match(declaration, /export type RouteLinkProps =/);
   assert.match(declaration, /export function RouteLink\(props: RouteLinkProps\)/);
+  assert.match(declaration, /export function useCatchAll\(name\?: string\): string\[\];/);
   assert.match(declaration, /export \{ Link, useRoutes \}/);
   assert.match(virtualModule, /import \{ Link, useRoutes \} from 'react-router-dom'/);
   assert.match(virtualModule, /export \{ Link, useRoutes \};/);
+  assert.match(virtualModule, /export \{ useParams, useCatchAll \};/);
   assert.match(virtualModule, /export \{ href, RouteLink \};/);
   assert.match(virtualModule, /routes \?\?= generateRoutes\(\)/);
   assert.match(virtualModule, /import\.meta\.glob\(["']\/src\/app\/\*\*\/page\.tsx["']\)/);

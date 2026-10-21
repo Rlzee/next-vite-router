@@ -127,6 +127,22 @@ Keep using React Router's navigation and hooks from `react-router-dom`
 (`[...slug]`, `[[...slug]]`) are only surfaced as `slug` through the package
 `useParams`. React Router's own `useParams` returns them under `params["*"]`.
 
+A catch-all stays a single string, unlike Next.js, which hands the same
+parameter over as an array: `/docs/guide/api` matched by
+`docs/[[...segments]]` gives `params.segments === "guide/api"`. `useCatchAll`
+returns the array form, split on `/`:
+
+```tsx
+import { useCatchAll } from "virtual:next-vite-router";
+
+// docs/[[...segments]]/page.tsx rendering /docs/guide/api
+const segments = useCatchAll();        // ["guide", "api"]
+const named = useCatchAll("segments"); // the same, by folder name
+```
+
+It yields `[]` whenever no catch-all matched, which includes the base path of an
+optional catch-all and any layout rendered above the catch-all segment.
+
 The generated `RouteObject[]` carries page, layout, and not-found elements only.
 There is no file convention that produces React Router route `loader` or
 `action` functions, and those data APIs run only under a data router
@@ -141,15 +157,18 @@ There is no file convention that produces React Router route `loader` or
 | `layout.tsx` | Nested layout rendered with React Router's `Outlet` |
 | `not-found.tsx` | `*` route for that subtree |
 | `[id]` | Dynamic segment `:id` |
-| `[...slug]` | Catch-all `*` segment; package `useParams` exposes it as `slug` |
-| `[[...slug]]` | Optional catch-all `*` segment; package `useParams` exposes it as `slug` |
+| `[...slug]` | Catch-all `*` segment; `slug` is one string, `useCatchAll` gives the segments |
+| `[[...slug]]` | Optional catch-all `*` segment; `slug` is `undefined` on the base path |
 | `(admin)` | Route group omitted from the URL |
 
 Catch-all pages and `not-found.tsx` at the same level both use React Router's
 `*` path and are rejected during route validation because their fallback
-behavior would be ambiguous. The catch-all parameter provider wraps the page
-route, so a layout cannot read that parameter through the package `useParams`
-hook.
+behavior would be ambiguous.
+
+The catch-all name reaches the page and a `layout.tsx` declared in the same
+folder (`docs/[...slug]/layout.tsx`). A layout *above* that segment
+(`docs/layout.tsx`) cannot read it: it renders before the splat becomes part of
+the match, so the package `useParams` has nothing to report there.
 
 The Vite plugin accepts custom `pageFile`, `layoutFile`, and `notFoundFile`
 names. `createRouteGenerator` accepts the same options, plus `pagesDir`, as

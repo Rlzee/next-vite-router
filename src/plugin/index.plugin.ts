@@ -188,6 +188,7 @@ ${params}
   export const generateRoutes: () => RouteObject[];
   export function Router(): ReactElement | null;
   export function useParams<T extends Record<string, string | undefined> = Record<string, string | undefined>>(): T;
+  export function useCatchAll(name?: string): string[];
   export { Link, useRoutes } from 'react-router-dom';
 }
 `;
@@ -332,7 +333,7 @@ export function nextViteRouter(
         const layoutsGlobPath = `/${normalizedPagesDir}/**/${layoutFile}`;
         const notFoundGlobPath = `/${normalizedPagesDir}/**/${notFoundFile}`;
         return `
-import { buildRouteTree, treeToRoutes, normalizeSegment, createLazyElement, useParams, href, RouteLink } from 'next-vite-router';
+import { buildRouteTree, treeToRoutes, normalizeSegment, createLazyElement, useParams, useCatchAll, href, RouteLink } from 'next-vite-router';
 import { Link, useRoutes } from 'react-router-dom';
 
 const pagesGlob = import.meta.glob(${JSON.stringify(pagesGlobPath)});
@@ -367,7 +368,7 @@ if (import.meta.hot) {
 }
 
 export { Link, useRoutes };
-export { useParams };
+export { useParams, useCatchAll };
 export { href, RouteLink };
 `;
       }
