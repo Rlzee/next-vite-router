@@ -88,6 +88,9 @@ try {
   assert.match(virtualModule, /export \{ Link, useRoutes \};/);
   assert.match(virtualModule, /export \{ useParams, useCatchAll \};/);
   assert.match(virtualModule, /export \{ href, RouteLink \};/);
+  // The generated module may only import what it uses or re-exports; a dead
+  // import stays in the module graph of every app that loads the virtual module.
+  assert.doesNotMatch(virtualModule, /normalizeSegment|createLazyElement/);
   assert.match(virtualModule, /routes \?\?= generateRoutes\(\)/);
   assert.match(virtualModule, /import\.meta\.glob\(["']\/src\/app\/\*\*\/page\.tsx["']\)/);
   assert.match(virtualModule, /import\.meta\.glob\(["']\/src\/app\/\*\*\/not-found\.tsx["']\)/);

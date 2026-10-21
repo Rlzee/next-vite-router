@@ -34,7 +34,17 @@ const startConfigSource = fs.readFileSync(
 assert.match(startConfigSource, /fileURLToPath\(new URL/);
 assert.doesNotMatch(startConfigSource, /resolve\(__dirname/);
 
+// PREFERRED_PM is interpolated into the `--version` probe passed to execSync, so
+// it has to be matched against the supported list rather than cast to a name.
+const packageManagerSource = fs.readFileSync(
+  path.resolve("src/utils/packageManager.ts"),
+  "utf8",
+);
+assert.match(packageManagerSource, /toPmName\(requested\)/);
+assert.doesNotMatch(packageManagerSource, /process\.env\.PREFERRED_PM\s+as\s+PmName/);
+
 console.log("✅ Peer dependency ranges are explicit and bounded");
 console.log("✅ CLI installs react-router-dom ^7.0.0");
 console.log("✅ CLI uses the current React + TypeScript Vite template");
 console.log("✅ CLI generates the Router component bootstrap");
+console.log("✅ PREFERRED_PM is validated against the supported managers");
