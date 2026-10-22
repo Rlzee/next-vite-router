@@ -173,6 +173,22 @@ test("useCatchAll splits the value into segments", () => {
   );
 });
 
+test("useCatchAll drops the empty segment a trailing slash adds", () => {
+  function SegmentsLayout() {
+    return React.createElement("p", null, useCatchAll().join("|"));
+  }
+
+  // /docs/guide/api/ makes the splat "guide/api/"; its trailing "" is not a real
+  // segment, so the value must read back as exactly ["guide", "api"].
+  const markup = renderCatchAllLayout(
+    "docs/[...slug]/layout.tsx",
+    SegmentsLayout,
+    "/docs/guide/api/",
+  );
+  assert.match(markup, /<p>guide\|api<\/p>/);
+  assert.doesNotMatch(markup, /guide\|api\|/);
+});
+
 test("useCatchAll returns an empty array when nothing matched", () => {
   function SegmentsLayout() {
     return React.createElement("p", null, `n=${useCatchAll().length}`);

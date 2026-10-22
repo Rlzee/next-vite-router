@@ -20,6 +20,8 @@ export function useParams<T extends Record<string, string | undefined> = Record<
  * Router splat holds and what keeps every param the same value type as
  * `react-router-dom` reports. Next.js hands the same value over as `string[]`,
  * so this hook supplies that form and saves each page from repeating the split.
+ * Empty segments are dropped, so a trailing slash (`/docs/guide/api/`) still
+ * reads as `["guide", "api"]` rather than carrying a final `""`.
  *
  * `href` and `Link` accept the array back, so a route can be read and re-linked
  * with one value: `href("/blog/*", { slug: useCatchAll() })`.
@@ -40,5 +42,5 @@ export function useCatchAll(name?: string): string[] {
   const catchAllName = useCatchAllParam();
   const value = params[name ?? catchAllName ?? "*"] ?? params["*"];
 
-  return value ? value.split("/") : [];
+  return value ? value.split("/").filter(Boolean) : [];
 }
