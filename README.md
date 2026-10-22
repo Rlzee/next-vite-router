@@ -257,8 +257,12 @@ A catch-all value may also be the segment array `useCatchAll()` returns
 (`href("/blog/*", { slug: ["guide", "api"] })`); a `:name` param stays a string,
 because one folder matches exactly one segment. TypeScript requires the second
 argument as soon as the chosen pattern has parameters, and rejects a pattern that
-is not a route. `href` inserts values verbatim, like `generatePath`, so encode
-anything that can contain `/`, `?`, or `#` before passing it.
+is not a route. `href` fills the pattern itself and percent-encodes each
+substituted path segment (so `href("/blog/*", { slug: ["a b", "c?d"] })` is
+`/blog/a%20b/c%3Fd`), keeping `/` as the separator inside a catch-all value.
+Encoding is done here rather than left to `generatePath`, whose behavior differs
+between React Router v6 (values verbatim) and v7 (values encoded), so the result
+is the same on either version and there is nothing to encode by hand first.
 
 ### `Link`
 

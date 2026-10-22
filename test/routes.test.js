@@ -1109,6 +1109,18 @@ describe("typed navigation helpers", () => {
     assert.equal(href("/*", { slug: [] }), "/");
   });
 
+  test("percent-encodes each substituted path segment itself, not via generatePath", () => {
+    // generatePath encodes in React Router v7 but not v6, and href no longer
+    // calls it, so every value is encoded here once and the same on both.
+    assert.equal(href("/users/:id", { id: "a/b?x#y" }), "/users/a%2Fb%3Fx%23y");
+    assert.equal(href("/blog/*", { slug: ["a b", "c?d"] }), "/blog/a%20b/c%3Fd");
+    // A string catch-all keeps `/` as its separator while encoding each part.
+    assert.equal(href("/blog/*", { slug: "a b/c?d" }), "/blog/a%20b/c%3Fd");
+    // Ordinary values are unaffected, so existing routes read back the same.
+    assert.equal(href("/blog/*", { slug: "guide/api" }), "/blog/guide/api");
+    assert.equal(href("/users/:id", { id: "42" }), "/users/42");
+  });
+
   test("reports a parameter the pattern cannot consume", () => {
     assert.throws(
       () => href("/users/:id", { userId: "42" }),

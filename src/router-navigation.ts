@@ -1,7 +1,6 @@
 import React from "react";
 import {
   Link as RouterLink,
-  generatePath,
   type LinkProps as RouterLinkProps,
 } from "react-router-dom";
 
@@ -42,27 +41,39 @@ function hasSubstitutableTokens(pattern: string): boolean {
 }
 
 /**
+ * Percent-encode one path segment. `encodeURIComponent` also escapes `/`, `?`,
+ * and `#`, so a substituted value can never break out of its own segment or
+ * start a query or fragment.
+ */
+function encodeSegment(value: string): string {
+  return encodeURIComponent(value);
+}
+
+/**
  * Build a concrete URL from a route pattern and its parameter values.
  *
  * `RoutePath` holds patterns (`/users/:id`), not URLs, so navigating needs the
- * pattern filled in. `generatePath` alone is not enough here: a catch-all folder
- * (`docs/[...segments]`) becomes the unnamed `*` splat, and
- * `generatePath("/docs/*", { segments: "a/b" })` silently drops the value and
- * returns `/docs`. This helper maps the named catch-all onto the splat, the same
- * translation `CatchAllParamProvider` performs when reading parameters, and it
- * reports unmatched parameters instead of letting React Router render a broken
- * link.
+ * pattern filled in. `generatePath` is deliberately not used: it inserts named
+ * params verbatim in React Router v6 but percent-encodes them in v7, so the same
+ * `id` yields `/users/a/b` on one and `/users/a%2Fb` on the other, and this
+ * package's peer range spans both. Filling the pattern here and encoding every
+ * value with `encodeURIComponent` gives one result on either version. A
+ * catch-all folder is still mapped onto the unnamed `*` splat, the same
+ * translation `CatchAllParamProvider` performs when reading parameters, and an
+ * unmatched or missing value is reported instead of letting React Router render
+ * a broken link.
  *
- * Values are inserted verbatim, exactly like `generatePath`, so encode anything
- * that may contain `/`, `?`, or `#` before passing it (a catch-all value is
- * expected to contain slashes).
+ * Each value is encoded per path segment. A catch-all value may span several
+ * segments — a string is split on `/`, an array (`useCatchAll()`) is already
+ * segments — so each segment is encoded and the `/` separators are preserved.
  *
  * @example
- * href("/users/:id", { id: "42" });            // "/users/42"
- * href("/blog/*", { slug: "guide/api" });      // "/blog/guide/api"
- * href("/blog/*", { slug: ["guide", "api"] }); // "/blog/guide/api", from useCatchAll()
- * href("/docs/*", {});                         // "/docs" (optional catch-all)
- * href("/typed-routes");                       // "/typed-routes"
+ * href("/users/:id", { id: "42" });          // "/users/42"
+ * href("/users/:id", { id: "a/b" });          // "/users/a%2Fb"
+ * href("/blog/*", { slug: "guide/api" });     // "/blog/guide/api"
+ * href("/blog/*", { slug: ["a b", "c?d"] });  // "/blog/a%20b/c%3Fd", from useCatchAll()
+ * href("/docs/*", {});                        // "/docs" (optional catch-all)
+ * href("/typed-routes");                      // "/typed-routes"
  */
 export function href(pattern: string, params: RouteHrefParams = {}): string {
   if (!pattern.startsWith("/")) {
@@ -81,7 +92,11 @@ export function href(pattern: string, params: RouteHrefParams = {}): string {
   // catch-all folder lands (a segment after one is rejected while routing).
   const hasCatchAll = segments[segments.length - 1] === "*";
 
+  // Values are kept raw and encoded only while the path is rebuilt below, so a
+  // missing `:name` still compares equal to `undefined` in the required check
+  // instead of turning into the literal string "undefined".
   const values: Record<string, string> = {};
+  let catchAll: string[] = [];
   const catchAllKeys: string[] = [];
 
   for (const [key, value] of Object.entries(params)) {
@@ -97,9 +112,13 @@ export function href(pattern: string, params: RouteHrefParams = {}): string {
       values[key] = value;
     } else if (hasCatchAll) {
       // `useCatchAll()` hands back segments, so accepting them here lets a read
-      // and a link build share one value. An empty array joins to `""`, which
-      // already resolves an optional catch-all to its base path.
-      values["*"] = Array.isArray(value) ? value.join("/") : value;
+      // and a link build share one value. An empty value (or `[]`) contributes
+      // nothing, which already resolves an optional catch-all to its base path.
+      catchAll = Array.isArray(value)
+        ? value
+        : value === undefined
+          ? []
+          : value.split("/");
       catchAllKeys.push(key);
     } else {
       throw new Error(
@@ -124,7 +143,24 @@ export function href(pattern: string, params: RouteHrefParams = {}): string {
     }
   }
 
-  return generatePath(pattern, values);
+  // Rebuild instead of calling generatePath so the encoding is the same whether
+  // React Router v6 (verbatim) or v7 (encodes) is installed. An empty catch-all
+  // adds no segment, so `/docs/*` with no value resolves to `/docs`.
+  let path = "";
+  for (const segment of segments) {
+    if (segment.startsWith(":")) {
+      path += `/${encodeSegment(values[segment.slice(1)])}`;
+    } else if (segment === "*") {
+      const joined = catchAll.map(encodeSegment).join("/");
+      if (joined) {
+        path += `/${joined}`;
+      }
+    } else {
+      path += `/${segment}`;
+    }
+  }
+
+  return path || "/";
 }
 
 /**
