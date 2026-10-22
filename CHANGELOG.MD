@@ -2,6 +2,68 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.1.0] - 2026-10-22
+
+### Added
+
+- Typed navigation helpers. `href(pattern, params)` fills a route pattern from
+  the generated `RoutePath` union into a concrete URL, and a `Link` component
+  takes that pattern in `href` plus its values in `params`, forwarding every
+  other prop to React Router's `Link`. `href`/`Link` and the `RouteParams` /
+  `LinkProps` types are exported from the package and the virtual module.
+- `useCatchAll()`, which reads a catch-all folder as its individual path
+  segments (`string[]`, the Next.js shape) instead of the single splat string
+  React Router reports.
+- Lazy layouts. The plugin gained a `lazyLayouts` option (and the matching
+  `RouteTreeOptions` on `createRouteGenerator`/`buildRouteTree`) that reads
+  `layout.tsx` files from a non-eager glob so Vite emits a separate chunk per
+  layout. It stays off by default, keeping layouts eager.
+- Catch-all values accepted in array form by `href` and `Link`, so a route can
+  be read with `useCatchAll()` and re-linked unchanged
+  (`href("/blog/*", { slug: useCatchAll() })`).
+
+### Changed
+
+- Hardened CLI package-manager detection: `PREFERRED_PM` is matched against the
+  supported managers before it reaches the availability probe, so an unexpected
+  value is reported and ignored instead of being interpolated into a shell
+  command.
+
+### Fixed
+
+- Route files that cannot render now fail with an error naming the source file
+  instead of silently dropping a layout or surfacing as a nameless React render
+  error: a missing default export, an eager module passed where a lazy loader is
+  expected, and a lazy `import()` loader read as an eager component (a non-eager
+  glob without `lazyLayouts`) are each reported against their `layout.tsx` /
+  `page.tsx` / `not-found.tsx` path.
+- The component-type check now matches only the `memo`, `forwardRef`, and `lazy`
+  wrapper tags rather than any object carrying `$$typeof`, so a plain React
+  element is no longer mistaken for a component and rendered in silence.
+- `href` percent-encodes each substituted path segment itself instead of relying
+  on React Router's `generatePath`, whose behavior differs between v6 (values
+  verbatim) and v7 (values encoded). The result is now identical on both, keeps
+  `/` as the separator inside a catch-all value, and can no longer let an
+  unencoded value inject a path, query, or fragment.
+- Nested layouts no longer enumerate their own subtree twice while generating
+  routes, removing the traversal cost that grew exponentially with layout depth.
+- `useCatchAll()` drops empty segments, so a trailing slash (`/docs/guide/api/`)
+  reads as `["guide", "api"]` instead of carrying a final `""`.
+
+### Tests
+
+- Added coverage for `href`, `Link`, `useCatchAll`, lazy layouts, the array
+  catch-all form, eager-layout guarding, `href` encoding, and the generated route
+  types.
+- Replaced the source-text `PREFERRED_PM` check with a behavioral test that
+  bundles the detector and asserts a hostile `PREFERRED_PM` value never reaches a
+  shell command while a whitelisted one is still honored.
+
+### Documentation
+
+- Documented `href`, `Link`, `useCatchAll`, lazy layouts, and the encoding
+  behavior in the README, and added a typed-routes example page.
+
 ## [2.0.1] - 2026-10-19
 
 ### Added
@@ -359,3 +421,4 @@ No unreleased changes.
 [1.3.1]: https://github.com/Rlzee/next-vite-router/compare/v1.3.0...v1.3.1
 [2.0.0]: https://github.com/Rlzee/next-vite-router/compare/v1.3.1...v2.0.0
 [2.0.1]: https://github.com/Rlzee/next-vite-router/compare/v2.0.0...v2.0.1
+[2.1.0]: https://github.com/Rlzee/next-vite-router/compare/v2.0.1...v2.1.0
