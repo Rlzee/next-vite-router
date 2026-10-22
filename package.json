@@ -7,7 +7,7 @@
   "types": "./dist/index.d.ts",
   "sideEffects": false,
   "bin": {
-    "next-vite-router": "./dist/cli.cjs"
+    "next-vite-router": "dist/cli.cjs"
   },
   "exports": {
     ".": {
