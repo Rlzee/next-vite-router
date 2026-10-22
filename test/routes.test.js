@@ -791,10 +791,12 @@ describe("lazy layouts", () => {
     const layouts = { "dashboard/layout.tsx": async () => ({ default: Shell }) };
     const pages = { "dashboard/page.tsx": componentLoader("dashboard") };
 
-    // Without the option a function is the component itself, the shape an
-    // `{ eager: true, import: "default" }` glob produces.
+    // Without the option a function is read as the component itself (the shape
+    // an `{ eager: true, import: "default" }` glob produces), stored in `layout`
+    // and never in `lazyLayout`. A bare-function eager layout is guarded, so the
+    // stored value is a wrapper rather than the exact reference.
     const eager = buildRouteTree(pages, layouts, {});
-    assert.equal(eager.children.get("dashboard").layout, layouts["dashboard/layout.tsx"]);
+    assert.equal(typeof eager.children.get("dashboard").layout, "function");
     assert.equal(eager.children.get("dashboard").lazyLayout, undefined);
 
     const lazy = buildRouteTree(pages, layouts, {}, undefined, { lazyLayouts: true });
@@ -891,6 +893,51 @@ describe("lazy layouts", () => {
     // The route is still generated; the module only exists once its chunk
     // loads, so the check has to be deferred to the loader.
     assert.equal(routes[0].element.type, React.Suspense);
+    await assert.rejects(
+      () => tree.children.get("dashboard").lazyLayout(),
+      {
+        message: [
+          'Route layout "dashboard/layout.tsx" does not default-export a React component.',
+          "Add `export default` to the file, for example: `export default function Layout({ children }) { ... }`.",
+        ].join("\n"),
+      },
+    );
+  });
+
+  test("names the file when a lazy layout glob is read without lazyLayouts", () => {
+    // A non-eager glob yields `() => import("...")` loaders; without the flag
+    // they are read as eager components, and rendering one used to surface only
+    // React's nameless "[object Promise]" child error.
+    const tree = buildRouteTree(
+      { "dashboard/page.tsx": componentLoader("dashboard") },
+      { "dashboard/layout.tsx": async () => ({ default: component("shell") }) },
+      {},
+    );
+
+    const Layout = tree.children.get("dashboard").layout;
+    assert.throws(
+      () => renderToStaticMarkup(React.createElement(Layout)),
+      {
+        message: [
+          'Route layout "dashboard/layout.tsx" rendered a Promise instead of a component.',
+          "Layouts are read as eager components unless told otherwise: pair a non-eager `import.meta.glob` of loaders with `{ lazyLayouts: true }`, or import the layout eagerly (`{ eager: true }`) to keep it a component.",
+        ].join("\n"),
+      },
+    );
+  });
+
+  test("reports an eager component layout passed to lazyLayouts as a loader", async () => {
+    // `{ eager: true, import: "default" }` yields the component itself, which
+    // `lazyLayouts: true` reads as a loader. Resolving it used to render an
+    // empty element in silence because a React element matched `$$typeof`.
+    const tree = buildRouteTree(
+      { "dashboard/page.tsx": componentLoader("dashboard") },
+      { "dashboard/layout.tsx": component("shell") },
+      {},
+      undefined,
+      { lazyLayouts: true },
+    );
+
     await assert.rejects(
       () => tree.children.get("dashboard").lazyLayout(),
       {
@@ -1014,7 +1061,15 @@ describe("route file default exports", () => {
       {},
     );
 
-    assert.equal(tree.children.get("about").layout, Layout);
+    const LayoutNode = tree.children.get("about").layout;
+    assert.equal(typeof LayoutNode, "function");
+    // A bare-function eager layout is guarded against a misread lazy glob, but
+    // a real `import: "default"` component still renders unchanged instead of
+    // being reported as a missing default export.
+    assert.equal(
+      renderToStaticMarkup(React.createElement(LayoutNode)),
+      "<div>layout</div>",
+    );
     assert.deepEqual(await tree.children.get("about").page(), { default: About });
   });
 });
