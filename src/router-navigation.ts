@@ -44,8 +44,21 @@ function hasSubstitutableTokens(pattern: string): boolean {
  * Percent-encode one path segment. `encodeURIComponent` also escapes `/`, `?`,
  * and `#`, so a substituted value can never break out of its own segment or
  * start a query or fragment.
+ *
+ * `.` and `..` are the one case encoding cannot cover: it leaves them verbatim,
+ * and a browser's URL parser (and React Router) still resolves them as
+ * parent-directory segments (`/users/..` becomes `/`, `/blog/../x` becomes
+ * `/x`) even when written `%2e%2e`, so a value that is exactly a dot-segment is
+ * rejected rather than encoded.
  */
 function encodeSegment(value: string): string {
+  if (value === "." || value === "..") {
+    throw new Error(
+      `A route parameter value cannot be "${value}": "." and ".." resolve as ` +
+      "parent-directory segments, so the link would escape its own path " +
+      '("/users/.." becomes "/", "/blog/../x" becomes "/x").',
+    );
+  }
   return encodeURIComponent(value);
 }
 
@@ -66,6 +79,8 @@ function encodeSegment(value: string): string {
  * Each value is encoded per path segment. A catch-all value may span several
  * segments — a string is split on `/`, an array (`useCatchAll()`) is already
  * segments — so each segment is encoded and the `/` separators are preserved.
+ * A segment that is exactly `.` or `..` throws instead of being encoded,
+ * because no encoding keeps a dot-segment from resolving out of the path.
  *
  * @example
  * href("/users/:id", { id: "42" });          // "/users/42"

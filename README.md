@@ -262,7 +262,12 @@ substituted path segment (so `href("/blog/*", { slug: ["a b", "c?d"] })` is
 `/blog/a%20b/c%3Fd`), keeping `/` as the separator inside a catch-all value.
 Encoding is done here rather than left to `generatePath`, whose behavior differs
 between React Router v6 (values verbatim) and v7 (values encoded), so the result
-is the same on either version and there is nothing to encode by hand first.
+is the same on either version and there is nothing to encode by hand first. The
+one value encoding cannot contain is a segment that is exactly `.` or `..`: it
+stays verbatim and a browser's URL parser (and React Router) resolves it out of
+the path (`/users/..` becomes `/`, `/blog/../x` becomes `/x`) even written
+`%2e%2e`, so `href` throws on it instead of returning a link that escapes its
+own segment.
 
 ### `Link`
 

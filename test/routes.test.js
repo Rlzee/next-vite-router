@@ -1121,6 +1121,34 @@ describe("typed navigation helpers", () => {
     assert.equal(href("/users/:id", { id: "42" }), "/users/42");
   });
 
+  test("rejects a value that resolves as a dot-segment", () => {
+    // encodeURIComponent leaves "." and ".." verbatim and a browser / React
+    // Router still resolves them out of the path, so href refuses them rather
+    // than encoding a value that would turn "/users/.." into "/".
+    assert.throws(
+      () => href("/users/:id", { id: ".." }),
+      { message: /cannot be "\.\.":/ },
+    );
+    assert.throws(
+      () => href("/users/:id", { id: "." }),
+      { message: /cannot be "\.":/ },
+    );
+    // A catch-all is validated per segment, as an array or a split string.
+    assert.throws(
+      () => href("/blog/*", { slug: ["..", "x"] }),
+      { message: /cannot be "\.\.":/ },
+    );
+    assert.throws(
+      () => href("/blog/*", { slug: "a/.." }),
+      { message: /cannot be "\.\.":/ },
+    );
+    // Only an exact "." / ".." segment is a dot-segment; a longer value, and a
+    // pre-encoded one that encodeURIComponent escapes to "%252e", stay safe.
+    assert.equal(href("/users/:id", { id: "..." }), "/users/...");
+    assert.equal(href("/users/:id", { id: "a.b" }), "/users/a.b");
+    assert.equal(href("/users/:id", { id: "%2e%2e" }), "/users/%252e%252e");
+  });
+
   test("reports a parameter the pattern cannot consume", () => {
     assert.throws(
       () => href("/users/:id", { userId: "42" }),
