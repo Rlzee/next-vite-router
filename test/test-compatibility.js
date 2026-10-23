@@ -15,6 +15,68 @@ assert.equal(peers["react-dom"], ">=18 <20");
 assert.equal(peers["react-router-dom"], ">=6 <8");
 assert.equal(peers.vite, ">=5 <9");
 
+// `engines.node` is a promise about every shipped entry point, and the CLI drags
+// in `commander`, which declares its own Node floor. If a runtime dependency asks
+// for a newer Node than we promise, the metadata becomes a lie: installers on a
+// "supported" Node get an EBADENGINE for the dependency anyway. Compare the floor
+// of each installed runtime dependency with the floor we publish.
+const manifestRequire = createRequire(import.meta.url);
+
+function dependencyManifest(name) {
+  let manifestPath;
+  try {
+    manifestPath = manifestRequire.resolve(`${name}/package.json`);
+  } catch {
+    // Most packages leave "./package.json" out of their export map, so resolve
+    // the entry file and take the manifest sitting next to it.
+    manifestPath = path.join(
+      path.dirname(manifestRequire.resolve(name)),
+      "package.json",
+    );
+  }
+  return JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+}
+
+function compareVersions(a, b) {
+  for (let index = 0; index < 3; index += 1) {
+    const left = a[index] ?? 0;
+    const right = b[index] ?? 0;
+    if (left !== right) return left < right ? -1 : 1;
+  }
+  return 0;
+}
+
+// Every `||` alternative (">=20", "^12.20.0 || >=14", ">=14.17.0 <20") is served
+// from its first version number upwards, so the lowest such start is the range's
+// real floor.
+function minimumNode(range) {
+  const floors = range
+    .split("||")
+    .map((alternative) => alternative.match(/\d+(?:\.\d+){0,2}/))
+    .filter((match) => match !== null)
+    .map((match) => match[0].split(".").map(Number));
+  assert.ok(floors.length > 0, `no Node version found in range "${range}"`);
+  return floors.reduce((low, current) =>
+    compareVersions(current, low) < 0 ? current : low,
+  );
+}
+
+assert.ok(
+  packageJson.engines?.node,
+  "package.json must declare an engines.node floor for the shipped CLI",
+);
+const publishedFloor = minimumNode(packageJson.engines.node);
+
+for (const name of Object.keys(packageJson.dependencies)) {
+  const dependencyRange = dependencyManifest(name).engines?.node;
+  if (!dependencyRange) continue;
+  assert.ok(
+    compareVersions(minimumNode(dependencyRange), publishedFloor) <= 0,
+    `"${name}" requires Node ${dependencyRange}, above the published ` +
+      `engines.node "${packageJson.engines.node}"`,
+  );
+}
+
 const cliSource = fs.readFileSync(
   path.resolve("src/command/create.ts"),
   "utf8",
@@ -138,6 +200,9 @@ try {
 }
 
 console.log("✅ Peer dependency ranges are explicit and bounded");
+console.log(
+  `✅ engines.node ${packageJson.engines.node} covers every runtime dependency floor`,
+);
 console.log("✅ CLI installs react-router-dom ^7.0.0");
 console.log("✅ CLI uses the current React + TypeScript Vite template");
 console.log("✅ CLI generates the Router component bootstrap");

@@ -31,7 +31,10 @@ export default defineConfig({
         entryFileNames: "cli.cjs",
       },
     },
-    target: "node18",
+    // Matches the `engines.node` floor in package.json: down-leveling further
+    // would only emit syntax for a runtime the CLI cannot run on anyway,
+    // because commander itself requires Node >=20.
+    target: "node20",
     minify: false,
     emptyOutDir: false,
   },

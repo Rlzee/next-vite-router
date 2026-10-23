@@ -10,8 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      # Keep the lowest entry equal to package.json `engines.node`, so the
+      # declared floor (and the CLI that depends on it) is really exercised.
       matrix:
-        node: ["18", "20", "22"]
+        node: ["20", "22", "24"]
     steps:
       - uses: actions/checkout@v4
 
