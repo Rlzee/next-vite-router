@@ -1109,6 +1109,18 @@ describe("typed navigation helpers", () => {
     assert.equal(href("/*", { slug: [] }), "/");
   });
 
+  test("drops empty segments from a catch-all value, like useCatchAll", () => {
+    // A trailing slash, a leading slash, a doubled slash, or a blank array entry
+    // must not inject a "//" into the path, so href filters empty segments the
+    // same way useCatchAll does when reading.
+    assert.equal(href("/blog/*", { slug: "/a/b/" }), "/blog/a/b");
+    assert.equal(href("/blog/*", { slug: ["a", "", "b"] }), "/blog/a/b");
+    assert.equal(href("/blog/*", { slug: "a//b" }), "/blog/a/b");
+    // Dropping empties still leaves an all-empty value resolving to the base.
+    assert.equal(href("/docs/*", { segments: "/" }), "/docs");
+    assert.equal(href("/docs/*", { segments: ["", ""] }), "/docs");
+  });
+
   test("percent-encodes each substituted path segment itself, not via generatePath", () => {
     // generatePath encodes in React Router v7 but not v6, and href no longer
     // calls it, so every value is encoded here once and the same on both.
@@ -1190,6 +1202,20 @@ describe("typed navigation helpers", () => {
     assert.throws(
       () => href("/users/:id", { id: undefined }),
       { message: 'Route "/users/:id" is missing the required ":id" param.' },
+    );
+  });
+
+  test("rejects an empty value for a required parameter", () => {
+    // An empty `:name` would encode to "" and collapse its segment, so
+    // "/users/:id" would resolve to "/users/" — a different route — without an
+    // error. Report it like a missing value instead of building that link.
+    assert.throws(
+      () => href("/users/:id", { id: "" }),
+      { message: /requires a non-empty value for its ":id" param/ },
+    );
+    assert.throws(
+      () => href("/compare/:from/:to", { from: "paris", to: "" }),
+      { message: /requires a non-empty value for its ":to" param/ },
     );
   });
 

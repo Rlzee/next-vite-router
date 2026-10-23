@@ -260,6 +260,10 @@ argument as soon as the chosen pattern has parameters, and rejects a pattern tha
 is not a route. `href` fills the pattern itself and percent-encodes each
 substituted path segment (so `href("/blog/*", { slug: ["a b", "c?d"] })` is
 `/blog/a%20b/c%3Fd`), keeping `/` as the separator inside a catch-all value.
+Empty segments are dropped first, the same way `useCatchAll` drops them, so a
+trailing slash (`href("/blog/*", { slug: "/a/b/" })`) or a blank array entry
+(`{ slug: ["a", "", "b"] }`) resolves to `/blog/a/b` instead of injecting a
+`//` into the path.
 Encoding is done here rather than left to `generatePath`, whose behavior differs
 between React Router v6 (values verbatim) and v7 (values encoded), so the result
 is the same on either version and there is nothing to encode by hand first. The
@@ -267,7 +271,10 @@ one value encoding cannot contain is a segment that is exactly `.` or `..`: it
 stays verbatim and a browser's URL parser (and React Router) resolves it out of
 the path (`/users/..` becomes `/`, `/blog/../x` becomes `/x`) even written
 `%2e%2e`, so `href` throws on it instead of returning a link that escapes its
-own segment.
+own segment. A required `:name` given an empty value throws too
+(`href("/users/:id", { id: "" })`): encoding `""` would drop the segment and
+resolve `/users/:id` to `/users/`, a route it no longer matches, so it is
+reported like a missing value instead of building that link.
 
 ### `Link`
 

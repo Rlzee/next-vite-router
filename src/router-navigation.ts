@@ -72,15 +72,20 @@ function encodeSegment(value: string): string {
  * package's peer range spans both. Filling the pattern here and encoding every
  * value with `encodeURIComponent` gives one result on either version. A
  * catch-all folder is still mapped onto the unnamed `*` splat, the same
- * translation `CatchAllParamProvider` performs when reading parameters, and an
- * unmatched or missing value is reported instead of letting React Router render
- * a broken link.
+ * translation `CatchAllParamProvider` performs when reading parameters, an empty
+ * segment inside a catch-all value is dropped (the way `useCatchAll` drops it),
+ * and an unmatched, missing, or empty required value is reported instead of
+ * letting React Router render a broken link.
  *
  * Each value is encoded per path segment. A catch-all value may span several
  * segments — a string is split on `/`, an array (`useCatchAll()`) is already
  * segments — so each segment is encoded and the `/` separators are preserved.
- * A segment that is exactly `.` or `..` throws instead of being encoded,
- * because no encoding keeps a dot-segment from resolving out of the path.
+ * Empty segments are dropped first, so a trailing slash (`"a/b/"`), a leading
+ * slash, or a blank array entry cannot inject a `//` into the path. A segment
+ * that is exactly `.` or `..` throws instead of being encoded, because no
+ * encoding keeps a dot-segment from resolving out of the path. A required
+ * `:name` given an empty value throws too: encoding it would drop the segment
+ * and turn `/users/:id` into `/users/`, a different route.
  *
  * @example
  * href("/users/:id", { id: "42" });          // "/users/42"
@@ -107,9 +112,6 @@ export function href(pattern: string, params: RouteHrefParams = {}): string {
   // catch-all folder lands (a segment after one is rejected while routing).
   const hasCatchAll = segments[segments.length - 1] === "*";
 
-  // Values are kept raw and encoded only while the path is rebuilt below, so a
-  // missing `:name` still compares equal to `undefined` in the required check
-  // instead of turning into the literal string "undefined".
   const values: Record<string, string> = {};
   let catchAll: string[] = [];
   const catchAllKeys: string[] = [];
@@ -127,13 +129,16 @@ export function href(pattern: string, params: RouteHrefParams = {}): string {
       values[key] = value;
     } else if (hasCatchAll) {
       // `useCatchAll()` hands back segments, so accepting them here lets a read
-      // and a link build share one value. An empty value (or `[]`) contributes
-      // nothing, which already resolves an optional catch-all to its base path.
+      // and a link build share one value. Empty segments are dropped the same
+      // way `useCatchAll` drops them, so a trailing slash, a leading slash, or a
+      // `""` in the array cannot inject a `//` into the path. An all-empty value
+      // (or `[]`) contributes nothing, which already resolves an optional
+      // catch-all to its base path.
       catchAll = Array.isArray(value)
-        ? value
+        ? value.filter(Boolean)
         : value === undefined
           ? []
-          : value.split("/");
+          : value.split("/").filter(Boolean);
       catchAllKeys.push(key);
     } else {
       throw new Error(
@@ -155,6 +160,12 @@ export function href(pattern: string, params: RouteHrefParams = {}): string {
   for (const name of names) {
     if (values[name] === undefined) {
       throw new Error(`Route "${pattern}" is missing the required ":${name}" param.`);
+    }
+    if (values[name] === "") {
+      throw new Error(
+        `Route "${pattern}" requires a non-empty value for its ":${name}" param; ` +
+        "an empty value drops the segment and resolves to a different route.",
+      );
     }
   }
 
