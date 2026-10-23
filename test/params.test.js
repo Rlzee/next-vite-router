@@ -203,3 +203,38 @@ test("useCatchAll returns an empty array when nothing matched", () => {
 
   assert.match(renderRoutes(routes, "/about"), /n=0/);
 });
+
+test("href-encoded Unicode reads back through useParams", () => {
+  // href()/Link percent-encode a `:name` value; React Router decodes it before
+  // useParams returns it, so "/users/caf%C3%A9" reads back as "café" the same on
+  // React Router v6 and v7 (verified by running this suite against both).
+  function IdLayout() {
+    const { id } = useParams();
+    return React.createElement("p", null, `id=${id ?? "missing"}`);
+  }
+
+  const routes = treeToRoutes(buildRouteTree(
+    { "users/[id]/page.tsx": async () => ({ default: Probe }) },
+    { "users/[id]/layout.tsx": { default: IdLayout } },
+    {},
+  ), true);
+
+  assert.match(renderRoutes(routes, "/users/caf%C3%A9"), /id=café/);
+});
+
+test("useCatchAll splits a decoded Unicode catch-all into segments", () => {
+  function SegmentsLayout() {
+    return React.createElement("p", null, useCatchAll().join("|"));
+  }
+
+  // /docs/%E6%97%A5%E6%9C%AC/%E8%AA%9E is what href("/blog/*", { slug: "日本/語" })
+  // produces; the splat decodes to "日本/語" and splits on the separator.
+  assert.match(
+    renderCatchAllLayout(
+      "docs/[...slug]/layout.tsx",
+      SegmentsLayout,
+      "/docs/%E6%97%A5%E6%9C%AC/%E8%AA%9E",
+    ),
+    /<p>日本\|語<\/p>/,
+  );
+});

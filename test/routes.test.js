@@ -115,6 +115,36 @@ describe("route generator", () => {
     assert.equal(matches?.at(-1)?.route.path, ":to");
   });
 
+  test("generates a root required catch-all as a single splat", () => {
+    // `src/app/[...slug]/page.tsx` makes the whole app one catch-all. It must
+    // compile to a bare `"*"` route that also matches the site root.
+    const routes = createRoutes({
+      pages: { "[...slug]/page.tsx": loader("req") },
+    });
+
+    assert.deepEqual(routeShape(routes), [{ path: "*", children: undefined }]);
+    assert.deepEqual(matchRoutes(routes, "/")?.at(-1)?.params, { "*": "" });
+    assert.deepEqual(matchRoutes(routes, "/a/b")?.at(-1)?.params, { "*": "a/b" });
+  });
+
+  test("generates a root optional catch-all that matches the base path", () => {
+    // `src/app/[[...segments]]/page.tsx` yields an index route for "/" plus the
+    // splat for everything below it, mirroring the nested optional catch-all.
+    const routes = createRoutes({
+      pages: { "[[...segments]]/page.tsx": loader("opt") },
+    });
+
+    assert.deepEqual(routeShape(routes), [
+      { index: true, children: undefined },
+      { path: "*", children: undefined },
+    ]);
+
+    const base = matchRoutes(routes, "/");
+    assert.equal(base?.at(-1)?.route.index, true);
+    assert.deepEqual(base?.at(-1)?.params, {});
+    assert.deepEqual(matchRoutes(routes, "/a/b")?.at(-1)?.params, { "*": "a/b" });
+  });
+
   test("keeps root pages and child routes as sibling matches", () => {
     const routes = createRoutes({
       pages: {
@@ -1131,6 +1161,18 @@ describe("typed navigation helpers", () => {
     // Ordinary values are unaffected, so existing routes read back the same.
     assert.equal(href("/blog/*", { slug: "guide/api" }), "/blog/guide/api");
     assert.equal(href("/users/:id", { id: "42" }), "/users/42");
+  });
+
+  test("percent-encodes Unicode parameter values", () => {
+    // A `:name` value and each catch-all segment go through encodeURIComponent,
+    // so a multi-byte value is escaped identically on React Router v6 and v7
+    // (`href` never calls `generatePath`, whose encoding differs between them).
+    assert.equal(href("/users/:id", { id: "café" }), "/users/caf%C3%A9");
+    assert.equal(href("/u/:id", { id: "👍" }), "/u/%F0%9F%91%8D");
+    // A catch-all keeps `/` as its separator while encoding each segment.
+    assert.equal(href("/blog/*", { slug: "日本/語" }), "/blog/%E6%97%A5%E6%9C%AC/%E8%AA%9E");
+    // The encoded value is a valid single segment, so it reads back unchanged.
+    assert.equal(href("/users/:id", { id: "café" }), "/users/caf%C3%A9");
   });
 
   test("rejects a value that resolves as a dot-segment", () => {
