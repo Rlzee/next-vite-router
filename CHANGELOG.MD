@@ -2,6 +2,34 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.1.1] - 2026-10-23
+
+### Fixed
+
+- `href` and `Link` now reject a route parameter whose value is exactly `.` or
+  `..` instead of percent-encoding it, because no encoding stops a browser (or
+  React Router) from resolving them as parent-directory segments; a value can no
+  longer make a link escape its own path (`/users/..` becoming `/`).
+- `href` drops empty segments from a catch-all value the way `useCatchAll()`
+  does, so a leading or trailing slash (`"a/b/"`) or a blank array entry can no
+  longer inject `//` into the path, and an empty value for a required `:name`
+  param now throws instead of encoding away the segment and resolving to a
+  different route (`/users/:id` becoming `/users/`).
+- Corrected the published CLI `bin` path from `./dist/cli.cjs` to `dist/cli.cjs`.
+
+### Tests
+
+- Added coverage for empty-segment dropping and empty required-param rejection
+  in `href`.
+- Added coverage for rejecting `.` and `..` values in route parameters and
+  catch-all segments.
+
+### Documentation
+
+- Updated the README quick-start to render `Router` directly in `main.tsx`
+  instead of a separate `App` component, and documented the empty-segment and
+  dot-segment behavior for `href`.
+
 ## [2.1.0] - 2026-10-22
 
 ### Added
@@ -422,3 +450,4 @@ No unreleased changes.
 [2.0.0]: https://github.com/Rlzee/next-vite-router/compare/v1.3.1...v2.0.0
 [2.0.1]: https://github.com/Rlzee/next-vite-router/compare/v2.0.0...v2.0.1
 [2.1.0]: https://github.com/Rlzee/next-vite-router/compare/v2.0.1...v2.1.0
+[2.1.1]: https://github.com/Rlzee/next-vite-router/compare/v2.1.0...v2.1.1
