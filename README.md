@@ -60,25 +60,16 @@ This generates:
 Use the generated router inside a normal React Router provider:
 
 ```tsx
-// src/App.tsx
-import { Router } from "virtual:next-vite-router";
-
-export default function App() {
-  return <Router />;
-}
-```
-
-```tsx
 // src/main.tsx
-import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { StrictMode } from "react";
 import { BrowserRouter } from "react-router-dom";
-import App from "./App";
+import { Router } from "virtual:next-vite-router";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <BrowserRouter>
-      <App />
+      <Router />
     </BrowserRouter>
   </StrictMode>,
 );
