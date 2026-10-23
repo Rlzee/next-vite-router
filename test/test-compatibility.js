@@ -70,6 +70,9 @@ const savedUserAgent = process.env.npm_config_user_agent;
 const savedPreferredPm = process.env.PREFERRED_PM;
 const originalExecSync = childProcess.execSync;
 try {
+  // Capture esbuild's own output instead of `stdio: "ignore"`: on a clean CI
+  // install the bundling step is the one that breaks, and a bare non-zero exit
+  // (execFileSync reports `output: [null, null, null]`) hides the real cause.
   execFileSync(
     process.execPath,
     [
@@ -80,9 +83,17 @@ try {
       "--format=cjs",
       `--outfile=${probeBundle}`,
     ],
-    { stdio: "ignore" },
+    { stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" },
   );
+} catch (error) {
+  throw new Error(
+    `esbuild failed to bundle src/utils/packageManager.ts (exit ${error.status}).\n` +
+    `--- stdout ---\n${error.stdout || ""}\n--- stderr ---\n${error.stderr || ""}`,
+    { cause: error },
+  );
+}
 
+try {
   // Neutralize user-agent precedence so the PREFERRED_PM path is what is tested.
   delete process.env.npm_config_user_agent;
 

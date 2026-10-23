@@ -89,10 +89,5 @@
     "commander": "^14.0.2",
     "kleur": "^4.1.5",
     "prompts": "^2.4.2"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
   }
 }
