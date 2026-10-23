@@ -1,0 +1,332 @@
+/**
+ * Consolidated route-system invariants.
+ *
+ * One matrix covers the five route primitives (groups, layouts, index routes,
+ * catch-all, not-found) and, crucially, their interactions: a group wrapping a
+ * layout, a layout holding an index route, a catch-all under a layout, a
+ * not-found nested beside a page. Every case is checked structurally with
+ * `matchRoutes()` (which chain of routes a URL resolves to, and with which
+ * params), and the sensitive cases are rendered as a real application so the
+ * claim is about what a browser would paint, not only about the route shape.
+ */
+import assert from "node:assert/strict";
+import { test, describe, beforeEach } from "node:test";
+import React, { createElement as h } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter, Outlet, matchRoutes, useRoutes } from "react-router-dom";
+import {
+  buildRouteTree,
+  configureRouter,
+  createRouteGenerator,
+  resetRouterConfig,
+  treeToRoutes,
+  useCatchAll,
+  useParams,
+} from "../dist/index.js";
+
+// ---------------------------------------------------------------------------
+// Route-file factories. A page is always a lazy loader (mirroring the glob),
+// a layout an eager module, so the fixtures exercise the same shapes the
+// virtual module feeds `buildRouteTree`.
+// ---------------------------------------------------------------------------
+const page = ([path, name]) => [`${path}.tsx`, async () => ({ default: () => h("div", { "data-page": name }, name) })];
+const pageWithId = ([path, name]) => [`${path}.tsx`, async () => ({
+  default: () => h("div", { "data-page": name }, `${name}:${useParams().id ?? "?"}`),
+})];
+const pageWithCatchAll = ([path, name]) => [`${path}.tsx`, async () => ({
+  default: () => h("div", { "data-page": name }, `${name}{${useCatchAll().join("|")}}`),
+})];
+const notFound = ([path, name]) => [`${path}.tsx`, async () => ({
+  default: () => h("div", { "data-not-found": name }, `nf:${name}`),
+})];
+const layout = ([path, name]) => [`${path}.tsx`, { default: () => h("section", { "data-layout": name }, `[${name}`, h(Outlet), `/${name}]`) }];
+
+/** Build the flat page/layout/not-found maps the tree API expects. */
+function files(pairs) {
+  return Object.fromEntries(pairs);
+}
+
+/**
+ * The identity of a matched route as a stable, readable label: its path, or
+ * `"index"` / `"(layout)"` for the routes React Router declares without one.
+ */
+function routeLabel(route) {
+  if (route.index) return "index";
+  return route.path ?? "(layout)";
+}
+
+/** Resolve a URL and return `[labels, leafParams]`, or null when unmatched. */
+function resolve(routes, url) {
+  const matches = matchRoutes(routes, url);
+  if (!matches) return null;
+  return {
+    chain: matches.map(({ route }) => routeLabel(route)),
+    params: matches.at(-1).params,
+  };
+}
+
+/**
+ * Paint the routes as a real application at `url`, using React Router's
+ * `useRoutes` inside a `MemoryRouter`. Pages are lazy, so the first pass only
+ * starts their imports and paints the fallback; once those promises settle the
+ * second pass renders the resolved components, exactly as a browser repaints
+ * after a Suspense boundary's chunk arrives.
+ */
+async function renderApp(routes, url) {
+  const App = () => useRoutes(routes);
+  const tree = h(MemoryRouter, { initialEntries: [url] }, h(App));
+  renderToStaticMarkup(tree); // kick the lazy loaders
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  return renderToStaticMarkup(tree);
+}
+
+function createRoutes({ pages = {}, layouts = {}, notFounds = {} }) {
+  const tree = buildRouteTree(pages, layouts, notFounds);
+  return treeToRoutes(tree, true);
+}
+
+beforeEach(() => {
+  resetRouterConfig();
+});
+
+// ---------------------------------------------------------------------------
+// The matrix. Each row combines route primitives and states the invariant the
+// combination must hold. `urls` are checked with `matchRoutes`; `paints` (on
+// the sensitive rows) re-render the same routes and assert the HTML.
+// ---------------------------------------------------------------------------
+const MATRIX = [
+  {
+    name: "group is omitted from the URL but keeps its children",
+    rows: { pages: [page(["(admin)/dashboard/page", "dashboard"])] },
+    urls: [
+      { url: "/dashboard", chain: ["dashboard"], params: {} },
+      { url: "/admin/dashboard", chain: null },
+    ],
+  },
+  {
+    name: "group root page becomes an index under a pathless layout route",
+    rows: {
+      pages: [page(["(marketing)/page", "marketing-home"]), page(["(marketing)/about/page", "about"])],
+      layouts: [layout(["(marketing)/layout", "marketing"])],
+    },
+    urls: [
+      { url: "/", chain: ["(layout)", "index"], params: {} },
+      { url: "/about", chain: ["(layout)", "about"], params: {} },
+    ],
+    paints: [
+      {
+        url: "/",
+        includes: ['data-layout="marketing"', 'data-page="marketing-home"'],
+        order: ["[marketing", "marketing-home", "/marketing]"],
+      },
+    ],
+  },
+  {
+    name: "a page next to children turns into an index route",
+    rows: {
+      pages: [page(["users/page", "list"]), pageWithId(["users/[id]/page", "detail"])],
+    },
+    urls: [
+      { url: "/users", chain: ["users", "index"], params: {} },
+      { url: "/users/42", chain: ["users", ":id"], params: { id: "42" } },
+    ],
+  },
+  {
+    name: "layout-only node adds no index route",
+    rows: {
+      pages: [page(["shop/items/page", "items"])],
+      layouts: [layout(["shop/layout", "shop"])],
+    },
+    urls: [
+      { url: "/shop", chain: ["shop"], params: {} },
+      { url: "/shop/items", chain: ["shop", "items"], params: {} },
+    ],
+  },
+  {
+    name: "required catch-all keeps its prefix and reports the splat",
+    rows: { pages: [pageWithCatchAll(["blog/[...slug]/page", "blog"])] },
+    urls: [
+      { url: "/blog", chain: ["blog"], params: {} },
+      { url: "/blog/guide", chain: ["blog", "*"], params: { "*": "guide" } },
+      { url: "/blog/guide/api", chain: ["blog", "*"], params: { "*": "guide/api" } },
+      // React Router keeps the trailing slash in the raw splat; `useCatchAll`
+      // drops empty segments, so the rendered value is normalized (see paints).
+      { url: "/blog/guide/api/", chain: ["blog", "*"], params: { "*": "guide/api/" } },
+    ],
+    paints: [
+      { url: "/blog/guide/api", includes: ["blog{guide|api}"] },
+      { url: "/blog/guide/api/", includes: ["blog{guide|api}"] },
+    ],
+  },
+  {
+    name: "optional catch-all matches its base path and everything below",
+    rows: { pages: [pageWithCatchAll(["docs/[[...segments]]/page", "docs"])] },
+    urls: [
+      { url: "/docs", chain: ["docs", "index"], params: {} },
+      { url: "/docs/a/b", chain: ["docs", "*"], params: { "*": "a/b" } },
+    ],
+    paints: [
+      { url: "/docs", includes: ["docs{}"] },
+      { url: "/docs/a/b", includes: ["docs{a|b}"] },
+    ],
+  },
+  {
+    name: "root required catch-all is a single splat that also matches /",
+    rows: { pages: [pageWithCatchAll(["[...slug]/page", "everything"])] },
+    urls: [
+      { url: "/", chain: ["*"], params: { "*": "" } },
+      { url: "/a/b", chain: ["*"], params: { "*": "a/b" } },
+    ],
+    paints: [
+      { url: "/", includes: ["everything{}"] },
+      { url: "/x/y", includes: ["everything{x|y}"] },
+    ],
+  },
+  {
+    name: "catch-all composes with a parent layout",
+    rows: {
+      pages: [pageWithCatchAll(["docs/[...slug]/page", "docs"])],
+      layouts: [layout(["docs/layout", "docs-shell"])],
+    },
+    urls: [
+      { url: "/docs/guide/api", chain: ["docs", "*"], params: { "*": "guide/api" } },
+    ],
+    paints: [
+      {
+        url: "/docs/guide/api",
+        includes: ['data-layout="docs-shell"', "docs{guide|api}"],
+        order: ["[docs-shell", "docs{guide|api}", "/docs-shell]"],
+      },
+    ],
+  },
+  {
+    name: "not-found sits beside the page as a level-local splat",
+    rows: {
+      pages: [page(["dashboard/page", "dashboard"]), page(["about/page", "about"])],
+      notFounds: [notFound(["dashboard/not-found", "dashboard"]), notFound(["not-found", "root"])],
+    },
+    urls: [
+      { url: "/dashboard", chain: ["/", "dashboard", "index"], params: {} },
+      { url: "/dashboard/missing", chain: ["/", "dashboard", "*"], params: { "*": "missing" } },
+      { url: "/about", chain: ["/", "about"], params: {} },
+      { url: "/nowhere", chain: ["/", "*"], params: { "*": "nowhere" } },
+    ],
+    paints: [
+      { url: "/dashboard/missing", includes: ['data-not-found="dashboard"'] },
+      { url: "/nowhere", includes: ['data-not-found="root"'] },
+    ],
+  },
+  {
+    name: "nested layouts wrap the deepest index and dynamic routes",
+    rows: {
+      pages: [
+        page(["page", "home"]),
+        page(["users/page", "list"]),
+        pageWithId(["users/[id]/page", "detail"]),
+      ],
+      layouts: [layout(["layout", "root"]), layout(["users/layout", "users"])],
+    },
+    urls: [
+      { url: "/", chain: ["/", "index"], params: {} },
+      { url: "/users", chain: ["/", "users", "index"], params: {} },
+      { url: "/users/7", chain: ["/", "users", ":id"], params: { id: "7" } },
+      { url: "/users/7/edit", chain: null },
+    ],
+    paints: [
+      { url: "/", order: ["[root", "home", "/root]"] },
+      { url: "/users", order: ["[root", "[users", "list", "/users]", "/root]"] },
+      { url: "/users/7", order: ["[root", "[users", "detail:7", "/users]", "/root]"] },
+    ],
+  },
+  {
+    name: "a group can wrap a layout whose subtree holds a not-found",
+    rows: {
+      pages: [page(["(app)/(admin)/reports/page", "reports"])],
+      layouts: [layout(["(app)/(admin)/layout", "admin"])],
+      notFounds: [notFound(["(app)/(admin)/not-found", "admin"])],
+    },
+    urls: [
+      { url: "/reports", chain: ["(layout)", "reports"], params: {} },
+      { url: "/reports/hidden", chain: ["(layout)", "*"], params: { "*": "reports/hidden" } },
+    ],
+    paints: [
+      {
+        url: "/reports/hidden",
+        includes: ['data-layout="admin"', 'data-not-found="admin"'],
+        order: ["[admin", "nf:admin", "/admin]"],
+      },
+    ],
+  },
+];
+
+describe("route invariant matrix (matchRoutes)", () => {
+  for (const { name, rows, urls } of MATRIX) {
+    test(name, () => {
+      const routes = createRoutes({
+        pages: files(rows.pages ?? []),
+        layouts: files(rows.layouts ?? []),
+        notFounds: files(rows.notFounds ?? []),
+      });
+
+      for (const { url, chain, params } of urls) {
+        const actual = resolve(routes, url);
+        if (chain === null) {
+          assert.equal(actual, null, `${url} should not match`);
+          continue;
+        }
+        assert.deepEqual(actual.chain, chain, `${url} chain`);
+        assert.deepEqual(actual.params, params, `${url} params`);
+      }
+    });
+  }
+});
+
+describe("route invariant matrix (rendered application)", () => {
+  for (const { name, rows, paints } of MATRIX) {
+    if (!paints) continue;
+    test(name, async () => {
+      const generate = createRouteGenerator(
+        files(rows.pages ?? []),
+        files(rows.layouts ?? []),
+        files(rows.notFounds ?? []),
+      );
+      const routes = generate();
+
+      for (const paint of paints) {
+        const html = await renderApp(routes, paint.url);
+        for (const fragment of paint.includes ?? []) {
+          assert.match(html, new RegExp(fragment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `${paint.url} html`);
+        }
+        if (paint.order) {
+          const positions = paint.order.map((marker) => html.indexOf(marker));
+          positions.forEach((position, index) => {
+            assert.notEqual(position, -1, `${paint.url} missing "${paint.order[index]}"`);
+            if (index > 0) {
+              assert.ok(
+                positions[index - 1] < position,
+                `${paint.url} expected "${paint.order[index - 1]}" before "${paint.order[index]}" in ${html}`,
+              );
+            }
+          });
+        }
+      }
+    });
+  }
+});
+
+describe("router configuration is read at render time", () => {
+  test("a configured fallback paints while a lazy page is loading", async () => {
+    configureRouter({
+      loadingFallback: () => h("p", null, "Loading…"),
+    });
+    const routes = createRoutes({ pages: files([page(["slow/page", "slow"])]) });
+
+    // First paint only starts the import, so the configured fallback is what a
+    // browser shows; after the chunk settles the page replaces it.
+    const App = () => useRoutes(routes);
+    const tree = h(MemoryRouter, { initialEntries: ["/slow"] }, h(App));
+    assert.match(renderToStaticMarkup(tree), /<p>Loading…<\/p>/);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.match(renderToStaticMarkup(tree), /data-page="slow"/);
+  });
+});
