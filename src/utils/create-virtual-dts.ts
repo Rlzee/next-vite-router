@@ -54,6 +54,12 @@ export function createVirtualDTS(projectDir: string, useSrc: boolean) {
   export function useCatchAll(name?: string): string[];
   export { useRoutes } from 'react-router-dom';
 }
+
+// The plugin also serves this specifier so app code imports the helpers without
+// the "virtual:" prefix; it re-exports the module above.
+declare module 'next-vite-router/routes' {
+  export * from 'virtual:next-vite-router';
+}
 `;
 
   fs.writeFileSync(filePath, content, "utf-8");

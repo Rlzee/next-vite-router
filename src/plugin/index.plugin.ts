@@ -231,6 +231,14 @@ ${params}
   export function useCatchAll(name?: string): string[];
   export { useRoutes } from 'react-router-dom';
 }
+
+// The plugin also serves this specifier, so app code imports the helpers without
+// the "virtual:" prefix. Re-exporting the module above keeps a single source of
+// truth for the generated RoutePath/RoutePathParams types and the metadata-bound
+// href/Link.
+declare module 'next-vite-router/routes' {
+  export * from 'virtual:next-vite-router';
+}
 `;
 }
 
@@ -254,6 +262,10 @@ export function nextViteRouter(
 
   const virtualModuleId = "virtual:next-vite-router";
   const resolvedVirtualModuleId = "\0" + virtualModuleId;
+  // An alias of the virtual module served under a normal package subpath, so app
+  // code imports the helpers as `next-vite-router/routes` instead of typing the
+  // `virtual:` prefix. Both specifiers resolve to one module instance.
+  const routesModuleAlias = "next-vite-router/routes";
   let pagesRoot = "";
   let declarationPath = "";
   let viteLogger: Logger | undefined;
@@ -283,6 +295,10 @@ export function nextViteRouter(
 
   return {
     name: "next-vite-router",
+    // `pre` so resolveId runs before Vite's node/commonjs resolver: the
+    // `next-vite-router/routes` alias has no entry in the package "exports" map,
+    // and the default resolver would reject it before the alias is honored.
+    enforce: "pre",
     configResolved(config) {
       pagesRoot = path.resolve(config.root, normalizedPagesDir);
       declarationPath = path.join(path.dirname(pagesRoot), "virtual-next-vite-router.d.ts");
@@ -363,7 +379,7 @@ export function nextViteRouter(
       removeWatcherListeners = cleanup;
     },
     resolveId(id) {
-      if (id === virtualModuleId) {
+      if (id === virtualModuleId || id === routesModuleAlias) {
         return resolvedVirtualModuleId;
       }
     },

@@ -1,5 +1,5 @@
-import { Link, href } from "virtual:next-vite-router";
-import type { RoutePath } from "virtual:next-vite-router";
+import { Link, href } from "next-vite-router/routes";
+import type { RoutePath } from "next-vite-router/routes";
 
 const currentPath = "/typed-routes" satisfies RoutePath;
 

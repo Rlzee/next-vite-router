@@ -49,6 +49,12 @@ try {
   const declaration = fs.readFileSync(declarationPath, "utf8");
   const virtualModule = plugin.load("\0virtual:next-vite-router");
 
+  // The plugin also serves the helpers under a normal package subpath so app
+  // code can drop the "virtual:" prefix; both specifiers resolve to one module.
+  assert.equal(plugin.resolveId("virtual:next-vite-router"), "\0virtual:next-vite-router");
+  assert.equal(plugin.resolveId("next-vite-router/routes"), "\0virtual:next-vite-router");
+  assert.equal(plugin.resolveId("some-other-module"), undefined);
+
   // The fixture keeps a checked-in copy of this declaration so that
   // `virtual:next-vite-router` resolves in an editor before anything has been
   // generated. Compare it against what the plugin just emitted (comments and
@@ -90,6 +96,10 @@ try {
   // no longer re-exported; only `useRoutes` still comes from `react-router-dom`.
   assert.match(declaration, /export \{ useRoutes \}/);
   assert.doesNotMatch(declaration, /export \{ Link,/);
+  // The generated declaration exposes the subpath alias by re-exporting the
+  // virtual module, so RoutePath/RoutePathParams and the typed helpers apply.
+  assert.match(declaration, /declare module 'next-vite-router\/routes' \{/);
+  assert.match(declaration, /export \* from 'virtual:next-vite-router';/);
   assert.match(virtualModule, /import \{ useRoutes \} from 'react-router-dom'/);
   assert.match(virtualModule, /export \{ useRoutes \};/);
   assert.match(virtualModule, /export \{ useParams, useCatchAll \};/);

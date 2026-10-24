@@ -38,3 +38,9 @@ declare module 'virtual:next-vite-router' {
 
   export { useRoutes } from 'react-router-dom';
 }
+
+// Served by the plugin as an alias so app code can import without the "virtual:"
+// prefix; it re-exports the declaration above.
+declare module 'next-vite-router/routes' {
+  export * from 'virtual:next-vite-router';
+}

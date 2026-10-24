@@ -8,11 +8,20 @@ import type {
   RoutePath,
 } from "virtual:next-vite-router";
 
+// The plugin also serves these helpers under `next-vite-router/routes`, so app
+// code can import them without the "virtual:" prefix; it is the same module.
+import { href as routesHref } from "next-vite-router/routes";
+import type { RoutePath as RoutesPath } from "next-vite-router/routes";
+
 const home = "/" satisfies RoutePath;
 const user = "/users/:id" satisfies RoutePath;
 const post = "/posts/:slug" satisfies RoutePath;
 const docs = "/docs" satisfies RoutePath;
 const docsCatchAll = "/docs/*" satisfies RoutePath;
+
+// A pattern and an href resolved through the subpath alias type-check the same.
+const aliasPath = "/users/:id" satisfies RoutesPath;
+const aliasHref: string = routesHref("/blog/*", { slug: "guide/api" });
 
 const userParams: RouteParams<typeof user> = {
   id: "123",
@@ -72,3 +81,5 @@ void profileLinkWithHref;
 void blogLinkWithHref;
 void usersLinkWithHref;
 void catchAllHook;
+void aliasPath;
+void aliasHref;

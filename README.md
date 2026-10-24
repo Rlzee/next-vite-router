@@ -64,7 +64,7 @@ Use the generated router inside a normal React Router provider:
 import { createRoot } from "react-dom/client";
 import { StrictMode } from "react";
 import { BrowserRouter } from "react-router-dom";
-import { Router } from "virtual:next-vite-router";
+import { Router } from "next-vite-router/routes";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -74,6 +74,12 @@ createRoot(document.getElementById("root")!).render(
   </StrictMode>,
 );
 ```
+
+> **Import alias.** Every runtime helper (`Router`, `generateRoutes`, `href`,
+> `Link`, `useParams`, `useCatchAll`) is served under `next-vite-router/routes`,
+> so application code carries no `virtual:` prefix. The underlying
+> `virtual:next-vite-router` module is still valid — both specifiers resolve to
+> the same generated module.
 
 That is the complete setup. Run:
 
@@ -94,7 +100,7 @@ import {
   generateRoutes,
   useRoutes,
   useParams,
-} from "virtual:next-vite-router";
+} from "next-vite-router/routes";
 import { Link, useNavigate } from "react-router-dom";
 
 const routes = generateRoutes();
@@ -111,10 +117,11 @@ export default function App() {
 ```
 
 Keep using React Router's navigation and hooks from `react-router-dom`
-(`useNavigate`, `useLocation`, `Link`, `Outlet`). The virtual module's own `Link`
-is the typed, Next.js-shaped one (`href`), so React Router's `Link` — the one
-that takes `to` — comes from `react-router-dom`. For parameters, import
-`useParams` from the virtual module instead of `react-router-dom`: dynamic
+(`useNavigate`, `useLocation`, `Link`, `Outlet`). The `next-vite-router/routes`
+module's own `Link` is the typed, Next.js-shaped one (`href`), so React Router's
+`Link` — the one that takes `to` — comes from `react-router-dom`. For parameters,
+import `useParams` from `next-vite-router/routes` instead of `react-router-dom`:
+dynamic
 `[id]` segments work with either hook, but named catch-all segments
 (`[...slug]`, `[[...slug]]`) are only surfaced as `slug` through the package
 `useParams`. React Router's own `useParams` returns them under `params["*"]`.
@@ -125,7 +132,7 @@ parameter over as an array: `/docs/guide/api` matched by
 returns the array form, split on `/`:
 
 ```tsx
-import { useCatchAll } from "virtual:next-vite-router";
+import { useCatchAll } from "next-vite-router/routes";
 
 // docs/[[...segments]]/page.tsx rendering /docs/guide/api
 const segments = useCatchAll();        // ["guide", "api"]
@@ -218,7 +225,7 @@ The Vite plugin generates `virtual-next-vite-router.d.ts` automatically:
 import type {
   RouteParams,
   RoutePath,
-} from "virtual:next-vite-router";
+} from "next-vite-router/routes";
 
 const path = "/users/:id" satisfies RoutePath;
 const params: RouteParams<typeof path> = { id: "123" };
@@ -233,7 +240,7 @@ No manual declaration for the virtual module is required.
 in and returns the address to navigate to:
 
 ```ts
-import { href } from "virtual:next-vite-router";
+import { href } from "next-vite-router/routes";
 
 href("/users/:id", { id: "123" }); // "/users/123"
 href("/blog/*", { slug: "guide/api" }); // "/blog/guide/api"
@@ -269,8 +276,8 @@ reported like a missing value instead of building that link.
 
 A catch-all pattern keeps React Router's unnamed splat (`/blog/*`), so on its own
 it does not carry the folder name. The plugin therefore generates that name into a
-metadata map and passes it to the `href`/`Link` re-exported from
-`virtual:next-vite-router`, which turns the compile-time guarantee into a runtime
+metadata map and passes it to the `href`/`Link` served from
+`next-vite-router/routes`, which turns the compile-time guarantee into a runtime
 one: `href("/blog/*", { slug: ... })` fills the splat, while
 `href("/blog/*", { other: ... })` throws instead of being routed onto the catch-all
 — a renamed or misspelled key fails loudly rather than 404ing. A required
@@ -289,7 +296,7 @@ the route does not declare fails instead of rendering a 404 link. Every other
 React Router.
 
 ```tsx
-import { Link } from "virtual:next-vite-router";
+import { Link } from "next-vite-router/routes";
 
 <Link href="/users/:id" params={{ id: user.id }}>Profile</Link>
 <Link href="/users">All users</Link>

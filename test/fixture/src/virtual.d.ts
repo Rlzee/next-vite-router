@@ -74,3 +74,7 @@ declare module 'virtual:next-vite-router' {
   export function useCatchAll(name?: string): string[];
   export { useRoutes } from 'react-router-dom';
 }
+
+declare module 'next-vite-router/routes' {
+  export * from 'virtual:next-vite-router';
+}
