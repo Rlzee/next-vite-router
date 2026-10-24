@@ -267,12 +267,26 @@ own segment. A required `:name` given an empty value throws too
 resolve `/users/:id` to `/users/`, a route it no longer matches, so it is
 reported like a missing value instead of building that link.
 
+A catch-all pattern keeps React Router's unnamed splat (`/blog/*`), so on its own
+it does not carry the folder name. The plugin therefore generates that name into a
+metadata map and passes it to the `href`/`Link` re-exported from
+`virtual:next-vite-router`, which turns the compile-time guarantee into a runtime
+one: `href("/blog/*", { slug: ... })` fills the splat, while
+`href("/blog/*", { other: ... })` throws instead of being routed onto the catch-all
+— a renamed or misspelled key fails loudly rather than 404ing. A required
+`[...slug]` also reports a missing or empty value; only an optional
+`[[...segments]]` collapses to its base path. The raw `href`/`Link` exported
+directly from `next-vite-router` carry no metadata, so they fill a catch-all only
+through React Router's `"*"` (`href("/blog/*", { "*": "guide/api" })`) and reject
+any friendly name they cannot validate.
+
 ### `Link`
 
 `Link` puts a route pattern in `href`, the way Next.js does, and checks it
-against the generated routes: a renamed folder or a missing id fails to compile
-instead of rendering a 404 link. Every other `Link` prop (`className`,
-`replace`, `state`, children, ...) is forwarded to React Router.
+against the generated routes: a renamed folder, a missing id, or a catch-all key
+the route does not declare fails instead of rendering a 404 link. Every other
+`Link` prop (`className`, `replace`, `state`, children, ...) is forwarded to
+React Router.
 
 ```tsx
 import { Link } from "virtual:next-vite-router";

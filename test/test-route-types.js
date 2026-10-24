@@ -93,10 +93,27 @@ try {
   assert.match(virtualModule, /import \{ useRoutes \} from 'react-router-dom'/);
   assert.match(virtualModule, /export \{ useRoutes \};/);
   assert.match(virtualModule, /export \{ useParams, useCatchAll \};/);
-  assert.match(virtualModule, /export \{ href, Link \};/);
+  // The generated module binds each catch-all folder name into href/Link so the
+  // runtime can validate the key: the "/blog/*" pattern alone cannot name its splat.
   assert.match(
     virtualModule,
-    /import \{ buildRouteTree, treeToRoutes, useParams, useCatchAll, href, Link \} from 'next-vite-router'/,
+    /import \{ buildRouteTree, treeToRoutes, useParams, useCatchAll, href as hrefBase, createTypedLink \} from 'next-vite-router'/,
+  );
+  assert.match(
+    virtualModule,
+    /export function href\(pattern, params\) \{[\s\S]*?return hrefBase\(pattern, params, routeMetadata\[pattern\]\);/,
+  );
+  assert.match(virtualModule, /export const Link = createTypedLink\(routeMetadata\);/);
+  assert.doesNotMatch(virtualModule, /export \{ href, Link \};/);
+  // Each "*" pattern maps to the folder name it declares, required vs optional.
+  assert.match(virtualModule, /const routeMetadata = \{/);
+  assert.match(
+    virtualModule,
+    /"\/blog\/\*":\{"catchAll":\{"name":"slug","optional":false\}\}/,
+  );
+  assert.match(
+    virtualModule,
+    /"\/docs\/\*":\{"catchAll":\{"name":"segments","optional":true\}\}/,
   );
   // The generated module may only import what it uses or re-exports; a dead
   // import stays in the module graph of every app that loads the virtual module.

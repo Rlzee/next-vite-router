@@ -114,6 +114,32 @@ function collectRoutePaths(
   return [...paths.values()].sort((left, right) => left.path.localeCompare(right.path));
 }
 
+type CatchAllMetadataMap = Record<
+  string,
+  { catchAll: { name: string; optional: boolean } }
+>;
+
+/**
+ * Map each public catch-all pattern (`/blog/*`) back to the folder name it
+ * declares (`slug`) and whether it is optional, derived from the SAME traversal
+ * that produces the route types so the two can never diverge.
+ *
+ * The pattern keeps React Router's unnamed `*` splat, so on its own it cannot tell
+ * `href`/`Link` which key fills it. This metadata is emitted into the virtual
+ * module, where it turns the compile-time guarantee (types list only `slug`) into
+ * a runtime one: an unknown key is rejected instead of routed onto the splat.
+ */
+function collectCatchAllMetadata(routePaths: RouteTypeEntry[]): CatchAllMetadataMap {
+  const metadata: CatchAllMetadataMap = {};
+  for (const { path, params } of routePaths) {
+    const catchAll = params.find((param) => param.variadic);
+    if (catchAll) {
+      metadata[path] = { catchAll: { name: catchAll.name, optional: catchAll.optional } };
+    }
+  }
+  return metadata;
+}
+
 function collectPageFiles(
   pagesRoot: string,
   pageFile: string,
@@ -355,8 +381,15 @@ export function nextViteRouter(
           ? `import.meta.glob(${JSON.stringify(layoutsGlobPath)})`
           : `import.meta.glob(${JSON.stringify(layoutsGlobPath)}, { eager: true })`;
         const routeTreeOptions = lazyLayouts ? ", { lazyLayouts: true }" : "";
+        // The public pattern drops the catch-all folder name, so re-derive it from
+        // the type traversal and forward it to the generated href/Link; without it
+        // the runtime could only address the splat as "*" and could not reject a
+        // misspelled key.
+        const catchAllMetadata = collectCatchAllMetadata(
+          collectRoutePaths(pagesRoot, fileOptions, normalizedPagesDir),
+        );
         return `
-import { buildRouteTree, treeToRoutes, useParams, useCatchAll, href, Link } from 'next-vite-router';
+import { buildRouteTree, treeToRoutes, useParams, useCatchAll, href as hrefBase, createTypedLink } from 'next-vite-router';
 import { useRoutes } from 'react-router-dom';
 
 const pagesGlob = import.meta.glob(${JSON.stringify(pagesGlobPath)});
@@ -370,6 +403,11 @@ const notFoundsGlob = import.meta.glob(${JSON.stringify(notFoundGlobPath)});
 const pages = pagesGlob;
 const layouts = layoutsGlob;
 const notFounds = notFoundsGlob;
+
+// Generated catch-all metadata: every "*" pattern mapped to the folder name it
+// declares, so the navigation helpers validate a key against the route instead
+// of routing any unknown one onto the splat.
+const routeMetadata = ${JSON.stringify(catchAllMetadata)};
 
 export function generateRoutes() {
   const tree = buildRouteTree(pages, layouts, notFounds, ${JSON.stringify(fileOptions)}${routeTreeOptions});
@@ -390,9 +428,16 @@ if (import.meta.hot) {
   });
 }
 
+// Bind the generated catch-all names into the navigation helpers: the pattern
+// alone ("/blog/*") cannot say which key fills it, so pass the metadata through.
+export function href(pattern, params) {
+  return hrefBase(pattern, params, routeMetadata[pattern]);
+}
+
+export const Link = createTypedLink(routeMetadata);
+
 export { useRoutes };
 export { useParams, useCatchAll };
-export { href, Link };
 `;
       }
     },

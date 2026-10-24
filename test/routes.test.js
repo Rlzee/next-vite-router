@@ -11,6 +11,7 @@ import {
   createLazyCache,
   createLazyElement,
   createRouteGenerator,
+  createTypedLink,
   clearLazyCache,
   href,
   Link,
@@ -1115,51 +1116,62 @@ describe("typed navigation helpers", () => {
     assert.equal(href("/"), "/");
   });
 
-  test("maps a named catch-all parameter onto the splat", () => {
-    // React Router only reads the unnamed "*" segment, so
-    // generatePath("/blog/*", { slug: "guide/api" }) silently returns "/blog".
-    assert.equal(href("/blog/*", { slug: "guide/api" }), "/blog/guide/api");
+  test("maps a named catch-all onto the splat when the generator knows its name", () => {
+    // The public pattern is "/blog/*"; only the metadata the plugin generates
+    // reveals that the folder is "[...slug]", so the friendly key needs it.
+    const slug = { catchAll: { name: "slug", optional: false } };
+    const files = { catchAll: { name: "files", optional: false } };
+    assert.equal(href("/blog/*", { slug: "guide/api" }, slug), "/blog/guide/api");
+    assert.equal(href("/*", { files: "a/b" }, files), "/a/b");
+    // Without metadata the raw helper addresses the splat only as "*".
     assert.equal(href("/blog/*", { "*": "guide/api" }), "/blog/guide/api");
-    assert.equal(href("/*", { slug: "a/b" }), "/a/b");
   });
 
   test("resolves an empty optional catch-all to the base path", () => {
-    assert.equal(href("/docs/*", { segments: "a/b" }), "/docs/a/b");
-    assert.equal(href("/docs/*", { segments: "" }), "/docs");
-    assert.equal(href("/docs/*", {}), "/docs");
-    assert.equal(href("/*", { slug: "" }), "/");
+    const segments = { catchAll: { name: "segments", optional: true } };
+    const slug = { catchAll: { name: "slug", optional: true } };
+    assert.equal(href("/docs/*", { segments: "a/b" }, segments), "/docs/a/b");
+    assert.equal(href("/docs/*", { segments: "" }, segments), "/docs");
+    assert.equal(href("/docs/*", {}, segments), "/docs");
+    assert.equal(href("/*", { slug: "" }, slug), "/");
   });
 
   test("accepts the segment array useCatchAll returns", () => {
-    assert.equal(href("/blog/*", { slug: ["guide", "api"] }), "/blog/guide/api");
-    assert.equal(href("/docs/*", { segments: ["a", "b"] }), "/docs/a/b");
+    const slug = { catchAll: { name: "slug", optional: false } };
+    const optionalSlug = { catchAll: { name: "slug", optional: true } };
+    const segments = { catchAll: { name: "segments", optional: true } };
+    assert.equal(href("/blog/*", { slug: ["guide", "api"] }, slug), "/blog/guide/api");
+    assert.equal(href("/docs/*", { segments: ["a", "b"] }, segments), "/docs/a/b");
     // `useCatchAll()` reports [] on the base path of an optional catch-all, which
     // joins to "" and resolves back to that base path.
-    assert.equal(href("/docs/*", { segments: [] }), "/docs");
-    assert.equal(href("/*", { slug: [] }), "/");
+    assert.equal(href("/docs/*", { segments: [] }, segments), "/docs");
+    assert.equal(href("/*", { slug: [] }, optionalSlug), "/");
   });
 
   test("drops empty segments from a catch-all value, like useCatchAll", () => {
     // A trailing slash, a leading slash, a doubled slash, or a blank array entry
     // must not inject a "//" into the path, so href filters empty segments the
     // same way useCatchAll does when reading.
-    assert.equal(href("/blog/*", { slug: "/a/b/" }), "/blog/a/b");
-    assert.equal(href("/blog/*", { slug: ["a", "", "b"] }), "/blog/a/b");
-    assert.equal(href("/blog/*", { slug: "a//b" }), "/blog/a/b");
+    const slug = { catchAll: { name: "slug", optional: false } };
+    const segments = { catchAll: { name: "segments", optional: true } };
+    assert.equal(href("/blog/*", { slug: "/a/b/" }, slug), "/blog/a/b");
+    assert.equal(href("/blog/*", { slug: ["a", "", "b"] }, slug), "/blog/a/b");
+    assert.equal(href("/blog/*", { slug: "a//b" }, slug), "/blog/a/b");
     // Dropping empties still leaves an all-empty value resolving to the base.
-    assert.equal(href("/docs/*", { segments: "/" }), "/docs");
-    assert.equal(href("/docs/*", { segments: ["", ""] }), "/docs");
+    assert.equal(href("/docs/*", { segments: "/" }, segments), "/docs");
+    assert.equal(href("/docs/*", { segments: ["", ""] }, segments), "/docs");
   });
 
   test("percent-encodes each substituted path segment itself, not via generatePath", () => {
     // generatePath encodes in React Router v7 but not v6, and href no longer
     // calls it, so every value is encoded here once and the same on both.
+    const slug = { catchAll: { name: "slug", optional: false } };
     assert.equal(href("/users/:id", { id: "a/b?x#y" }), "/users/a%2Fb%3Fx%23y");
-    assert.equal(href("/blog/*", { slug: ["a b", "c?d"] }), "/blog/a%20b/c%3Fd");
+    assert.equal(href("/blog/*", { slug: ["a b", "c?d"] }, slug), "/blog/a%20b/c%3Fd");
     // A string catch-all keeps `/` as its separator while encoding each part.
-    assert.equal(href("/blog/*", { slug: "a b/c?d" }), "/blog/a%20b/c%3Fd");
+    assert.equal(href("/blog/*", { slug: "a b/c?d" }, slug), "/blog/a%20b/c%3Fd");
     // Ordinary values are unaffected, so existing routes read back the same.
-    assert.equal(href("/blog/*", { slug: "guide/api" }), "/blog/guide/api");
+    assert.equal(href("/blog/*", { slug: "guide/api" }, slug), "/blog/guide/api");
     assert.equal(href("/users/:id", { id: "42" }), "/users/42");
   });
 
@@ -1167,10 +1179,11 @@ describe("typed navigation helpers", () => {
     // A `:name` value and each catch-all segment go through encodeURIComponent,
     // so a multi-byte value is escaped identically on React Router v6 and v7
     // (`href` never calls `generatePath`, whose encoding differs between them).
+    const slug = { catchAll: { name: "slug", optional: false } };
     assert.equal(href("/users/:id", { id: "café" }), "/users/caf%C3%A9");
     assert.equal(href("/u/:id", { id: "👍" }), "/u/%F0%9F%91%8D");
     // A catch-all keeps `/` as its separator while encoding each segment.
-    assert.equal(href("/blog/*", { slug: "日本/語" }), "/blog/%E6%97%A5%E6%9C%AC/%E8%AA%9E");
+    assert.equal(href("/blog/*", { slug: "日本/語" }, slug), "/blog/%E6%97%A5%E6%9C%AC/%E8%AA%9E");
     // The encoded value is a valid single segment, so it reads back unchanged.
     assert.equal(href("/users/:id", { id: "café" }), "/users/caf%C3%A9");
   });
@@ -1188,12 +1201,13 @@ describe("typed navigation helpers", () => {
       { message: /cannot be "\.":/ },
     );
     // A catch-all is validated per segment, as an array or a split string.
+    const slug = { catchAll: { name: "slug", optional: false } };
     assert.throws(
-      () => href("/blog/*", { slug: ["..", "x"] }),
+      () => href("/blog/*", { slug: ["..", "x"] }, slug),
       { message: /cannot be "\.\.":/ },
     );
     assert.throws(
-      () => href("/blog/*", { slug: "a/.." }),
+      () => href("/blog/*", { slug: "a/.." }, slug),
       { message: /cannot be "\.\.":/ },
     );
     // Only an exact "." / ".." segment is a dot-segment; a longer value, and a
@@ -1216,11 +1230,55 @@ describe("typed navigation helpers", () => {
         message: 'Route "/about" has no "id" parameter. This route takes no parameters.',
       },
     );
+  });
+
+  test("rejects a catch-all key the route does not declare", () => {
+    // The generator knows the folder is "[...slug]", so "other" must fail rather
+    // than be routed onto the splat — this is the central correctness fix.
+    const slug = { catchAll: { name: "slug", optional: false } };
     assert.throws(
-      () => href("/blog/*", { slug: "a", other: "b" }),
+      () => href("/blog/*", { other: "guide/api" }, slug),
       {
-        message: 'Route "/blog/*" takes one catch-all value, but 2 params were supplied ("slug", "other").',
+        message:
+          'Route "/blog/*" has no "other" parameter. Expected: "slug". ' +
+          'Pass the value under its declared name "slug" (or React Router\'s "*").',
       },
+    );
+    // A bare href carries no metadata, so it cannot validate "slug" and rejects
+    // it too; only React Router's "*" fills the splat there.
+    assert.throws(
+      () => href("/blog/*", { slug: "guide/api" }),
+      {
+        message:
+          'Route "/blog/*" has no "slug" parameter. Expected: "*". ' +
+          'Address the splat with "*", or import href/Link from ' +
+          '"virtual:next-vite-router" so a catch-all is validated by its folder name.',
+      },
+    );
+    // One catch-all value only, even when named two valid ways at once.
+    assert.throws(
+      () => href("/blog/*", { slug: "a", "*": "b" }, slug),
+      {
+        message: 'Route "/blog/*" takes one catch-all value, but 2 params were supplied ("slug", "*").',
+      },
+    );
+  });
+
+  test("rejects a missing or empty value for a required catch-all", () => {
+    // "[...slug]" never matches "/blog" on its own, so resolving to the base path
+    // would render a broken link; report it like a missing required param.
+    const slug = { catchAll: { name: "slug", optional: false } };
+    assert.throws(
+      () => href("/blog/*", {}, slug),
+      { message: 'Route "/blog/*" is missing the required "slug" catch-all param.' },
+    );
+    assert.throws(
+      () => href("/blog/*", { slug: [] }, slug),
+      { message: /requires a non-empty value for its "slug" catch-all param/ },
+    );
+    assert.throws(
+      () => href("/blog/*", { slug: "" }, slug),
+      { message: /requires a non-empty value for its "slug" catch-all param/ },
     );
   });
 
@@ -1296,11 +1354,37 @@ describe("typed navigation helpers", () => {
     assert.match(markup, /<a[^>]*>Profile<\/a>/);
   });
 
-  test("Link accepts a catch-all segment array", () => {
-    // The value `useCatchAll()` returns can be handed straight back to `Link`.
+  test("Link accepts a catch-all segment array through its generated metadata", () => {
+    // The plugin-bound Link (createTypedLink) knows the folder name; the value
+    // `useCatchAll()` returns can be handed straight back to it.
+    const BlogLink = createTypedLink({
+      "/blog/*": { catchAll: { name: "slug", optional: false } },
+    });
+    const markup = renderToStaticMarkup(
+      React.createElement(
+        MemoryRouter,
+        { initialEntries: ["/"] },
+        React.createElement(BlogLink, { href: "/blog/*", params: { slug: ["guide", "api"] } }, "Docs"),
+      ),
+    );
+    assert.match(markup, /href="\/blog\/guide\/api"/);
+  });
+
+  test("the raw Link fills a catch-all only through the splat, not a guessed name", () => {
+    // `Link` imported directly from the package carries no metadata, so a friendly
+    // name cannot be validated and is rejected exactly like the raw `href`.
+    assert.throws(
+      () => renderLink({ href: "/blog/*", params: { slug: "guide/api" } }, "Docs"),
+      { message: /Route "\/blog\/\*" has no "slug" parameter/ },
+    );
+    // "*" still addresses the splat, and a misspelled key is rejected.
     assert.match(
-      renderLink({ href: "/blog/*", params: { slug: ["guide", "api"] } }, "Docs"),
+      renderLink({ href: "/blog/*", params: { "*": "guide/api" } }, "Docs"),
       /href="\/blog\/guide\/api"/,
+    );
+    assert.throws(
+      () => renderLink({ href: "/blog/*", params: { other: "guide/api" } }, "Docs"),
+      { message: /has no "other" parameter/ },
     );
   });
 

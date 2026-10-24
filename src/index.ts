@@ -29,5 +29,11 @@ export { createLazyCache, createLazyElement, clearLazyCache } from './utils/lazy
 export type { LazyComponentCache } from './utils/lazy';
 export { useParams, useCatchAll } from './router-params';
 export { CatchAllParamProvider } from './router-params-context';
-export { href, Link } from './router-navigation';
-export type { RouteHrefParams, LinkProps } from './router-navigation';
+export { href, Link, createTypedLink } from './router-navigation';
+export type {
+  RouteHrefParams,
+  LinkProps,
+  RouteCatchAllMetadata,
+  RouteHrefMetadata,
+  RouteLinkMetadata,
+} from './router-navigation';

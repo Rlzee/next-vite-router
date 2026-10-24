@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createRouteGenerator, configureRouter, href, Link, useCatchAll } from '../dist/index.js';
+import { createRouteGenerator, configureRouter, href, Link, createTypedLink, useCatchAll } from '../dist/index.js';
 
 console.log('✅ createRouteGenerator:', typeof createRouteGenerator);
 console.log('✅ configureRouter:', typeof configureRouter);
@@ -50,10 +50,12 @@ assert.equal(typeof cjsPlugin.nextViteRouter, 'function');
 // The navigation helpers must reach both module formats, not just ESM.
 assert.equal(typeof href, 'function');
 assert.equal(typeof Link, 'function');
+assert.equal(typeof createTypedLink, 'function');
 assert.equal(typeof useCatchAll, 'function');
 const cjsIndex = require('../dist/index.cjs');
 assert.equal(typeof cjsIndex.href, 'function');
 assert.equal(typeof cjsIndex.Link, 'function');
+assert.equal(typeof cjsIndex.createTypedLink, 'function');
 assert.equal(typeof cjsIndex.useCatchAll, 'function');
 
 console.log('✅ Package built successfully!');
