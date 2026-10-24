@@ -337,10 +337,12 @@ import { Link } from "react-router-dom";
 const routes = generateRoutes();
 
 export default function App() {
+  const element = useRoutes(routes);
+
   return (
     <>
       <Link to="/users">Users</Link>
-      {useRoutes(routes)}
+      {element}
     </>
   );
 }
