@@ -2,6 +2,80 @@
 
 All notable changes to this project are documented in this file.
 
+## [3.0.0] - 2026-10-24
+
+### Removed (breaking)
+
+- The navigation helpers are no longer exported from the `next-vite-router`
+  package root. `href`, `Link`, `useParams`, and `useCatchAll` (and the
+  lower-level `createTypedLink` / `CatchAllParamProvider`) reach an application
+  only through the module the Vite plugin generates. Import them from
+  `next-vite-router/routes`:
+
+  ```diff
+  - import { href, Link, useParams, useCatchAll } from "next-vite-router";
+  + import { href, Link, useParams, useCatchAll } from "next-vite-router/routes";
+  ```
+
+  The root still exports configuration and the route engine
+  (`configureRouter`, `resetRouterConfig`, `createRouteGenerator`,
+  `buildRouteTree`, `treeToRoutes`, the assert helpers, and the path/lazy utils).
+- The `virtual:next-vite-router` specifier is retired: `next-vite-router/routes`
+  is now the single import path for the generated module. `virtual:next-vite-router`
+  no longer resolves and is no longer declared in the generated types.
+
+  ```diff
+  - import { Router } from "virtual:next-vite-router";
+  + import { Router } from "next-vite-router/routes";
+  ```
+
+- The navigation engine moved to `src/plugin-runtime.ts`, a build entry kept
+  out of the package `exports` map so application code cannot import it
+  (`import "next-vite-router/plugin-runtime"` throws
+  `ERR_PACKAGE_PATH_NOT_EXPORTED`). The generated module reaches it by resolved
+  file path; this is an implementation detail, not an app-facing surface.
+
+### Added
+
+- Catch-all folder-name metadata and runtime key validation. The plugin
+  generates a per-route map (`{ "/blog/*": { catchAll: { name: "slug", optional:
+  false } } }`) from the same traversal that emits the route types and passes it
+  to `href`/`Link`, so a catch-all is addressed only by its declared folder name
+  (or React Router's `"*"`) and an unknown key throws instead of being silently
+  routed onto the splat. A required `[...slug]` now reports a missing or empty
+  value; an optional `[[...segments]]` still resolves to its base path. The
+  public pattern stays `/blog/*`.
+- `createTypedLink(metadataByPattern)`, a factory that binds the generated
+  catch-all metadata into a `Link`, plus the `RouteCatchAllMetadata` /
+  `RouteHrefMetadata` / `RouteLinkMetadata` types (engine surface, re-exported
+  to apps through `next-vite-router/routes`).
+
+### Changed
+
+- `href` gained an optional third `metadata` argument. Passing it (as the
+  generated module does) enables catch-all key validation; omitting it keeps the
+  previous behavior, so this input widening is backward compatible.
+- Raised `engines.node` to `>=20` (commander 14, the CLI's runtime dependency,
+  requires it); the CLI build targets `node20`, and CI runs a Node 20/22 matrix.
+
+### Tests
+
+- Added a comprehensive route-invariant test matrix and Unicode
+  encoding/decoding coverage for route parameters and catch-all segments.
+- Added CLI smoke tests and an engine-requirement check.
+- Updated the catch-all tests for the metadata contract (string and array value,
+  missing required value, unknown key, `.`/`..` segments, the `"*"` alias, and
+  the raw-`href` vs generated-`/routes` split).
+- Assert the single `next-vite-router/routes` specifier: `resolveId` mapping, the
+  generated declaration shape, the engine imported by resolved path, and that
+  `virtual:next-vite-router` is no longer resolved or declared.
+
+### Documentation
+
+- Updated the README to a single import path (`next-vite-router/routes`),
+  documented the metadata-bound catch-all validation, and noted that the package
+  root exposes configuration and the route engine rather than the helpers.
+
 ## [2.1.1] - 2026-10-23
 
 ### Fixed
