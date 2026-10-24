@@ -113,7 +113,7 @@ jobs:
           import React from "react";
           import { createRoot } from "react-dom/client";
           import { BrowserRouter, useRoutes } from "react-router-dom";
-          import { generateRoutes } from "virtual:next-vite-router";
+          import { generateRoutes } from "next-vite-router/routes";
 
           function App() {
             return useRoutes(generateRoutes());
