@@ -282,10 +282,13 @@ one: `href("/blog/*", { slug: ... })` fills the splat, while
 `href("/blog/*", { other: ... })` throws instead of being routed onto the catch-all
 — a renamed or misspelled key fails loudly rather than 404ing. A required
 `[...slug]` also reports a missing or empty value; only an optional
-`[[...segments]]` collapses to its base path. The raw `href`/`Link` exported
-directly from `next-vite-router` carry no metadata, so they fill a catch-all only
-through React Router's `"*"` (`href("/blog/*", { "*": "guide/api" })`) and reject
-any friendly name they cannot validate.
+`[[...segments]]` collapses to its base path. These helpers are served only from
+`next-vite-router/routes`: the package root does **not** export `href` or `Link`
+(they live in an internal entry kept out of the package `exports` map), so
+application code cannot import an untyped version by accident. React Router's
+`"*"` stays accepted at runtime as the splat alias
+(`href("/blog/*", { "*": "guide/api" })`) for callers that address the splat
+directly.
 
 ### `Link`
 

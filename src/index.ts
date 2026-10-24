@@ -27,13 +27,10 @@ export type { RouteFileOptions } from './utils/path';
 export type { RouteSegment } from './utils/path';
 export { createLazyCache, createLazyElement, clearLazyCache } from './utils/lazy';
 export type { LazyComponentCache } from './utils/lazy';
-export { useParams, useCatchAll } from './router-params';
-export { CatchAllParamProvider } from './router-params-context';
-export { href, Link, createTypedLink } from './router-navigation';
-export type {
-  RouteHrefParams,
-  LinkProps,
-  RouteCatchAllMetadata,
-  RouteHrefMetadata,
-  RouteLinkMetadata,
-} from './router-navigation';
+
+// The navigation helpers (`href`, `Link`, `createTypedLink`, `useParams`,
+// `useCatchAll`, `CatchAllParamProvider`) are intentionally NOT exported here.
+// They reach an application only through the module the Vite plugin generates
+// (`next-vite-router/routes`), which binds them to the project's route metadata.
+// They live in `src/plugin-runtime.ts`: a build entry kept out of the package
+// "exports" map, so `import { href } from "next-vite-router"` does not resolve.

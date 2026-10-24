@@ -6,19 +6,24 @@ import { matchRoutes, MemoryRouter } from "react-router-dom";
 import {
   buildRouteTree,
   assertNoDuplicateRoutes,
-  CatchAllParamProvider,
   configureRouter,
   createLazyCache,
   createLazyElement,
   createRouteGenerator,
-  createTypedLink,
   clearLazyCache,
-  href,
-  Link,
   resetRouterConfig,
   treeToRoutes,
 } from "../dist/index.js";
 import { extractRoutePath, parseRouteSegments } from "../dist/index.js";
+// The navigation engine is not on the public root entry; the generated routes
+// module re-exports these, and tests import them from the internal build entry
+// that the generated module itself resolves by path.
+import {
+  CatchAllParamProvider,
+  createTypedLink,
+  href,
+  Link,
+} from "../dist/plugin-runtime.js";
 
 const loader = (name) => async () => ({ default: name });
 const component = (name) => function Component() {

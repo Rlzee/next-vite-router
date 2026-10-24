@@ -1,6 +1,7 @@
 import type { Logger, Plugin, ViteDevServer } from "vite";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   extractRoutePath,
   parseRouteSegments,
@@ -404,8 +405,15 @@ export function nextViteRouter(
         const catchAllMetadata = collectCatchAllMetadata(
           collectRoutePaths(pagesRoot, fileOptions, normalizedPagesDir),
         );
+        // The navigation engine ships as `dist/plugin-runtime.js`, a build entry
+        // that is NOT in the package "exports" map, so application code cannot
+        // import it. This generated module reaches it by resolved file path
+        // instead of a bare specifier: `import.meta.url` is this plugin's own
+        // module URL (bundled next to plugin-runtime in dist), and the emitted
+        // path never resolves back to a `next-vite-router/...` specifier.
+        const engineEntry = fileURLToPath(new URL("./plugin-runtime.js", import.meta.url));
         return `
-import { buildRouteTree, treeToRoutes, useParams, useCatchAll, href as hrefBase, createTypedLink } from 'next-vite-router';
+import { buildRouteTree, treeToRoutes, useParams, useCatchAll, href as hrefBase, createTypedLink } from ${JSON.stringify(engineEntry)};
 import { useRoutes } from 'react-router-dom';
 
 const pagesGlob = import.meta.glob(${JSON.stringify(pagesGlobPath)});

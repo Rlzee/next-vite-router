@@ -105,10 +105,13 @@ try {
   assert.match(virtualModule, /export \{ useParams, useCatchAll \};/);
   // The generated module binds each catch-all folder name into href/Link so the
   // runtime can validate the key: the "/blog/*" pattern alone cannot name its splat.
+  // It reaches the engine by resolved file path (plugin-runtime is not in
+  // "exports"), never as a `next-vite-router` specifier app code could reuse.
   assert.match(
     virtualModule,
-    /import \{ buildRouteTree, treeToRoutes, useParams, useCatchAll, href as hrefBase, createTypedLink \} from 'next-vite-router'/,
+    /import \{ buildRouteTree, treeToRoutes, useParams, useCatchAll, href as hrefBase, createTypedLink \} from ["'][^"']*plugin-runtime\.js["']/,
   );
+  assert.doesNotMatch(virtualModule, /from ['"]next-vite-router['"]/);
   assert.match(
     virtualModule,
     /export function href\(pattern, params\) \{[\s\S]*?return hrefBase\(pattern, params, routeMetadata\[pattern\]\);/,

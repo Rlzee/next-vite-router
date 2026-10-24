@@ -8,6 +8,11 @@ export default defineConfig({
       entry: {
         index: resolve(__dirname, 'src/index.ts'),
         plugin: resolve(__dirname, 'src/plugin/index.plugin.ts'),
+        // Internal runtime engine consumed by the generated
+        // `next-vite-router/routes` module. It is emitted but intentionally left
+        // out of package.json "exports", so it is unreachable by application
+        // import.
+        'plugin-runtime': resolve(__dirname, 'src/plugin-runtime.ts'),
       },
       formats: ['es', 'cjs'],
       fileName: (format, entryName) =>
@@ -21,6 +26,7 @@ export default defineConfig({
         'vite',
         'node:fs',
         'node:path',
+        'node:url',
       ],
       output: {
         exports: 'named',

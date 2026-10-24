@@ -3,13 +3,12 @@ import { test } from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { matchRoutes, MemoryRouter, useRoutes } from "react-router-dom";
+import { buildRouteTree, treeToRoutes } from "../dist/index.js";
 import {
-  buildRouteTree,
   CatchAllParamProvider,
-  treeToRoutes,
   useCatchAll,
   useParams,
-} from "../dist/index.js";
+} from "../dist/plugin-runtime.js";
 
 function Probe() {
   const params = useParams();

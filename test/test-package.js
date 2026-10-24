@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createRouteGenerator, configureRouter, href, Link, createTypedLink, useCatchAll } from '../dist/index.js';
+import { createRouteGenerator, configureRouter } from '../dist/index.js';
+import { href, Link, createTypedLink, useCatchAll } from '../dist/plugin-runtime.js';
 
 console.log('✅ createRouteGenerator:', typeof createRouteGenerator);
 console.log('✅ configureRouter:', typeof configureRouter);
@@ -47,16 +48,22 @@ const require = createRequire(import.meta.url);
 const cjsPlugin = require('../dist/plugin.cjs');
 assert.equal(typeof cjsPlugin.nextViteRouter, 'function');
 
-// The navigation helpers must reach both module formats, not just ESM.
+// The navigation helpers must reach both module formats, not just ESM. They
+// live in the internal engine entry (kept out of "exports"), so the generated
+// routes module can resolve it by path while app code cannot import it.
 assert.equal(typeof href, 'function');
 assert.equal(typeof Link, 'function');
 assert.equal(typeof createTypedLink, 'function');
 assert.equal(typeof useCatchAll, 'function');
+// The public root entry exposes config and the route engine, not the helpers.
 const cjsIndex = require('../dist/index.cjs');
-assert.equal(typeof cjsIndex.href, 'function');
-assert.equal(typeof cjsIndex.Link, 'function');
-assert.equal(typeof cjsIndex.createTypedLink, 'function');
-assert.equal(typeof cjsIndex.useCatchAll, 'function');
+assert.equal(typeof cjsIndex.createRouteGenerator, 'function');
+assert.equal(typeof cjsIndex.configureRouter, 'function');
+const cjsInternal = require('../dist/plugin-runtime.cjs');
+assert.equal(typeof cjsInternal.href, 'function');
+assert.equal(typeof cjsInternal.Link, 'function');
+assert.equal(typeof cjsInternal.createTypedLink, 'function');
+assert.equal(typeof cjsInternal.useCatchAll, 'function');
 
 console.log('✅ Package built successfully!');
 console.log('✅ Plugin CJS named export is loadable via require');

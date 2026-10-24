@@ -20,9 +20,8 @@ import {
   createRouteGenerator,
   resetRouterConfig,
   treeToRoutes,
-  useCatchAll,
-  useParams,
 } from "../dist/index.js";
+import { useCatchAll, useParams } from "../dist/plugin-runtime.js";
 
 // ---------------------------------------------------------------------------
 // Route-file factories. A page is always a lazy loader (mirroring the glob),
