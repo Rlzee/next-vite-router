@@ -47,16 +47,16 @@ try {
   plugin.configResolved({ root: projectRoot });
 
   const declaration = fs.readFileSync(declarationPath, "utf8");
-  const virtualModule = plugin.load("\0virtual:next-vite-router");
+  const virtualModule = plugin.load("\0next-vite-router/routes");
 
-  // The plugin also serves the helpers under a normal package subpath so app
-  // code can drop the "virtual:" prefix; both specifiers resolve to one module.
-  assert.equal(plugin.resolveId("virtual:next-vite-router"), "\0virtual:next-vite-router");
-  assert.equal(plugin.resolveId("next-vite-router/routes"), "\0virtual:next-vite-router");
+  // `next-vite-router/routes` is the single public specifier; the older
+  // `virtual:next-vite-router` name is no longer resolved at all.
+  assert.equal(plugin.resolveId("next-vite-router/routes"), "\0next-vite-router/routes");
+  assert.equal(plugin.resolveId("virtual:next-vite-router"), undefined);
   assert.equal(plugin.resolveId("some-other-module"), undefined);
 
   // The fixture keeps a checked-in copy of this declaration so that
-  // `virtual:next-vite-router` resolves in an editor before anything has been
+  // `next-vite-router/routes` resolves in an editor before anything has been
   // generated. Compare it against what the plugin just emitted (comments and
   // line endings ignored) so that copy can never drift from the real template.
   const withoutComments = (text) => text
@@ -96,10 +96,10 @@ try {
   // no longer re-exported; only `useRoutes` still comes from `react-router-dom`.
   assert.match(declaration, /export \{ useRoutes \}/);
   assert.doesNotMatch(declaration, /export \{ Link,/);
-  // The generated declaration exposes the subpath alias by re-exporting the
-  // virtual module, so RoutePath/RoutePathParams and the typed helpers apply.
+  // The single generated module is `next-vite-router/routes`; the old
+  // `virtual:next-vite-router` name is gone from the declaration entirely.
   assert.match(declaration, /declare module 'next-vite-router\/routes' \{/);
-  assert.match(declaration, /export \* from 'virtual:next-vite-router';/);
+  assert.doesNotMatch(declaration, /declare module 'virtual:next-vite-router'/);
   assert.match(virtualModule, /import \{ useRoutes \} from 'react-router-dom'/);
   assert.match(virtualModule, /export \{ useRoutes \};/);
   assert.match(virtualModule, /export \{ useParams, useCatchAll \};/);
@@ -144,8 +144,8 @@ try {
 
   const invalidTypesPath = path.join(projectRoot, "src", "invalid-route-types.ts");
   fs.writeFileSync(invalidTypesPath, `
-import { href } from "virtual:next-vite-router";
-import type { RouteParams, RoutePath } from "virtual:next-vite-router";
+import { href } from "next-vite-router/routes";
+import type { RouteParams, RoutePath } from "next-vite-router/routes";
 import type { RouterConfig } from "../../../dist/index.js";
 
 // @ts-expect-error unknown route path
@@ -185,7 +185,7 @@ void invalidConfig;
 
   const invalidLinkPath = path.join(projectRoot, "src", "invalid-route-links.tsx");
   fs.writeFileSync(invalidLinkPath, `
-import { Link } from "virtual:next-vite-router";
+import { Link } from "next-vite-router/routes";
 
 const profileLink = <Link href="/users/:id" params={{ id: "123" }}>Profile</Link>;
 const usersLink = <Link href="/users" className="list">Users</Link>;
@@ -319,7 +319,7 @@ try {
     path.join(customProjectRoot, "src", "virtual-next-vite-router.d.ts"),
     "utf8",
   );
-  const customVirtualModule = customPlugin.load("\0virtual:next-vite-router");
+  const customVirtualModule = customPlugin.load("\0next-vite-router/routes");
 
   assert.match(customDeclaration, /\| "\/"/);
   assert.match(customDeclaration, /\| "\/users"/);
@@ -331,7 +331,7 @@ try {
     "virtual-next-vite-router.d.ts",
   );
   fs.writeFileSync(customTypesPath, `
-import type { RouteParams, RoutePath } from "virtual:next-vite-router";
+import type { RouteParams, RoutePath } from "next-vite-router/routes";
 
 const user = "/users/:id" satisfies RoutePath;
 const params: RouteParams<typeof user> = { id: "123" };
@@ -376,7 +376,7 @@ try {
   const lazyLayoutPlugin = nextViteRouter({ lazyLayouts: true });
   lazyLayoutPlugin.configResolved({ root: lazyLayoutRoot });
 
-  const lazyLayoutModule = lazyLayoutPlugin.load("\0virtual:next-vite-router");
+  const lazyLayoutModule = lazyLayoutPlugin.load("\0next-vite-router/routes");
   assert.match(
     lazyLayoutModule,
     /const layoutsGlob = import\.meta\.glob\(["']\/src\/app\/\*\*\/layout\.tsx["']\);/,
@@ -442,7 +442,7 @@ try {
   const relativePlugin = nextViteRouter({ pagesDir: "./src/app" });
   relativePlugin.configResolved({ root: relativePagesDirRoot });
 
-  const relativeVirtualModule = relativePlugin.load("\0virtual:next-vite-router");
+  const relativeVirtualModule = relativePlugin.load("\0next-vite-router/routes");
   assert.match(
     relativeVirtualModule,
     /import\.meta\.glob\(["']\/src\/app\/\*\*\/page\.tsx["']\)/,
@@ -473,7 +473,7 @@ try {
   const backslashPlugin = nextViteRouter({ pagesDir: "src\\app" });
   backslashPlugin.configResolved({ root: backslashPagesDirRoot });
 
-  const backslashVirtualModule = backslashPlugin.load("\0virtual:next-vite-router");
+  const backslashVirtualModule = backslashPlugin.load("\0next-vite-router/routes");
   assert.match(
     backslashVirtualModule,
     /import\.meta\.glob\(["']\/src\/app\/\*\*\/page\.tsx["']\)/,
@@ -506,7 +506,7 @@ try {
   const hmrServer = {
     watcher,
     moduleGraph: {
-      getModuleById: () => ({ id: "\0virtual:next-vite-router" }),
+      getModuleById: () => ({ id: "\0next-vite-router/routes" }),
       invalidateModule: () => {
         invalidations += 1;
       },

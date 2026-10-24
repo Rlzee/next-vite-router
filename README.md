@@ -75,11 +75,10 @@ createRoot(document.getElementById("root")!).render(
 );
 ```
 
-> **Import alias.** Every runtime helper (`Router`, `generateRoutes`, `href`,
-> `Link`, `useParams`, `useCatchAll`) is served under `next-vite-router/routes`,
-> so application code carries no `virtual:` prefix. The underlying
-> `virtual:next-vite-router` module is still valid — both specifiers resolve to
-> the same generated module.
+> **One import path.** Every runtime helper (`Router`, `generateRoutes`, `href`,
+> `Link`, `useParams`, `useCatchAll`) is served only from `next-vite-router/routes`
+> — there is no `virtual:` specifier to remember. The package root
+> (`next-vite-router`) exposes config and the route engine, not these helpers.
 
 That is the complete setup. Run:
 
@@ -232,7 +231,7 @@ const params: RouteParams<typeof path> = { id: "123" };
 ```
 
 Invalid paths and missing dynamic parameters are reported by TypeScript.
-No manual declaration for the virtual module is required.
+No manual declaration for `next-vite-router/routes` is required.
 
 ### Turning a pattern into a URL
 

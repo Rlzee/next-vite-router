@@ -105,7 +105,7 @@ function encodeSegment(value: string): string {
  * A catch-all is keyed by the folder name it declares (`slug` for `[...slug]`),
  * but the public pattern (`/blog/*`) does not carry that name. The plugin
  * generates it into the `metadata` argument, so the `href` re-exported from
- * `virtual:next-vite-router` accepts `{ slug: ... }` and rejects any other key
+ * `next-vite-router/routes` accepts `{ slug: ... }` and rejects any other key
  * instead of guessing. Called directly on this package without `metadata`, only
  * React Router's `"*"` fills the splat; a friendly name cannot be validated, so
  * it is rejected rather than routed onto the catch-all. A required `[...slug]`
@@ -147,7 +147,7 @@ function describeMissingParameter(
     expected.push(catchAll ? `"${catchAll.name}"` : '"*"');
     const hint = catchAll
       ? ` Pass the value under its declared name "${catchAll.name}" (or React Router's "*").`
-      : ' Address the splat with "*", or import href/Link from "virtual:next-vite-router" so a catch-all is validated by its folder name.';
+      : ' Address the splat with "*", or import href/Link from "next-vite-router/routes" so a catch-all is validated by its folder name.';
     return `Expected: ${expected.join(", ")}.${hint}`;
   }
   return expected.length > 0
@@ -291,7 +291,7 @@ function renderTypedLink(
  *
  * The plugin creates the map (`pattern -> { catchAll: { name, optional } }`) from
  * the same traversal that emits the route types, then binds it here, so the
- * `Link` re-exported from `virtual:next-vite-router` accepts a catch-all's declared
+ * `Link` re-exported from `next-vite-router/routes` accepts a catch-all's declared
  * folder name and rejects any other key — the runtime guarantee the generated
  * types already provide at compile time.
  *
@@ -319,7 +319,7 @@ export function createTypedLink(
  * Next.js-style `Link` bound to a route pattern instead of a hand-written URL.
  *
  * With the plugin's generated types and the metadata-bound `Link` re-exported from
- * `virtual:next-vite-router`, `href` must be a known `RoutePath`, `params` is
+ * `next-vite-router/routes`, `href` must be a known `RoutePath`, `params` is
  * required as soon as that path has parameters, and a catch-all is validated
  * against the folder name it declares. Every other `Link` prop (`className`,
  * `replace`, `state`, …) is forwarded untouched.

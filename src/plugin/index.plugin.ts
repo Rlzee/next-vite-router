@@ -187,7 +187,7 @@ function createRouteTypes(routePaths: RouteTypeEntry[]): string {
     return `  ${JSON.stringify(route)}: {\n${fields}\n  };`;
   }).join("\n");
 
-  return `declare module 'virtual:next-vite-router' {
+  return `declare module 'next-vite-router/routes' {
   import type { ReactElement } from 'react';
   import type { LinkProps as ReactRouterLinkProps, RouteObject } from 'react-router-dom';
 
@@ -232,14 +232,6 @@ ${params}
   export function useCatchAll(name?: string): string[];
   export { useRoutes } from 'react-router-dom';
 }
-
-// The plugin also serves this specifier, so app code imports the helpers without
-// the "virtual:" prefix. Re-exporting the module above keeps a single source of
-// truth for the generated RoutePath/RoutePathParams types and the metadata-bound
-// href/Link.
-declare module 'next-vite-router/routes' {
-  export * from 'virtual:next-vite-router';
-}
 `;
 }
 
@@ -261,12 +253,13 @@ export function nextViteRouter(
   // even when the user writes `./src/app`, `src\app`, or `src/app/`.
   const fileOptions: RouteFileOptions = { pagesDir: normalizedPagesDir, pageFile, layoutFile, notFoundFile };
 
-  const virtualModuleId = "virtual:next-vite-router";
-  const resolvedVirtualModuleId = "\0" + virtualModuleId;
-  // An alias of the virtual module served under a normal package subpath, so app
-  // code imports the helpers as `next-vite-router/routes` instead of typing the
-  // `virtual:` prefix. Both specifiers resolve to one module instance.
-  const routesModuleAlias = "next-vite-router/routes";
+  // The generated module has a single public specifier, `next-vite-router/routes`;
+  // the leading `\0` marks it as a virtual module so neither Vite nor Node ever
+  // tries to resolve it against the filesystem. The older `virtual:next-vite-router`
+  // name is retired entirely — no longer resolved or declared — so there is exactly
+  // one way to import the route helpers.
+  const routesModuleId = "next-vite-router/routes";
+  const resolvedRoutesModuleId = "\0" + routesModuleId;
   let pagesRoot = "";
   let declarationPath = "";
   let viteLogger: Logger | undefined;
@@ -342,7 +335,7 @@ export function nextViteRouter(
         }
 
         writeRouteTypes();
-        const module = server.moduleGraph.getModuleById(resolvedVirtualModuleId);
+        const module = server.moduleGraph.getModuleById(resolvedRoutesModuleId);
         if (module) {
           // Vite cannot safely update a cached route tree when a glob entry is
           // created or removed, so use a full reload only for structural changes.
@@ -380,13 +373,13 @@ export function nextViteRouter(
       removeWatcherListeners = cleanup;
     },
     resolveId(id) {
-      if (id === virtualModuleId || id === routesModuleAlias) {
-        return resolvedVirtualModuleId;
+      if (id === routesModuleId) {
+        return resolvedRoutesModuleId;
       }
     },
 
     load(id) {
-      if (id === resolvedVirtualModuleId) {
+      if (id === resolvedRoutesModuleId) {
         const pagesGlobPath = `/${normalizedPagesDir}/**/${pageFile}`;
         const layoutsGlobPath = `/${normalizedPagesDir}/**/${layoutFile}`;
         const notFoundGlobPath = `/${normalizedPagesDir}/**/${notFoundFile}`;

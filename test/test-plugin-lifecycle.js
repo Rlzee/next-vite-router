@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { nextViteRouter } from "../dist/plugin.js";
 
-const RESOLVED_VIRTUAL_ID = "\u0000virtual:next-vite-router";
+const RESOLVED_VIRTUAL_ID = "\u0000next-vite-router/routes";
 
 // Let any macro-task the plugin scheduled (the debounced `setTimeout(..., 0)`
 // full reload) run. The plugin's timer is always queued before the test calls

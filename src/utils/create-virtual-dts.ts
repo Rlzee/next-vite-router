@@ -15,7 +15,7 @@ export function createVirtualDTS(projectDir: string, useSrc: boolean) {
 
   const filePath = path.join(targetDir, "virtual-next-vite-router.d.ts");
 
-  const content = `declare module 'virtual:next-vite-router' {
+  const content = `declare module 'next-vite-router/routes' {
   import type { ReactElement } from 'react';
   import type { LinkProps as ReactRouterLinkProps, RouteObject } from 'react-router-dom';
 
@@ -53,12 +53,6 @@ export function createVirtualDTS(projectDir: string, useSrc: boolean) {
   export function useParams<T extends Record<string, string | undefined> = Record<string, string | undefined>>(): T;
   export function useCatchAll(name?: string): string[];
   export { useRoutes } from 'react-router-dom';
-}
-
-// The plugin also serves this specifier so app code imports the helpers without
-// the "virtual:" prefix; it re-exports the module above.
-declare module 'next-vite-router/routes' {
-  export * from 'virtual:next-vite-router';
 }
 `;
 

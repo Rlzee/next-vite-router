@@ -18,7 +18,7 @@ export function createMainTSX(projectDir: string, useSrc: boolean) {
   const content = `import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from "react-router-dom";
-import { Router } from 'virtual:next-vite-router';
+import { Router } from 'next-vite-router/routes';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

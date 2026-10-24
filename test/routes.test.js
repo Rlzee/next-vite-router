@@ -1257,7 +1257,7 @@ describe("typed navigation helpers", () => {
         message:
           'Route "/blog/*" has no "slug" parameter. Expected: "*". ' +
           'Address the splat with "*", or import href/Link from ' +
-          '"virtual:next-vite-router" so a catch-all is validated by its folder name.',
+          '"next-vite-router/routes" so a catch-all is validated by its folder name.',
       },
     );
     // One catch-all value only, even when named two valid ways at once.

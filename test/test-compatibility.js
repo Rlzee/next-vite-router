@@ -89,7 +89,7 @@ const mainSource = fs.readFileSync(
   path.resolve("src/utils/create-main-tsx.ts"),
   "utf8",
 );
-assert.match(mainSource, /import \{ Router \} from 'virtual:next-vite-router'/);
+assert.match(mainSource, /import \{ Router \} from 'next-vite-router\/routes'/);
 assert.doesNotMatch(mainSource, /generateRoutes, useRoutes/);
 
 const startConfigSource = fs.readFileSync(

@@ -3,7 +3,7 @@
 // `node test/test-route-types.js` regenerates it and compares, which keeps this
 // file honest; the real `virtual-next-vite-router.d.ts` stays gitignored.
 
-declare module 'virtual:next-vite-router' {
+declare module 'next-vite-router/routes' {
   import type { ReactElement } from 'react';
   import type { LinkProps as ReactRouterLinkProps, RouteObject } from 'react-router-dom';
 
@@ -73,8 +73,4 @@ declare module 'virtual:next-vite-router' {
   export function useParams<T extends Record<string, string | undefined> = Record<string, string | undefined>>(): T;
   export function useCatchAll(name?: string): string[];
   export { useRoutes } from 'react-router-dom';
-}
-
-declare module 'next-vite-router/routes' {
-  export * from 'virtual:next-vite-router';
 }
