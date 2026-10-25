@@ -7,6 +7,7 @@ import type { RouteModuleLoader, RouteNode } from '../index';
 import {
   createLazyCache,
   createLazyElement,
+  compareOrdinal,
   parseRouteSegments,
   routeSegmentToPath,
   type LazyComponentCache,
@@ -205,7 +206,9 @@ function processChildren(
   let childClaimsSplats = false;
 
   [...node.children.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
+    // Ordinal, not locale-aware: children order the emitted route array, and a
+    // collation that varies with the machine would reorder the generated tree.
+    .sort(([left], [right]) => compareOrdinal(left, right))
     .forEach(([segment, childNode]) => {
     if (childNode.page && isRequiredCatchAll(childNode.segment)) {
       childClaimsSplats = true;

@@ -18,6 +18,25 @@ export type RouteSegment =
   | { kind: "dynamic"; name: string }
   | { kind: "catchAll"; name: string; optional: boolean };
 
+/**
+ * Compare two strings by UTF-16 code unit instead of by locale collation.
+ *
+ * `String.prototype.localeCompare` depends on the locale and the ICU build of
+ * the running process, so the same route tree can be ordered differently on two
+ * machines. Every ordering that leaves this package has to be reproducible: the
+ * `RoutePath` union written into the generated declarations, the key order of the
+ * catch-all metadata, the child order of the route tree, and the file lists in
+ * conflict errors. Code-unit order is the same everywhere.
+ *
+ * Internal to the package: it is re-exported through `utils/index.utils` for the
+ * route modules and the plugin, but not from the root entry, so it adds nothing
+ * to the public API.
+ */
+export function compareOrdinal(left: string, right: string): number {
+  if (left === right) return 0;
+  return left < right ? -1 : 1;
+}
+
 const PARAMETER_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 export function routeSegmentToPath(segment: RouteSegment): string {

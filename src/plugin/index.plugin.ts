@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  compareOrdinal,
   extractRoutePath,
   parseRouteSegments,
   routeSegmentToPath,
@@ -112,7 +113,10 @@ function collectRoutePaths(
     }
   }
 
-  return [...paths.values()].sort((left, right) => left.path.localeCompare(right.path));
+  // Ordinal sort: this order is the order of the `RoutePath` union and of the
+  // `RoutePathParams` members in the written declaration, so it must not depend
+  // on the locale/ICU of the machine running the build.
+  return [...paths.values()].sort((left, right) => compareOrdinal(left.path, right.path));
 }
 
 type CatchAllMetadataMap = Record<

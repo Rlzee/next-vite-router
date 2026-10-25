@@ -38,11 +38,12 @@ coverage/
 *.tgz
 *.cache
 
-# Generated route type declarations (written by the Vite plugin)
-/src/virtual-next-vite-router.d.ts
-/test/fixture/src/virtual-next-vite-router.d.ts
-/test/compat-app/src/virtual-next-vite-router.d.ts
-examples/src/virtual-next-vite-router.d.ts
+# Route type declarations written by the Vite plugin on every configResolved,
+# beside the pages directory (so `src/` for the default `src/app`). A plain
+# `vite build` rewrites them; they are derived from the folder tree and must
+# never be committed. The pattern is unanchored to cover every fixture, the
+# example app, and any project scaffolded inside the repository.
+virtual-next-vite-router.d.ts
 # Artifacts of building the compatibility fixture locally
 /test/compat-app/dist-ssr/
 # Temporary project dirs created by the route-types test

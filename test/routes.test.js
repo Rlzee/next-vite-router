@@ -249,6 +249,30 @@ describe("route generator", () => {
     );
   });
 
+  test("lists colliding files by code unit, not by locale collation", () => {
+    // A locale-aware comparison folds cases together (and puts the lowercase
+    // form first), with rules that depend on the ICU build of the running
+    // process. Code-unit order is identical on every machine, so the same
+    // collision is always reported the same way.
+    assert.throws(
+      () => assertNoDuplicateRoutes([
+        "(b)/x/page.tsx",
+        "(A)/x/page.tsx",
+        "(a)/x/page.tsx",
+        "(B)/x/page.tsx",
+      ]),
+      {
+        message: [
+          'Duplicate route "/x" detected:',
+          "  (A)/x/page.tsx",
+          "  (B)/x/page.tsx",
+          "  (a)/x/page.tsx",
+          "  (b)/x/page.tsx",
+        ].join("\n"),
+      },
+    );
+  });
+
   test("rejects dynamic collisions across groups omitted from the URL", () => {
     assert.throws(
       () => assertNoDuplicateRoutes([
@@ -723,6 +747,22 @@ describe("route generator", () => {
       "alpha",
       "zebra",
     ]);
+  });
+
+  test("orders children by code unit so the route tree is reproducible", () => {
+    // Children order is the order of the emitted `RouteObject[]`, so it has to
+    // come out of a comparison the machine cannot influence: a locale collation
+    // would put the lowercase "about" first and could reorder again under a
+    // different ICU build, for the very same folder tree.
+    const routes = createRoutes({
+      pages: {
+        "About/page.tsx": loader("upper"),
+        "about/page.tsx": loader("lower"),
+        "[id]/page.tsx": loader("id"),
+      },
+    });
+
+    assert.deepEqual(routes.map((route) => route.path), ["About", ":id", "about"]);
   });
 
   test("creates lazy route elements behind a Suspense boundary", () => {

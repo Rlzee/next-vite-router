@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react';
 import type { RouteModuleLoader, RouteNode, RouteTreeOptions } from '../index';
 import {
+  compareOrdinal,
   extractRoutePath,
   parseRouteSegments,
   routeSegmentToPath,
@@ -122,7 +123,7 @@ function assertNoCatchAllFallbackCollisions(
   if (conflicts.size > 0) {
     throw new Error(
       [...conflicts.values()]
-        .sort((left, right) => left.routePath.localeCompare(right.routePath))
+        .sort((left, right) => compareOrdinal(left.routePath, right.routePath))
         .map(({ routePath, pageFile, notFoundFile }) =>
           `Conflicting fallback routes "${routePath}" detected:\n` +
           `  catch-all page: ${pageFile}\n` +
@@ -153,14 +154,14 @@ export function assertNoDuplicateRoutes(
 
   const duplicates = [...routes.entries()]
     .filter(([, entries]) => entries.length > 1)
-    .sort(([left], [right]) => left.localeCompare(right));
+    .sort(([left], [right]) => compareOrdinal(left, right));
 
   if (duplicates.length > 0) {
     throw new Error(
       duplicates
         .map(([routePath, entries]) =>
           `${entries[0].kind === "pattern" ? "Ambiguous route pattern" : "Duplicate route"} "${routePath}" detected:\n${entries
-            .sort((left, right) => left.filePath.localeCompare(right.filePath))
+            .sort((left, right) => compareOrdinal(left.filePath, right.filePath))
             .map((entry) => `  ${entry.filePath}`)
             .join("\n")}`,
         )

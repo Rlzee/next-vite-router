@@ -81,6 +81,12 @@ try {
   assert.match(declaration, /\| "\/docs\/\*"/);
   assert.match(declaration, /\| "\/docs"/);
   assert.doesNotMatch(declaration, /marketing/);
+  // `RoutePath` is emitted in code-unit order, so one folder tree always yields
+  // the same declaration bytes on every machine and in every locale.
+  assert.deepEqual(
+    [...declaration.matchAll(/^ {2}\| "([^"]*)"/gm)].map(([, route]) => route),
+    ["/", "/blog/*", "/docs", "/docs/*", "/posts/:slug", "/users", "/users/:id"],
+  );
   assert.match(declaration, /id: string;/);
   // A catch-all also accepts the `useCatchAll()` segment array; a single-segment
   // param stays a plain string even when the folder names it `slug` too.

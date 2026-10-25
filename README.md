@@ -342,6 +342,37 @@ const path = "/users/:id" satisfies RoutePath;
 const params: RouteParams<typeof path> = { id: "123" };
 ```
 
+#### Where the file is written
+
+The declaration is written **beside the pages directory**, that is one level
+above `pagesDir`: with the default `src/app` it lands in `src/`, and with
+`pagesDir: "app"` it lands in the project root. If `src/` does not exist yet
+(a project that has not been built, or a misconfigured `pagesDir`), the plugin
+creates it.
+
+It is rewritten **every time the config is resolved** — on `vite dev`, on
+`vite build`, and whenever a route file is added or removed in dev mode — so
+running a build modifies your working tree. Keep it out of version control; the
+CLI setup already appends it to `.gitignore`, and in a manually configured
+project you should add it yourself:
+
+```gitignore
+virtual-next-vite-router.d.ts
+```
+
+Nothing is lost by ignoring it: the file is derived entirely from the folder
+tree, so the next build recreates it byte for byte. Committing it only adds a
+diff every time a route moves — and a plain `tsc --noEmit` in a fresh clone then
+fails to find `next-vite-router/routes` until Vite has run once.
+
+Route paths are listed in UTF-16 code-unit order, never by locale collation, so
+the same folder tree yields the same declaration on every machine: no spurious
+review diffs and no cache bust caused by the build host's locale. To keep editor
+completion working in a fresh clone, before anything has been built, put a
+hand-written placeholder under a **different** name (the bundled examples and
+fixtures use `src/virtual.d.ts`) — the generated file can then stay ignored and
+still be overwritten freely.
+
 ### Using React Router directly
 
 `Router` is only a convenience wrapper around `useRoutes(generateRoutes())`. If
