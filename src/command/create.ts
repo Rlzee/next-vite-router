@@ -33,19 +33,17 @@ export const create = new Command()
     );
     const projectName = projectNameResponse.projectName;
 
-    // Guard before touching the filesystem or running any command: create-vite
-    // prints "Operation cancelled" and still exits with code 0 on an existing
-    // directory, which previously let create continue and wipe that folder's
-    // src/ content.
     if (!PROJECT_NAME_RE.test(projectName)) {
       logger.error(
         "Invalid project name (letters, digits, '.', '_' and '-' only)."
       );
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
     if (fs.existsSync(path.resolve(projectName))) {
       logger.error(`Directory "${projectName}" already exists.`);
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
 
     const variantResponse = await prompts(

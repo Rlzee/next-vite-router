@@ -22,9 +22,12 @@ export function createLazyCache(): LazyComponentCache {
 /**
  * Drop every memoized lazy component held by `cache`.
  *
- * @param cache - The cache to clear. Omitting it is the deprecated global form,
- *   kept only so older callers do not throw; there is no shared cache left to
- *   clear, so calling it without an argument just warns.
+ * The no-argument form is deprecated and kept only so an older caller does not
+ * throw: caches stopped being a package-wide singleton, so there is nothing left
+ * for it to clear and it can only warn. It goes away with the next major, which
+ * also makes `cache` a required parameter.
+ *
+ * @param cache - The cache to reset. Pass the instance the generator owns.
  */
 export function clearLazyCache(cache?: LazyComponentCache): void {
   if (cache) {

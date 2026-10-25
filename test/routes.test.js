@@ -14,7 +14,7 @@ import {
   resetRouterConfig,
   treeToRoutes,
 } from "../dist/index.js";
-import { extractRoutePath, parseRouteSegments } from "../dist/index.js";
+import { extractRoutePath, parseRouteSegments, normalizeSegment } from "../dist/index.js";
 // The navigation engine is not on the public root entry; the generated routes
 // module re-exports these, and tests import them from the internal build entry
 // that the generated module itself resolves by path.
@@ -1216,6 +1216,98 @@ describe("route file default exports", () => {
       "<div>layout</div>",
     );
     assert.deepEqual(await tree.children.get("about").page(), { default: About });
+  });
+});
+
+describe("eager layout guard", () => {
+  // `guardEagerLayout` is a heuristic, and a deliberate one: with `lazyLayouts`
+  // off, a layout that arrived as a bare function is either the component (an
+  // `import: "default"` glob) or a loader (a non-eager glob), and the two only
+  // differ once called. These tests pin each branch so the probe cannot silently
+  // widen, and pin the cases where it must NOT wrap anything.
+  const layoutOf = (layouts) =>
+    buildRouteTree({ "about/page.tsx": loader("about") }, layouts, {})
+      .children.get("about").layout;
+
+  test("wraps a bare function layout and keeps its name", () => {
+    function Shell() {
+      return React.createElement("div", null, "shell");
+    }
+    Shell.displayName = "Shell";
+
+    const Layout = layoutOf({ "about/layout.tsx": Shell });
+
+    // Wrapped, because the guard has to call it to know what it is...
+    assert.notEqual(Layout, Shell);
+    // ...while still naming the original, which is the whole point of guarding
+    // instead of dropping: a misconfigured glob is reported by name.
+    assert.equal(Layout.displayName, "Shell");
+    assert.equal(
+      renderToStaticMarkup(React.createElement(Layout)),
+      "<div>shell</div>",
+    );
+  });
+
+  test("rejects a loader handed to an eager layout, naming the file", () => {
+    const Layout = layoutOf({
+      "about/layout.tsx": () => Promise.resolve({ default: component("shell") }),
+    });
+
+    assert.throws(
+      () => renderToStaticMarkup(React.createElement(Layout)),
+      {
+        message: [
+          'Route layout "about/layout.tsx" rendered a Promise instead of a component.',
+          "Layouts are read as eager components unless told otherwise: pair a non-eager `import.meta.glob` of loaders with `{ lazyLayouts: true }`, or import the layout eagerly (`{ eager: true }`) to keep it a component.",
+        ].join("\n"),
+      },
+    );
+  });
+
+  test("leaves a class layout untouched", () => {
+    class Shell extends React.Component {
+      render() {
+        return React.createElement("div", null, "shell");
+      }
+    }
+
+    // A class cannot be called as a function, so probing it would throw; it can
+    // never be an `import()` loader either, so there is nothing to detect.
+    assert.equal(layoutOf({ "about/layout.tsx": Shell }), Shell);
+  });
+
+  test("leaves a module namespace layout untouched", () => {
+    const Shell = component("shell");
+
+    // `{ eager: true }` yields the module, whose `default` is unambiguously a
+    // component: wrapping it would change the component identity for nothing.
+    assert.equal(layoutOf({ "about/layout.tsx": { default: Shell } }), Shell);
+  });
+});
+
+describe("normalizeSegment", () => {
+  // Deprecated public utility: it stays on the root entry only because removing
+  // an export is breaking. It now forwards to `parseRouteSegments` plus
+  // `routeSegmentToPath`, so it cannot drift from the router. These tests pin the
+  // shapes it always returned and the edges the wrapper has to keep sane.
+  test("maps every file-convention segment to its route segment", () => {
+    assert.equal(normalizeSegment("(admin)"), "");
+    assert.equal(normalizeSegment("[id]"), ":id");
+    assert.equal(normalizeSegment("[...slug]"), "*");
+    assert.equal(normalizeSegment("[[...slug]]"), "*");
+    assert.equal(normalizeSegment("about"), "about");
+    assert.equal(normalizeSegment(""), "");
+  });
+
+  test("leaves a path untouched instead of re-joining its segments", () => {
+    assert.equal(normalizeSegment("docs/[id]"), "docs/[id]");
+  });
+
+  test("rejects a parameter name the router itself would reject", () => {
+    assert.throws(
+      () => normalizeSegment("[123]"),
+      /Invalid route parameter name "123"/,
+    );
   });
 });
 

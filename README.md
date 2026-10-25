@@ -486,6 +486,34 @@ The CLI creates a Vite React project, installs the package and
 It is published as part of `next-vite-router`; `create-next-vite-router` is its
 executable name, not a separate npm package.
 
+To wire up a project that already exists:
+
+```bash
+npx next-vite-router configure            # in the project directory
+npx next-vite-router configure --dir ../my-app --no-src --yes
+```
+
+`configure` adds the plugin and the `@` alias to `vite.config.ts`, writes the
+`@` paths and `include` into `tsconfig.json` / `tsconfig.app.json`, points
+`index.html` at the generated entry, and creates `main.tsx`, `globals.css`, the
+`app/` example tree, and the placeholder route declaration. It takes no input
+from a terminal, so it runs in CI:
+
+| Option | Effect |
+| --- | --- |
+| `--dir <path>` | Project directory to configure (default: the current directory) |
+| `--no-src` | Pages live in a root-level `app/` folder; implies `pagesDir: "app"` |
+| `--tailwind` | Installs and wires `@tailwindcss/vite` — the only step that runs your package manager |
+| `--yes` | Accepts that an existing `main.tsx` is replaced |
+
+What it promises: it never deletes anything (template files it leaves behind are
+listed so you can remove them yourself), it refuses a directory without a Vite
+config, it refuses to replace an existing `main.tsx` without `--yes`, and it is
+idempotent — a second run reports that `vite.config` already calls
+`nextViteRouter` instead of adding a duplicate. Because those options are yours
+to keep, switching between `src/app` and a root-level `app/` after the first run
+means editing `pagesDir` by hand.
+
 ## Advanced API
 
 For custom glob layouts and manual routing, the `next-vite-router` root exports
@@ -515,6 +543,18 @@ glob, because a loader and a component are both functions.
 `createRouteGenerator(pages, layouts, notFounds, fileOptions, options)` returns a
 zero-argument `generateRoutes()`; use it when you drive the globs yourself instead
 of the Vite plugin.
+
+### Deprecated on the root entry
+
+Two exports are kept only for compatibility and will leave at the next major:
+
+- `normalizeSegment` — nothing inside the package uses it, and the segment rules
+  live in `parseRouteSegments` + `routeSegmentToPath`. It now forwards to those
+  two, so it behaves like the router (an invalid parameter name such as `[123]`
+  is rejected rather than converted to `:123`).
+- `clearLazyCache()` without an argument — lazy caches stopped being a
+  package-wide singleton, so there is nothing global left to clear and the call
+  can only warn. Pass the cache the generator owns: `clearLazyCache(myCache)`.
 
 ## Compatibility
 

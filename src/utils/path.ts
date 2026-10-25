@@ -1,15 +1,25 @@
 /**
- * Normalize a Next.js segment to a React Router segment
+ * Normalize a Next.js segment to a React Router segment.
+ *
+ * @deprecated Nothing in the package calls it; the rules live in
+ * `parseRouteSegments` and `routeSegmentToPath`, which validate as they convert.
+ * This wrapper forwards to those two so the single segment cannot drift from the
+ * router's own behavior — including rejecting a parameter name the router would
+ * reject (`[123]`). It leaves the root entry at the next major.
  * @example (admin) -> ""
  * @example [id] -> :id
  * @example [...slug] -> *
  */
 export function normalizeSegment(segment: string): string {
-  if (/^\([^)]+\)$/.test(segment)) return "";
-  if (/^\[\[\.\.\.(.+)\]\]$/.test(segment)) return "*";
-  if (/^\[\.\.\.(.+)\]$/.test(segment)) return "*";
-  if (/^\[([^\]]+)\]$/.test(segment)) return segment.replace(/^\[([^\]]+)\]$/, ":$1");
-  return segment;
+  // A `/` means the caller handed over a path instead of a segment. The anchored
+  // regexes this function replaced left such input untouched, and re-joining
+  // parsed segments would prefix it with a leading slash, so keep it as is.
+  if (segment.includes("/")) return segment;
+
+  // A single segment always parses to exactly one entry; an empty segment
+  // parses to none and stays empty.
+  const [parsed] = parseRouteSegments(segment);
+  return parsed ? routeSegmentToPath(parsed) : segment;
 }
 
 export type RouteSegment =

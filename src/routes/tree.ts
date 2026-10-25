@@ -236,7 +236,12 @@ function isComponentType(value: unknown): value is ComponentType {
  * indistinguishable until rendered, so calling the component and rejecting a
  * thenable is the only safe way to tell them apart. Class components cannot be
  * invoked as functions but can also never be an `import()` loader, so they are
- * returned untouched.
+ * returned untouched - as are module namespaces, whose `default` is already
+ * unambiguous; keeping the resolved component identity stable matters because
+ * React remounts an element whose type changed.
+ *
+ * Every branch is pinned by the `eager layout guard` suite in
+ * `test/routes.test.js`, so this probe cannot quietly start wrapping more.
  */
 function guardEagerLayout(filePath: string, Layout: ComponentType): ComponentType {
   if (typeof Layout !== 'function') {
