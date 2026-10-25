@@ -121,15 +121,21 @@ describe("route generator", () => {
     assert.equal(matches?.at(-1)?.route.path, ":to");
   });
 
-  test("generates a root required catch-all as a single splat", () => {
-    // `src/app/[...slug]/page.tsx` makes the whole app one catch-all. It must
-    // compile to a bare `"*"` route that also matches the site root.
+  test("generates a root required catch-all as a guard plus a splat", () => {
+    // `src/app/[...slug]/page.tsx` makes the whole app one catch-all. React
+    // Router's "*" also matches the site root, so the converter keeps the
+    // Next.js contract with a guard index at "/": the splat page answers URLs
+    // with at least one segment, the base falls back to the nearest not-found.
     const routes = createRoutes({
       pages: { "[...slug]/page.tsx": loader("req") },
     });
 
-    assert.deepEqual(routeShape(routes), [{ path: "*", children: undefined }]);
-    assert.deepEqual(matchRoutes(routes, "/")?.at(-1)?.params, { "*": "" });
+    assert.deepEqual(routeShape(routes), [
+      { index: true, children: undefined },
+      { path: "*", children: undefined },
+    ]);
+    assert.deepEqual(matchRoutes(routes, "/")?.at(-1)?.params, {});
+    assert.equal(matchRoutes(routes, "/")?.at(-1)?.route.index, true);
     assert.deepEqual(matchRoutes(routes, "/a/b")?.at(-1)?.params, { "*": "a/b" });
   });
 
@@ -178,7 +184,10 @@ describe("route generator", () => {
 
     assert.deepEqual(routeShape(routes), [
       { path: "about", children: undefined },
-      { path: "blog", children: [{ path: "*", children: undefined }] },
+      { path: "blog", children: [
+        { index: true, children: undefined },
+        { path: "*", children: undefined },
+      ] },
       { path: "compare", children: [
         { path: ":from", children: [{ path: ":to", children: undefined }] },
       ] },
@@ -188,6 +197,10 @@ describe("route generator", () => {
       ] },
       { path: "users", children: [{ path: ":id", children: undefined }] },
     ]);
+    // Required and optional catch-alls expose the same shape at their level;
+    // the difference is what the base index renders (guard vs. the page).
+    assert.deepEqual(matchRoutes(routes, "/blog")?.at(-1)?.route.index, true);
+    assert.deepEqual(matchRoutes(routes, "/docs")?.at(-1)?.params, {});
   });
 
   test("removes route groups while preserving their children", () => {
@@ -348,6 +361,37 @@ describe("route generator", () => {
     );
   });
 
+  test("uses a folder not-found as the fallback of its catch-all base", () => {
+    // `docs/not-found.tsx` claims "/docs" while `docs/[...slug]/page.tsx`
+    // only answers URLs below it, so the two no longer collide: the guard
+    // index at the base renders that not-found, Next.js-style.
+    const routes = createRoutes({
+      pages: { "docs/[...slug]/page.tsx": loader("docs") },
+      notFounds: { "docs/not-found.tsx": loader("docs-not-found") },
+    });
+
+    assert.deepEqual(routeShape(routes), [
+      { path: "docs", children: [
+        { index: true, children: undefined },
+        { path: "*", children: undefined },
+      ] },
+    ]);
+    const base = matchRoutes(routes, "/docs");
+    assert.equal(base?.at(-1)?.route.index, true);
+    assert.equal(matchRoutes(routes, "/docs/guide")?.at(-1)?.route.path, "*");
+    // The guard index is the base answer and the page splat the region below:
+    // the folder's own not-found never becomes a competing `*` sibling here.
+    const [guard, pageRoute] = routes[0].children;
+    assert.equal(guard.index, true);
+    assert.equal(pageRoute.path, "*");
+    assert.equal(pageRoute.children, undefined);
+    // The folder's not-found is handed to the guard as its lazy fallback...
+    assert.notEqual(guard.element.props.fallback, undefined);
+    // ...while a catch-all with no not-found anywhere guards to nothing.
+    const bare = createRoutes({ pages: { "docs/[...slug]/page.tsx": loader("docs") } });
+    assert.equal(bare[0].children[0].element.props.fallback, undefined);
+  });
+
   test("rejects not-found routes that conflict with catch-all pages", () => {
     assert.throws(
       () => buildRouteTree(
@@ -356,18 +400,40 @@ describe("route generator", () => {
         },
         {},
         {
-          "docs/not-found.tsx": loader("docs-not-found"),
+          "docs/[...slug]/not-found.tsx": loader("docs-not-found"),
         },
       ),
       {
         message: [
-          'Conflicting fallback routes "/docs" detected:',
+          'Conflicting fallback routes "/docs/*" detected:',
           "  catch-all page: docs/[...slug]/page.tsx",
-          "  not-found file: docs/not-found.tsx",
-          "A not-found route and a catch-all page cannot coexist at the same route level.",
+          "  not-found file: docs/[...slug]/not-found.tsx",
+          'A not-found route and a catch-all page cannot claim the same splat. Move the not-found to the folder holding the catch-all (e.g. "blog/not-found.tsx" beside "blog/[...slug]/page.tsx"), where it answers the catch-all\'s base URL.',
         ].join("\n"),
       },
     );
+  });
+
+  test("rejects a root page beside a root-level required catch-all", () => {
+    // Both would answer "/": the root page as an index, the catch-all's guard
+    // as another one. Next.js refuses the same combination.
+    assert.throws(
+      () => buildRouteTree(
+        {
+          "page.tsx": loader("home"),
+          "[...slug]/page.tsx": loader("everything"),
+        },
+        {},
+        {},
+      ),
+      /Conflicting routes "\/" detected:[\s\S]*cannot both answer/,
+    );
+    // A root-level catch-all alone is fine; only a second claimant of "/" is.
+    assert.doesNotThrow(() => buildRouteTree(
+      { "[...slug]/page.tsx": loader("everything") },
+      {},
+      {},
+    ));
   });
 
   test("rejects not-found files placed at a catch-all level", () => {
@@ -884,7 +950,10 @@ describe("lazy layouts", () => {
       layouts: { "docs/[...slug]/layout.tsx": componentLoader("docs-shell") },
     });
 
-    const layoutRoute = routes[0].children[0];
+    // children: [base guard index, splat route carrying the lazy layout].
+    const [guard, layoutRoute] = routes[0].children;
+    assert.equal(guard.index, true);
+    assert.equal(layoutRoute.path, "*");
     assert.equal(layoutRoute.element.type, CatchAllParamProvider);
     assert.equal(layoutRoute.element.props.name, "slug");
     assert.equal(layoutRoute.element.props.children.type, React.Suspense);

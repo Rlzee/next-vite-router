@@ -43,9 +43,12 @@ test("treeToRoutes attaches the catch-all provider to generated pages", () => {
   const routes = treeToRoutes(buildRouteTree({
     "blog/[...slug]/page.tsx": loader,
   }, {}, {}), true);
-  const generatedPage = routes[0].children[0];
+  // The base URL is answered by the guard index; the page - and the provider
+  // that names its splat - lives on the `*` route beside it.
+  const [guard, generatedPage] = routes[0].children;
   const provider = generatedPage.element;
 
+  assert.equal(guard.index, true);
   assert.equal(provider.type, CatchAllParamProvider);
   assert.equal(provider.props.name, "slug");
 });

@@ -286,16 +286,38 @@ const fallbackConflictRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-ro
 const fallbackPagesRoot = path.join(fallbackConflictRoot, "src", "app", "docs");
 fs.mkdirSync(path.join(fallbackPagesRoot, "[...slug]"), { recursive: true });
 fs.writeFileSync(path.join(fallbackPagesRoot, "[...slug]", "page.tsx"), "");
-fs.writeFileSync(path.join(fallbackPagesRoot, "not-found.tsx"), "");
+fs.writeFileSync(path.join(fallbackPagesRoot, "[...slug]", "not-found.tsx"), "");
 try {
   assert.throws(
     () => nextViteRouter().configResolved({ root: fallbackConflictRoot }),
-    /Conflicting fallback routes "\/docs" detected/,
+    /Conflicting fallback routes "\/docs\/\*" detected/,
   );
 } finally {
   fs.rmSync(fallbackConflictRoot, { recursive: true, force: true });
 }
 console.log("✅ Catch-all and not-found collisions rejected");
+
+// A not-found one level UP from the catch-all folder is the fallback for its
+// base URL (`/docs`), not a rival splat, so the plugin must accept it.
+const fallbackPairRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-fallback-pair-"));
+const fallbackPairPages = path.join(fallbackPairRoot, "src", "app", "docs");
+fs.mkdirSync(path.join(fallbackPairPages, "[...slug]"), { recursive: true });
+fs.writeFileSync(path.join(fallbackPairPages, "[...slug]", "page.tsx"), "");
+fs.writeFileSync(path.join(fallbackPairPages, "not-found.tsx"), "");
+try {
+  const fallbackPairPlugin = nextViteRouter();
+  fallbackPairPlugin.configResolved({ root: fallbackPairRoot });
+
+  const fallbackPairDeclaration = fs.readFileSync(
+    path.join(fallbackPairRoot, "src", "virtual-next-vite-router.d.ts"),
+    "utf8",
+  );
+  assert.match(fallbackPairDeclaration, /\| "\/docs\/\*"/);
+  assert.doesNotMatch(fallbackPairDeclaration, /\| "\/docs"/);
+} finally {
+  fs.rmSync(fallbackPairRoot, { recursive: true, force: true });
+}
+console.log("✅ Not-found accepted as the fallback of a catch-all base URL");
 
 const customProjectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-"));
 const customPagesRoot = path.join(customProjectRoot, "src", "routes");

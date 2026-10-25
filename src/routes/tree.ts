@@ -45,6 +45,17 @@ function assertNoCatchAllFallbackCollisions(
   notFoundFiles: string[],
   fileOptions?: RouteFileOptions,
 ): void {
+  // Canonical base path -> the page file that renders it, used to tell when a
+  // required catch-all sits beside another page of the same folder.
+  const pageByPath = new Map<string, string>();
+  for (const filePath of pageFiles) {
+    for (const routePath of normalizedRoutePaths(filePath, fileOptions)) {
+      if (!pageByPath.has(routePath)) {
+        pageByPath.set(routePath, filePath);
+      }
+    }
+  }
+
   const catchAllRoutes = pageFiles.flatMap((filePath) => {
     const routePath = extractRoutePath(filePath, fileOptions);
     const segments = parseRouteSegments(routePath, filePath);
@@ -57,12 +68,36 @@ function assertNoCatchAllFallbackCollisions(
     const fullPath = canonicalSegments.length > 0
       ? `/${canonicalSegments.join("/")}`
       : "/";
+    const paths = new Set([fullPath]);
+
+    // A required catch-all no longer claims its base URL (`/blog`): the guard
+    // index in the converter answers it with the folder's `not-found` (or the
+    // nearest ancestor's), and the folder's own `*` route - which would
+    // compete with the catch-all page - is not emitted at all. So the splat
+    // region is the only collision. An optional `[[...slug]]` does render its
+    // base and keeps claiming it, exactly like a page file there.
     const parentSegments = canonicalSegments.slice(0, -1);
     const parentPath = parentSegments.length > 0
       ? `/${parentSegments.join("/")}`
       : "/";
+    if (lastSegment.optional) {
+      paths.add(parentPath);
+    } else if (parentPath === "/" && pageByPath.has("/")) {
+      // Directly under the root the base URL is "/". A root `page.tsx` renders
+      // an index there and the guard adds a second one, leaving two claimants
+      // of "/" whose winner depends on route ordering. Next.js rejects the
+      // same combination; make it an error instead of a coin flip.
+      const pageFile = pageByPath.get("/")!;
+      throw new Error(
+        'Conflicting routes "/" detected:\n' +
+        `  page: ${pageFile}\n` +
+        `  catch-all page: ${filePath}\n` +
+        'A root page and a root-level required catch-all cannot both answer "/". ' +
+        "Remove one of the two files, or move the catch-all into a folder.",
+      );
+    }
 
-    return [{ filePath, paths: new Set([fullPath, parentPath]) }];
+    return [{ filePath, paths }];
   });
 
   const conflicts = new Map<
@@ -92,7 +127,9 @@ function assertNoCatchAllFallbackCollisions(
           `Conflicting fallback routes "${routePath}" detected:\n` +
           `  catch-all page: ${pageFile}\n` +
           `  not-found file: ${notFoundFile}\n` +
-          "A not-found route and a catch-all page cannot coexist at the same route level.",
+          "A not-found route and a catch-all page cannot claim the same splat. " +
+          'Move the not-found to the folder holding the catch-all (e.g. "blog/not-found.tsx" ' +
+          'beside "blog/[...slug]/page.tsx"), where it answers the catch-all\'s base URL.',
         )
         .join("\n\n"),
     );

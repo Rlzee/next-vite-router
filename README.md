@@ -111,9 +111,9 @@ it and produces the matching `RouteObject[]`.
 | --- | --- |
 | `page.tsx` | Route page |
 | `layout.tsx` | Nested layout rendered with React Router's `Outlet` |
-| `not-found.tsx` | `*` route for that subtree |
+| `not-found.tsx` | `*` route for that subtree, and the fallback for a catch-all base path |
 | `[id]` | Dynamic segment `:id` |
-| `[...slug]` | Catch-all `*` segment (one or more segments) |
+| `[...slug]` | Catch-all `*` segment (one or more segments; its base path 404s) |
 | `[[...slug]]` | Optional catch-all `*` segment (also matches the base path) |
 | `(admin)` | Route group omitted from the URL |
 
@@ -162,6 +162,17 @@ auth guard is scoped to a subtree (see [Auth guards](#auth-guards)).
 and so on. `[[...slug]]` (double brackets) additionally matches the base path
 (`/blog`).
 
+A required catch-all does **not** match its base path, exactly as in Next.js.
+React Router's `*` consumes zero or more segments and a static parent matches
+`/blog` on its own, so the converter answers the base with a guard route that
+renders the nearest `not-found.tsx` (`blog/not-found.tsx`, else the one further
+up) inside the layouts above: `/blog` shows that not-found, and only `/blog/...`
+reaches the page. `href("/blog/*", { slug: "" })` throws for the same reason —
+the two sides agree on what a required catch-all accepts. With no `not-found.tsx`
+anywhere the guard renders nothing, so you get the layouts with an empty outlet
+where Next.js would show its built-in 404 page. Use `[[...slug]]` when the base
+should render the page instead.
+
 The folder name (`slug`) is what you use everywhere:
 
 - **Read it** — `useParams().slug` returns the matched remainder as **one
@@ -175,15 +186,23 @@ The folder name (`slug`) is what you use everywhere:
   (`docs/layout.tsx`) cannot read it: it renders before the splat is part of the
   match.
 
-A catch-all and a `not-found.tsx` at the same level both use React Router's `*`
-path, so they are rejected during route validation as ambiguous. See
-[Navigation and params](#navigation-and-params) for the `href`/`useCatchAll`
-signatures.
+A `not-found.tsx` inside the catch-all folder itself (`blog/[...slug]/not-found.tsx`)
+would claim the same splat as the page, so it is rejected during route
+validation. Put it in the folder holding the catch-all (`blog/not-found.tsx`),
+where it answers the base URL. See [Navigation and params](#navigation-and-params)
+for the `href`/`useCatchAll` signatures.
+
+A catch-all directly in `pagesDir` (`src/app/[...slug]/page.tsx`) has `/` as its
+base, so it cannot sit beside a root `page.tsx`: both would answer `/`. Keep one
+of them — the catch-all alone (`/` renders the not-found), or `page.tsx` alone
+with the catch-all moved under a folder.
 
 ### Not-found routes
 
 A `not-found.tsx` becomes a `*` route for its subtree. Nest it under a layout to
-give a section its own fallback.
+give a section its own fallback. Beside a required catch-all folder it does not
+become a `*` route — the catch-all page already owns every URL below the base —
+so it is used as the fallback for that folder's base URL instead.
 
 ### Custom file names and pages directory
 

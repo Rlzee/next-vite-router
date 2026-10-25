@@ -143,16 +143,23 @@ const MATRIX = [
   },
   {
     name: "required catch-all keeps its prefix and reports the splat",
-    rows: { pages: [pageWithCatchAll(["blog/[...slug]/page", "blog"])] },
+    rows: {
+      pages: [pageWithCatchAll(["blog/[...slug]/page", "blog"])],
+      notFounds: [notFound(["not-found", "root"])],
+    },
     urls: [
-      { url: "/blog", chain: ["blog"], params: {} },
-      { url: "/blog/guide", chain: ["blog", "*"], params: { "*": "guide" } },
-      { url: "/blog/guide/api", chain: ["blog", "*"], params: { "*": "guide/api" } },
+      // The base URL is a real leaf match on the guard index, not a splat
+      // match with an empty value: `/blog` answers with the not-found.
+      { url: "/blog", chain: ["/", "blog", "index"], params: {} },
+      { url: "/blog/", chain: ["/", "blog", "index"], params: {} },
+      { url: "/blog/guide", chain: ["/", "blog", "*"], params: { "*": "guide" } },
+      { url: "/blog/guide/api", chain: ["/", "blog", "*"], params: { "*": "guide/api" } },
       // React Router keeps the trailing slash in the raw splat; `useCatchAll`
       // drops empty segments, so the rendered value is normalized (see paints).
-      { url: "/blog/guide/api/", chain: ["blog", "*"], params: { "*": "guide/api/" } },
+      { url: "/blog/guide/api/", chain: ["/", "blog", "*"], params: { "*": "guide/api/" } },
     ],
     paints: [
+      { url: "/blog", includes: ['data-not-found="root"'], excludes: ["blog{"] },
       { url: "/blog/guide/api", includes: ["blog{guide|api}"] },
       { url: "/blog/guide/api/", includes: ["blog{guide|api}"] },
     ],
@@ -170,15 +177,51 @@ const MATRIX = [
     ],
   },
   {
-    name: "root required catch-all is a single splat that also matches /",
-    rows: { pages: [pageWithCatchAll(["[...slug]/page", "everything"])] },
+    name: "root required catch-all is a guarded splat that skips /",
+    rows: {
+      pages: [pageWithCatchAll(["[...slug]/page", "everything"])],
+      notFounds: [notFound(["not-found", "root"])],
+    },
     urls: [
-      { url: "/", chain: ["*"], params: { "*": "" } },
-      { url: "/a/b", chain: ["*"], params: { "*": "a/b" } },
+      { url: "/", chain: ["/", "index"], params: {} },
+      { url: "/a/b", chain: ["/", "*"], params: { "*": "a/b" } },
     ],
     paints: [
-      { url: "/", includes: ["everything{}"] },
+      { url: "/", includes: ['data-not-found="root"'], excludes: ["everything{"] },
       { url: "/x/y", includes: ["everything{x|y}"] },
+    ],
+  },
+  {
+    name: "required catch-all without any not-found paints no page at its base",
+    rows: { pages: [pageWithCatchAll(["blog/[...slug]/page", "blog"])] },
+    urls: [
+      { url: "/blog", chain: ["blog", "index"], params: {} },
+      { url: "/blog/guide", chain: ["blog", "*"], params: { "*": "guide" } },
+    ],
+    paints: [
+      // The guard index still matches, with nothing to render: the page must
+      // not be invoked with an empty catch-all.
+      { url: "/blog", excludes: ["blog{"] },
+      { url: "/blog/guide", includes: ["blog{guide}"] },
+    ],
+  },
+  {
+    name: "a folder's own not-found answers its catch-all base",
+    rows: {
+      pages: [pageWithCatchAll(["blog/[...slug]/page", "blog"])],
+      layouts: [layout(["blog/layout", "blog-shell"])],
+      notFounds: [notFound(["blog/not-found", "blog"])],
+    },
+    urls: [
+      { url: "/blog", chain: ["blog", "index"], params: {} },
+      { url: "/blog/guide", chain: ["blog", "*"], params: { "*": "guide" } },
+    ],
+    paints: [
+      {
+        url: "/blog",
+        includes: ['data-layout="blog-shell"', 'data-not-found="blog"'],
+        order: ["[blog-shell", "nf:blog", "/blog-shell]"],
+      },
     ],
   },
   {
@@ -186,11 +229,18 @@ const MATRIX = [
     rows: {
       pages: [pageWithCatchAll(["docs/[...slug]/page", "docs"])],
       layouts: [layout(["docs/layout", "docs-shell"])],
+      notFounds: [notFound(["not-found", "root"])],
     },
     urls: [
-      { url: "/docs/guide/api", chain: ["docs", "*"], params: { "*": "guide/api" } },
+      { url: "/docs", chain: ["/", "docs", "index"], params: {} },
+      { url: "/docs/guide/api", chain: ["/", "docs", "*"], params: { "*": "guide/api" } },
     ],
     paints: [
+      {
+        url: "/docs",
+        includes: ['data-layout="docs-shell"', 'data-not-found="root"'],
+        order: ["[docs-shell", "nf:root", "/docs-shell]"],
+      },
       {
         url: "/docs/guide/api",
         includes: ['data-layout="docs-shell"', "docs{guide|api}"],
@@ -295,6 +345,13 @@ describe("route invariant matrix (rendered application)", () => {
         const html = await renderApp(routes, paint.url);
         for (const fragment of paint.includes ?? []) {
           assert.match(html, new RegExp(fragment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `${paint.url} html`);
+        }
+        for (const fragment of paint.excludes ?? []) {
+          assert.doesNotMatch(
+            html,
+            new RegExp(fragment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+            `${paint.url} should not paint ${fragment}`,
+          );
         }
         if (paint.order) {
           const positions = paint.order.map((marker) => html.indexOf(marker));
