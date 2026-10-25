@@ -495,7 +495,12 @@ of the Vite plugin.
 | Node | `>=20` |
 
 The compatibility workflow tests React 18 and 19 with React Router 6 and 7 across
-Vite 5, 6, 7, and 8, and runs the unit tests on Node 20, 22, and 24.
+Vite 5, 6, 7, and 8, and runs the unit tests on Node 20, 22, and 24. Each
+combination installs the published tarball into the app under
+[`test/compat-app`](./test/compat-app), builds it for the browser and for the
+server, then renders its route tree through `renderToPipeableStream`, so a
+combination has to paint layouts, dynamic and catch-all parameters, `not-found`
+and the generated `href`/`Link` — not merely compile.
 
 ## Examples
 
@@ -524,8 +529,23 @@ The route matrix lives in [`test/routes.test.js`](./test/routes.test.js) and
 includes React Router `matchRoutes` assertions for dynamic parameters, route
 groups, nested `not-found.tsx` fallbacks, and catch-all pages under layouts.
 `test/test-route-types.js` covers the generated TypeScript declarations and HMR
-updates, and `test/test-compatibility.js` checks the supported dependency ranges
-and generated production bootstrap.
+updates, and `test/test-compatibility.js` checks the supported dependency ranges,
+the generated production bootstrap, and that the compatibility matrix pins
+versions inside those ranges and really renders them.
+
+Any matrix combination can be reproduced locally by building the fixture app the
+workflow uses against a packed tarball of this package:
+
+```bash
+pnpm run build
+pnpm pack --pack-destination ..        # next-vite-router-<version>.tgz
+cp -R test/compat-app ../compat-app    # add a package.json that installs the
+                                       # tarball plus the versions to check
+cd ../compat-app && pnpm install
+pnpm exec vite build                   # browser bundle
+pnpm exec vite build --ssr src/entry-server.tsx --outDir dist-ssr
+NODE_ENV=production node dist-ssr/entry-server.js
+```
 
 ## License
 

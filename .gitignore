@@ -41,6 +41,9 @@ coverage/
 # Generated route type declarations (written by the Vite plugin)
 /src/virtual-next-vite-router.d.ts
 /test/fixture/src/virtual-next-vite-router.d.ts
+/test/compat-app/src/virtual-next-vite-router.d.ts
 examples/src/virtual-next-vite-router.d.ts
+# Artifacts of building the compatibility fixture locally
+/test/compat-app/dist-ssr/
 # Temporary project dirs created by the route-types test
 test/route-types-*/

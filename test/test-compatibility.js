@@ -199,6 +199,91 @@ try {
   fs.rmSync(probeBundleDir, { recursive: true, force: true });
 }
 
+// The published peer ranges are a promise, and the compatibility matrix in CI is
+// where it is kept: every pinned version has to sit inside its range, and the
+// matrix has to exercise both the lowest and the highest major the range allows.
+// Reading the pinned versions out of the workflow also proves the job *renders*
+// the fixture app instead of only bundling it, which is the difference between
+// "this module compiles on Vite 8 / React 19 / Router 7" and "the route tree
+// paints there". Narrow a range without updating the matrix, or drop the render
+// step, and these assertions say so.
+const workflowSource = fs.readFileSync(
+  path.resolve(".github/workflows/compatibility.yml"),
+  "utf8",
+);
+const smokeSource = fs.readFileSync(
+  path.resolve("test/compat-app/src/entry-server.tsx"),
+  "utf8",
+);
+
+// A `strategy.matrix` list such as `vite: ["5.4.21", "6.1.0"]`. The `include:`
+// rows spell their versions without brackets, so they are not matched here, and
+// they only repeat versions the matrix already declares.
+function matrixPins(key) {
+  const declaration = new RegExp(`^\\s+${key}: \\[([^\\]]*)\\]`, "m").exec(
+    workflowSource,
+  );
+  assert.ok(declaration, `the compatibility matrix must pin "${key}" versions`);
+  return [...declaration[1].matchAll(/"([^"]+)"/g)].map((pin) => pin[1]);
+}
+
+function peerBounds(range) {
+  const bounds = /^>=(\d+) <(\d+)$/.exec(range);
+  assert.ok(
+    bounds,
+    `the matrix check expects a peer range of the form ">=N <M", got "${range}"`,
+  );
+  return { lowest: Number(bounds[1]), highest: Number(bounds[2]) - 1 };
+}
+
+const MATRIX_PEER_KEYS = {
+  react: "react",
+  router: "react-router-dom",
+  vite: "vite",
+};
+
+for (const [key, peerName] of Object.entries(MATRIX_PEER_KEYS)) {
+  const pins = matrixPins(key);
+  assert.ok(pins.length > 0, `the compatibility matrix pins no "${peerName}" version`);
+  const { lowest, highest } = peerBounds(peers[peerName]);
+  const majors = pins.map((pin) => Number(pin.split(".")[0]));
+  for (const [index, major] of majors.entries()) {
+    assert.ok(
+      major >= lowest && major <= highest,
+      `"${peerName}" ${pins[index]} is outside the declared peer range "${peers[peerName]}"`,
+    );
+  }
+  assert.ok(
+    majors.includes(lowest),
+    `the compatibility matrix must test ${peerName} ${lowest}.x, the floor of "${peers[peerName]}"`,
+  );
+  assert.ok(
+    majors.includes(highest),
+    `the compatibility matrix must test ${peerName} ${highest}.x, the ceiling of "${peers[peerName]}"`,
+  );
+}
+
+assert.match(
+  workflowSource,
+  /cp -R test\/compat-app\/\./,
+  "the compatibility job must build the app under test/compat-app",
+);
+assert.match(
+  workflowSource,
+  /vite build --ssr src\/entry-server\.tsx/,
+  "the compatibility job must bundle the SSR render smoke test",
+);
+assert.match(
+  workflowSource,
+  /node "\$entry"/,
+  "the compatibility job must run the bundled SSR entry, not only build it",
+);
+assert.match(
+  smokeSource,
+  /renderToPipeableStream/,
+  "the SSR entry must render through a real stream",
+);
+
 console.log("✅ Peer dependency ranges are explicit and bounded");
 console.log(
   `✅ engines.node ${packageJson.engines.node} covers every runtime dependency floor`,
@@ -207,3 +292,7 @@ console.log("✅ CLI installs react-router-dom ^7.0.0");
 console.log("✅ CLI uses the current React + TypeScript Vite template");
 console.log("✅ CLI generates the Router component bootstrap");
 console.log("✅ PREFERRED_PM is validated against the supported managers (a hostile value never reaches a shell)");
+console.log(
+  `✅ The compatibility matrix covers the full peer range of ${Object.values(MATRIX_PEER_KEYS).join(", ")}`,
+);
+console.log("✅ The compatibility job renders the fixture app, not only builds it");

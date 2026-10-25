@@ -76,7 +76,11 @@ jobs:
       - name: Create compatibility app
         shell: bash
         run: |
-          mkdir -p "$RUNNER_TEMP/compat-app/src/app"
+          mkdir -p "$RUNNER_TEMP/compat-app"
+          # The application under test lives in `test/compat-app`, so it can be
+          # reviewed (and reproduced locally) instead of living in a heredoc. Only
+          # its package.json depends on the matrix, and that is written here.
+          cp -R test/compat-app/. "$RUNNER_TEMP/compat-app/"
           if [ "${{ matrix.package_type }}" = "module" ]; then
             PACKAGE_TYPE_FIELD='"type": "module",'
           else
@@ -97,42 +101,32 @@ jobs:
             }
           }
           EOF
-          cat > "$RUNNER_TEMP/compat-app/index.html" <<'EOF'
-          <div id="root"></div>
-          <script type="module" src="/src/main.tsx"></script>
-          EOF
-          cat > "$RUNNER_TEMP/compat-app/vite.config.ts" <<'EOF'
-          import { defineConfig } from "vite";
-          import { nextViteRouter } from "next-vite-router/plugin";
-
-          export default defineConfig({
-            plugins: [nextViteRouter()],
-          });
-          EOF
-          cat > "$RUNNER_TEMP/compat-app/src/main.tsx" <<'EOF'
-          import React from "react";
-          import { createRoot } from "react-dom/client";
-          import { BrowserRouter, useRoutes } from "react-router-dom";
-          import { generateRoutes } from "next-vite-router/routes";
-
-          function App() {
-            return useRoutes(generateRoutes());
-          }
-
-          createRoot(document.getElementById("root")!).render(
-            <BrowserRouter><App /></BrowserRouter>,
-          );
-          EOF
-          cat > "$RUNNER_TEMP/compat-app/src/app/page.tsx" <<'EOF'
-          export default function Home() {
-            return "home";
-          }
-          EOF
 
       - name: Install compatibility app
         working-directory: ${{ runner.temp }}/compat-app
         run: pnpm install --no-frozen-lockfile
 
-      - name: Build compatibility app
+      - name: Build compatibility app (client)
         working-directory: ${{ runner.temp }}/compat-app
         run: pnpm exec vite build
+
+      - name: Build compatibility app (SSR)
+        working-directory: ${{ runner.temp }}/compat-app
+        run: pnpm exec vite build --ssr src/entry-server.tsx --outDir dist-ssr
+
+      - name: Render compatibility app (streamed SSR smoke test)
+        working-directory: ${{ runner.temp }}/compat-app
+        # A build only proves the generated module compiles. Running it proves the
+        # route tree actually paints on this combination: eager layouts around
+        # lazily imported pages, `useParams`/`useCatchAll`, and the generated
+        # `href`/`Link`. `NODE_ENV=production` keeps React Router's development
+        # warnings out of the log and matches how the bundle would be deployed.
+        # The emitted entry is `.js` for a `"type": "module"` app and `.mjs` for
+        # the CommonJS one, so it is looked up rather than hard-coded.
+        env:
+          NODE_ENV: production
+        shell: bash
+        run: |
+          entry=$(find dist-ssr -maxdepth 1 -name 'entry-server.*' -print -quit)
+          echo "rendering with $entry"
+          node "$entry"
