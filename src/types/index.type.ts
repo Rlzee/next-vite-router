@@ -2,6 +2,16 @@ import type { ComponentType } from 'react';
 
 export type RouteModuleLoader = () => Promise<{ default: ComponentType }>;
 
+/**
+ * How the layouts record handed to `buildRouteTree` must be read.
+ *
+ * A component, a loader, and a module namespace come out of three different
+ * `import.meta.glob` shapes, and the router is not allowed to guess between them
+ * - so the shape is declared, and an ambiguous value is rejected at build time
+ * instead of failing inside React later.
+ */
+export type LayoutRecordShape = "module" | "component" | "loader";
+
 export type RouteNode = {
   segment: string;
   fullPath: string;
@@ -25,22 +35,33 @@ export type RouterConfig = {
 
 export type RouteTreeOptions = {
   /**
+   * The shape of the layouts record. Defaults to `"module"`, the output of the
+   * eager glob the Vite plugin emits:
+   *
+   * - `"module"` - every entry is a module namespace
+   *   (`import.meta.glob(layouts, { eager: true })`). A bare function is rejected
+   *   here unless it is a class component, because a non-eager glob produces bare
+   *   functions too: the caller has to say which one it means.
+   * - `"component"` - an entry may be the unwrapped component itself
+   *   (`{ eager: true, import: "default" }`).
+   * - `"loader"` - a function entry is `() => import("...")` and lands in
+   *   `RouteNode.lazyLayout`; module entries are still read as eager components,
+   *   so a mixed record keeps working.
+   *
+   * What a declaration cannot cover is a wrong declaration: passing loaders as
+   * `"component"` only surfaces in React ("Objects are not valid as a React child
+   * (found: [object Promise])"), because checking it would mean invoking the
+   * value.
+   */
+  layoutShape?: LayoutRecordShape;
+
+  /**
    * Read `layout.tsx` entries as loaders (`() => import("...")`) instead of
    * eagerly imported modules, so Vite emits a separate chunk per layout.
    *
-   * This option is the declaration of the record's shape, and the only one: the
-   * router never calls a layout to find out whether it is a component or a
-   * loader. It must match the glob that produced the layouts record - pair it
-   * with a non-eager `import.meta.glob(layouts)`. Module values are still read as
-   * eager components, so a mixed record keeps working.
-   *
-   * What a mismatch costs: loaders declared as eager reach React as components
-   * and are rejected there ("Objects are not valid as a React child (found:
-   * [object Promise])"), because nothing may call them to find out. Components
-   * declared as lazy are caught by name instead, once the "loader" fails to
-   * resolve to a module with a default export. The plugin derives the glob and
-   * this flag from one option, so a generated app cannot hit either. Defaults to
-   * `false`.
+   * @deprecated Use `layoutShape: "loader"`, which names the same thing as the
+   *   record shape it always described. Kept as an alias so existing manual
+   *   callers keep working; the Vite plugin emits `layoutShape` directly.
    */
   lazyLayouts?: boolean;
 }

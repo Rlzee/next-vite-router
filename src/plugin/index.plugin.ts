@@ -388,13 +388,13 @@ export function nextViteRouter(
         const layoutsGlobPath = `/${normalizedPagesDir}/**/${layoutFile}`;
         const notFoundGlobPath = `/${normalizedPagesDir}/**/${notFoundFile}`;
         // Layouts stay eager unless asked otherwise, so the default output is
-        // unchanged. `lazyLayouts` flips the glob AND tells the runtime to read
-        // the record's function values as loaders: a loader and a component are
-        // both functions, so the shape cannot be inferred from the value.
+        // unchanged. `lazyLayouts` flips the glob AND declares the record shape it
+        // just produced: a component and a loader are both functions, so the shape
+        // travels with the record instead of being guessed by calling a value.
         const layoutsGlobSource = lazyLayouts
           ? `import.meta.glob(${JSON.stringify(layoutsGlobPath)})`
           : `import.meta.glob(${JSON.stringify(layoutsGlobPath)}, { eager: true })`;
-        const routeTreeOptions = lazyLayouts ? ", { lazyLayouts: true }" : "";
+        const routeTreeOptions = lazyLayouts ? ', { layoutShape: "loader" }' : "";
         // The public pattern drops the catch-all folder name, so re-derive it from
         // the type traversal and forward it to the generated href/Link; without it
         // the runtime could only address the splat as "*" and could not reject a

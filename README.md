@@ -535,22 +535,27 @@ filesystem -> buildRouteTree() -> treeToRoutes() -> RouteObject[] -> React Route
 ```
 
 `buildRouteTree()` and `createRouteGenerator()` receive the glob records as Vite
-produces them. Their last argument, `{ lazyLayouts: true }`, says the layouts
-record comes from a non-eager glob (each entry is a loader); without it an entry
-is read as an eagerly imported module or component.
+produces them. Their last argument declares the shape of the **layouts** record,
+because a component, a loader, and a module namespace are indistinguishable as
+plain values and the router does not call one to find out which it is:
 
-That flag is the entire contract, and it has to match the glob. A loader and a
-component are both functions, and the router does not call one to find out which:
-
-| Layout record | Declared as | What happens |
+| `layoutShape` | Glob that produced the record | How an entry is read |
 | --- | --- | --- |
-| eager modules (`{ eager: true }`) | lazy | still read as eager components; a mixed record keeps working |
-| unwrapped components (`{ eager: true, import: "default" }`) | lazy | reported by file name, once the "loader" resolves to no module |
-| loaders (non-eager glob) | eager | React rejects the Promise the "component" returns: `Objects are not valid as a React child` |
+| `"module"` (default) | `import.meta.glob(layouts, { eager: true })` | a module namespace; its `default` is the layout |
+| `"component"` | the same plus `import: "default"` | the component itself; a module is still accepted |
+| `"loader"` | a non-eager `import.meta.glob(layouts)` | `() => import("...")`, code-split like a page; module entries stay eager |
 
-Only the last row goes unreported, and reporting it would mean invoking your
-layout. The plugin derives the glob and the flag from the same `lazyLayouts`
-option, so a generated application never reaches that row.
+A bare function in a record left at the default shape is **refused at build
+time**, with the file named and both declarations offered: that value is exactly
+what a non-eager glob produces, so accepting it silently would be guessing.
+`{ lazyLayouts: true }` means `{ layoutShape: "loader" }` and is deprecated, and
+the plugin emits the declaration that matches the glob it generated — so a project
+built by the plugin never meets the error.
+
+What no declaration can catch is a wrong one: loaders passed as `"component"`
+reach React, which rejects the Promise they return
+(`Objects are not valid as a React child`), since verifying it would mean
+invoking the value.
 
 A layout is used exactly as resolved — an eager module yields its `default`, a
 bare function yields itself — so the component keeps its identity across route

@@ -400,7 +400,7 @@ try {
   // `lazyLayouts` has to flip both halves of the pair at once: the glob shape
   // Vite compiles, and the record shape the runtime reads. Only the option can
   // tell them apart, because a layout loader and a layout component are both
-  // functions.
+  // functions - so the generated module declares the shape next to the glob.
   const lazyLayoutPlugin = nextViteRouter({ lazyLayouts: true });
   lazyLayoutPlugin.configResolved({ root: lazyLayoutRoot });
 
@@ -412,7 +412,7 @@ try {
   assert.doesNotMatch(lazyLayoutModule, /layout\.tsx["'], \{ eager: true \}/);
   assert.match(
     lazyLayoutModule,
-    /buildRouteTree\(pages, layouts, notFounds, \{[^}]*\}, \{ lazyLayouts: true \}\)/,
+    /buildRouteTree\(pages, layouts, notFounds, \{[^}]*\}, \{ layoutShape: "loader" \}\)/,
   );
   // Pages and not-found files keep their own non-eager globs.
   assert.match(

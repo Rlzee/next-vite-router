@@ -37,10 +37,12 @@ import type { RouteTreeOptions } from '../types/index.type';
  * const generateV2 = createRouteGenerator(pages, layouts, notFounds);
  * const routes = generateV2(); // fresh cache, resolves the current loaders
  *
- * Lazy layouts:
- * Layouts are eager by default, which keeps the shell in the entry chunk. Pass a
- * non-eager glob plus `{ lazyLayouts: true }` to code-split them as well; the
- * layout then suspends, so its subtree waits for the layout chunk:
+ * Layout record shapes:
+ * Layouts are eager by default, which keeps the shell in the entry chunk: pair
+ * `import.meta.glob(pattern, { eager: true })` with the default
+ * `{ layoutShape: "module" }`. A non-eager glob yields loaders instead and has to
+ * be declared `{ layoutShape: "loader" }`, which code-splits the shell so it
+ * suspends until its own chunk arrives:
  *
  * @example
  * const layouts = import.meta.glob("../../pages/**\\/layout.tsx");
@@ -49,8 +51,13 @@ import type { RouteTreeOptions } from '../types/index.type';
  *   layouts,
  *   notFounds,
  *   fileOptions,
- *   { lazyLayouts: true },
+ *   { layoutShape: "loader" },
  * );
+ *
+ * An eager glob that unwraps its entries (`{ eager: true, import: "default" }`)
+ * yields bare components and is declared `{ layoutShape: "component" }`. Leaving a
+ * bare function at the default shape is refused while the tree is built: a loader
+ * is the same kind of value, and the router will not call one to tell them apart.
  */
 export function createRouteGenerator(
   pages: Record<string, () => Promise<any>>,

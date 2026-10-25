@@ -1,5 +1,10 @@
 import type { ComponentType } from 'react';
-import type { RouteModuleLoader, RouteNode, RouteTreeOptions } from '../index';
+import type {
+  LayoutRecordShape,
+  RouteModuleLoader,
+  RouteNode,
+  RouteTreeOptions,
+} from '../index';
 import {
   compareOrdinal,
   extractRoutePath,
@@ -262,18 +267,9 @@ function resolveRouteComponent(value: any): ComponentType | undefined {
  * Layouts imported lazily go through `checkedLoader` instead, because their
  * module only exists once the chunk resolves.
  *
- * Nothing here asks a bare function what it is. The entry used to be called so a
- * thenable result could be rejected, which told an `import: "default"` component
- * from a non-eager loader - by running user code to classify it, wrapping every
- * bare-function layout behind a freshly created component type (so the subtree
- * remounted whenever the tree was rebuilt), and only reporting the mismatch once
- * the loader had already been invoked. The shape is now declared, never inferred:
- * `lazyLayouts` says the record holds loaders, its absence says the record holds
- * eager components. The plugin derives the glob and the flag from the same
- * option, so a generated application cannot mismatch the two; a manual caller who
- * does gets React's own "Objects are not valid as a React child (found: [object
- * Promise])" instead of a router-generated hint, which is the price of not
- * guessing.
+ * Nothing here asks a bare function what it is: `layoutShape` declares the
+ * record, and `buildRouteTree` rejects a value the declaration cannot cover
+ * before it gets here.
  */
 function readLayoutComponent(filePath: string, module: any): RouteNode['layout'] {
   const layout = resolveRouteComponent(module);
@@ -281,6 +277,35 @@ function readLayoutComponent(filePath: string, module: any): RouteNode['layout']
   // Returned exactly as resolved - a module yields its `default`, a bare function
   // yields itself - so the component keeps the identity React compares against.
   return layout;
+}
+
+/**
+ * A class component is the one function value that cannot be a `() => import(...)`
+ * loader: loaders are arrow functions and carry no prototype, while a class
+ * component reaches `render` through its own. Structural, so it never invokes
+ * anything.
+ */
+function isClassComponent(value: unknown): boolean {
+  const prototype = (value as { prototype?: { render?: unknown } } | null)?.prototype;
+  return typeof prototype?.render === 'function';
+}
+
+/**
+ * The error for the one value two opposite glob shapes produce identically.
+ *
+ * An eager `{ import: "default" }` glob and a non-eager glob both hand over a
+ * bare function. Reading it by calling it was removed - that meant running user
+ * code to classify it - so the record's shape has to be declared, and this says
+ * so at build time instead of leaving React to fail on `[object Promise]` later.
+ */
+function ambiguousLayoutError(filePath: string): Error {
+  return new Error(
+    `Route layout "${filePath}" is a bare function, which an eager and a non-eager glob produce alike, so the router will not assume which one it is.\n` +
+    'Declare the shape of the layouts record:\n' +
+    '  { layoutShape: "loader" }    entries are `() => import("...")` from a non-eager `import.meta.glob`\n' +
+    '  { layoutShape: "component" } entries are unwrapped components from `{ eager: true, import: "default" }`\n' +
+    'Or keep the default `"module"` shape by leaving the glob eager without unwrapping: `import.meta.glob(layouts, { eager: true })`.',
+  );
 }
 
 /**
@@ -368,21 +393,44 @@ export function buildRouteTree(
     children: new Map(),
   };
 
-  // The option declares how to read a function, and it is the only signal: a
-  // component and a loader are both functions, so nothing is called to tell them
-  // apart. Module entries are eager either way, which is why an `eager: true`
-  // glob still works in lazy mode - a mixed record stays readable.
-  const lazyLayouts = options?.lazyLayouts === true;
+  // The record's shape is declared, never inferred: a component and a loader are
+  // both functions, and nothing here calls one to find out which it is. Each
+  // shape therefore accepts exactly what its glob produces and rejects what it
+  // cannot tell apart.
+  const shape: LayoutRecordShape =
+    options?.layoutShape ?? (options?.lazyLayouts === true ? 'loader' : 'module');
 
   Object.entries(layouts).forEach(([filePath, module]) => {
-    const lazy = lazyLayouts && typeof module === 'function';
+    const isFunction = typeof module === 'function';
+
+    if (shape === 'loader') {
+      // A function is the loader the record just declared. Module entries stay
+      // eager components, which is what keeps a mixed record readable.
+      addFileToTree(
+        root,
+        filePath,
+        isFunction
+          ? checkedLoader(filePath, 'layout', module)
+          : readLayoutComponent(filePath, module),
+        isFunction ? 'lazyLayout' : 'layout',
+        fileOptions,
+      );
+      return;
+    }
+
+    // `"module"` and `"component"` both read eager values, and a module namespace
+    // means the same thing to either. Only a bare function is ambiguous, and it is
+    // ambiguous solely under the default shape - `"component"` is the caller
+    // declaring that it unwrapped the glob, which the router has to believe.
+    if (shape === 'module' && isFunction && !isClassComponent(module)) {
+      throw ambiguousLayoutError(filePath);
+    }
+
     addFileToTree(
       root,
       filePath,
-      lazy
-        ? checkedLoader(filePath, 'layout', module)
-        : readLayoutComponent(filePath, module),
-      lazy ? 'lazyLayout' : 'layout',
+      readLayoutComponent(filePath, module),
+      'layout',
       fileOptions,
     );
   });

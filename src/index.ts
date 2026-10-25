@@ -14,6 +14,7 @@ export type {
   RouteNode,
   RouteModuleLoader,
   RouteTreeOptions,
+  LayoutRecordShape,
 } from './types/index.type';
 
 // Utils
