@@ -28,9 +28,19 @@ export type RouteTreeOptions = {
    * Read `layout.tsx` entries as loaders (`() => import("...")`) instead of
    * eagerly imported modules, so Vite emits a separate chunk per layout.
    *
-   * Must match the shape of the glob that produced the layouts record: pair it
-   * with a non-eager `import.meta.glob(layouts)`. Module values are still read
-   * as eager components, so a mixed record keeps working. Defaults to `false`.
+   * This option is the declaration of the record's shape, and the only one: the
+   * router never calls a layout to find out whether it is a component or a
+   * loader. It must match the glob that produced the layouts record - pair it
+   * with a non-eager `import.meta.glob(layouts)`. Module values are still read as
+   * eager components, so a mixed record keeps working.
+   *
+   * What a mismatch costs: loaders declared as eager reach React as components
+   * and are rejected there ("Objects are not valid as a React child (found:
+   * [object Promise])"), because nothing may call them to find out. Components
+   * declared as lazy are caught by name instead, once the "loader" fails to
+   * resolve to a module with a default export. The plugin derives the glob and
+   * this flag from one option, so a generated app cannot hit either. Defaults to
+   * `false`.
    */
   lazyLayouts?: boolean;
 }

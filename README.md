@@ -537,8 +537,24 @@ filesystem -> buildRouteTree() -> treeToRoutes() -> RouteObject[] -> React Route
 `buildRouteTree()` and `createRouteGenerator()` receive the glob records as Vite
 produces them. Their last argument, `{ lazyLayouts: true }`, says the layouts
 record comes from a non-eager glob (each entry is a loader); without it an entry
-is read as an eagerly imported module or component. The flag has to match the
-glob, because a loader and a component are both functions.
+is read as an eagerly imported module or component.
+
+That flag is the entire contract, and it has to match the glob. A loader and a
+component are both functions, and the router does not call one to find out which:
+
+| Layout record | Declared as | What happens |
+| --- | --- | --- |
+| eager modules (`{ eager: true }`) | lazy | still read as eager components; a mixed record keeps working |
+| unwrapped components (`{ eager: true, import: "default" }`) | lazy | reported by file name, once the "loader" resolves to no module |
+| loaders (non-eager glob) | eager | React rejects the Promise the "component" returns: `Objects are not valid as a React child` |
+
+Only the last row goes unreported, and reporting it would mean invoking your
+layout. The plugin derives the glob and the flag from the same `lazyLayouts`
+option, so a generated application never reaches that row.
+
+A layout is used exactly as resolved — an eager module yields its `default`, a
+bare function yields itself — so the component keeps its identity across route
+regeneration instead of being wrapped in a freshly created type.
 
 `createRouteGenerator(pages, layouts, notFounds, fileOptions, options)` returns a
 zero-argument `generateRoutes()`; use it when you drive the globs yourself instead

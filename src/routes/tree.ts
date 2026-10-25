@@ -226,50 +226,6 @@ function isComponentType(value: unknown): value is ComponentType {
     && COMPONENT_TYPE_SYMBOLS.has((value as { $$typeof?: symbol }).$$typeof);
 }
 
-/**
- * Wrap an eager layout that arrived as a bare function so a misconfigured lazy
- * glob is named at render instead of failing as a nameless `[object Promise]`.
- *
- * With `lazyLayouts` off, a function layout is ambiguous: an
- * `{ import: "default" }` glob yields the component itself, while a non-eager
- * `import.meta.glob` yields `() => import("...")` loaders. The two are
- * indistinguishable until rendered, so calling the component and rejecting a
- * thenable is the only safe way to tell them apart. Class components cannot be
- * invoked as functions but can also never be an `import()` loader, so they are
- * returned untouched - as are module namespaces, whose `default` is already
- * unambiguous; keeping the resolved component identity stable matters because
- * React remounts an element whose type changed.
- *
- * Every branch is pinned by the `eager layout guard` suite in
- * `test/routes.test.js`, so this probe cannot quietly start wrapping more.
- */
-function guardEagerLayout(filePath: string, Layout: ComponentType): ComponentType {
-  if (typeof Layout !== 'function') {
-    return Layout;
-  }
-
-  const prototype = (Layout as { prototype?: { render?: unknown } }).prototype;
-  if (prototype && typeof prototype.render === 'function') {
-    return Layout;
-  }
-
-  const Component = Layout as ((props: any) => any) & { displayName?: string };
-  function GuardedLayout(props: any): any {
-    const rendered = Component(props);
-    if (rendered !== null && typeof rendered === 'object'
-      && typeof (rendered as { then?: unknown }).then === 'function') {
-      throw new Error(
-        `Route layout "${filePath}" rendered a Promise instead of a component.\n` +
-        `Layouts are read as eager components unless told otherwise: pair a non-eager \`import.meta.glob\` of loaders with \`{ lazyLayouts: true }\`, or import the layout eagerly (\`{ eager: true }\`) to keep it a component.`,
-      );
-    }
-    return rendered;
-  }
-  (GuardedLayout as { displayName?: string }).displayName =
-    Component.displayName || Component.name || undefined;
-  return GuardedLayout;
-}
-
 function assertComponentType(
   filePath: string,
   fileType: RouteFileType,
@@ -299,20 +255,32 @@ function resolveRouteComponent(value: any): ComponentType | undefined {
 }
 
 /**
- * Read the component out of an eagerly imported layout module.
+ * Read the component out of an eagerly imported layout record entry.
  *
  * The layout used to be stored as `undefined` when the file had no default
  * export, which dropped the layout from the generated routes without any error.
  * Layouts imported lazily go through `checkedLoader` instead, because their
  * module only exists once the chunk resolves.
+ *
+ * Nothing here asks a bare function what it is. The entry used to be called so a
+ * thenable result could be rejected, which told an `import: "default"` component
+ * from a non-eager loader - by running user code to classify it, wrapping every
+ * bare-function layout behind a freshly created component type (so the subtree
+ * remounted whenever the tree was rebuilt), and only reporting the mismatch once
+ * the loader had already been invoked. The shape is now declared, never inferred:
+ * `lazyLayouts` says the record holds loaders, its absence says the record holds
+ * eager components. The plugin derives the glob and the flag from the same
+ * option, so a generated application cannot mismatch the two; a manual caller who
+ * does gets React's own "Objects are not valid as a React child (found: [object
+ * Promise])" instead of a router-generated hint, which is the price of not
+ * guessing.
  */
 function readLayoutComponent(filePath: string, module: any): RouteNode['layout'] {
   const layout = resolveRouteComponent(module);
   assertComponentType(filePath, 'layout', layout);
-  // Only a bare-function glob entry is ambiguous; a module (`{ eager: true }`)
-  // resolves to its `default` and its loaders are unambiguous, so leave those
-  // untouched and keep the resolved component identity stable.
-  return typeof module === 'function' ? guardEagerLayout(filePath, layout) : layout;
+  // Returned exactly as resolved - a module yields its `default`, a bare function
+  // yields itself - so the component keeps the identity React compares against.
+  return layout;
 }
 
 /**
@@ -400,10 +368,10 @@ export function buildRouteTree(
     children: new Map(),
   };
 
-  // `lazyLayouts` only says how to read a function: a non-eager layout glob
-  // yields `() => import("...")` loaders, while a component and a loader are
-  // indistinguishable once they are plain values. Module entries stay eager
-  // either way, so an `eager: true` glob is still accepted in lazy mode.
+  // The option declares how to read a function, and it is the only signal: a
+  // component and a loader are both functions, so nothing is called to tell them
+  // apart. Module entries are eager either way, which is why an `eager: true`
+  // glob still works in lazy mode - a mixed record stays readable.
   const lazyLayouts = options?.lazyLayouts === true;
 
   Object.entries(layouts).forEach(([filePath, module]) => {

@@ -933,12 +933,14 @@ describe("lazy layouts", () => {
     const layouts = { "dashboard/layout.tsx": async () => ({ default: Shell }) };
     const pages = { "dashboard/page.tsx": componentLoader("dashboard") };
 
-    // Without the option a function is read as the component itself (the shape
-    // an `{ eager: true, import: "default" }` glob produces), stored in `layout`
-    // and never in `lazyLayout`. A bare-function eager layout is guarded, so the
-    // stored value is a wrapper rather than the exact reference.
+    // Without the option the record declares eager components, so the function is
+    // stored in `layout` as given - the exact reference, never a wrapper, and
+    // never in `lazyLayout`. Nothing is called to ask what it really is.
     const eager = buildRouteTree(pages, layouts, {});
-    assert.equal(typeof eager.children.get("dashboard").layout, "function");
+    assert.equal(
+      eager.children.get("dashboard").layout,
+      layouts["dashboard/layout.tsx"],
+    );
     assert.equal(eager.children.get("dashboard").lazyLayout, undefined);
 
     const lazy = buildRouteTree(pages, layouts, {}, undefined, { lazyLayouts: true });
@@ -1049,26 +1051,18 @@ describe("lazy layouts", () => {
     );
   });
 
-  test("names the file when a lazy layout glob is read without lazyLayouts", () => {
-    // A non-eager glob yields `() => import("...")` loaders; without the flag
-    // they are read as eager components, and rendering one used to surface only
-    // React's nameless "[object Promise]" child error.
+  test("reads a loader-shaped entry as the declared component when lazyLayouts is missing", () => {
+    // A non-eager glob yields `() => import("...")` loaders. Without the flag the
+    // record declares eager components, so the entry is used as one: telling it
+    // from a loader meant calling it, which the router no longer does. The
+    // resulting mismatch is documented by the `layout record shape` suite.
     const tree = buildRouteTree(
       { "dashboard/page.tsx": componentLoader("dashboard") },
       { "dashboard/layout.tsx": async () => ({ default: component("shell") }) },
       {},
     );
 
-    const Layout = tree.children.get("dashboard").layout;
-    assert.throws(
-      () => renderToStaticMarkup(React.createElement(Layout)),
-      {
-        message: [
-          'Route layout "dashboard/layout.tsx" rendered a Promise instead of a component.',
-          "Layouts are read as eager components unless told otherwise: pair a non-eager `import.meta.glob` of loaders with `{ lazyLayouts: true }`, or import the layout eagerly (`{ eager: true }`) to keep it a component.",
-        ].join("\n"),
-      },
-    );
+    assert.equal(typeof tree.children.get("dashboard").layout, "function");
   });
 
   test("reports an eager component layout passed to lazyLayouts as a loader", async () => {
@@ -1207,10 +1201,9 @@ describe("route file default exports", () => {
     );
 
     const LayoutNode = tree.children.get("about").layout;
-    assert.equal(typeof LayoutNode, "function");
-    // A bare-function eager layout is guarded against a misread lazy glob, but
-    // a real `import: "default"` component still renders unchanged instead of
-    // being reported as a missing default export.
+    // Used as given: an unwrapped eager component is the layout, not a wrapper
+    // around it, so its identity survives the tree build.
+    assert.equal(LayoutNode, Layout);
     assert.equal(
       renderToStaticMarkup(React.createElement(LayoutNode)),
       "<div>layout</div>",
@@ -1219,69 +1212,91 @@ describe("route file default exports", () => {
   });
 });
 
-describe("eager layout guard", () => {
-  // `guardEagerLayout` is a heuristic, and a deliberate one: with `lazyLayouts`
-  // off, a layout that arrived as a bare function is either the component (an
-  // `import: "default"` glob) or a loader (a non-eager glob), and the two only
-  // differ once called. These tests pin each branch so the probe cannot silently
-  // widen, and pin the cases where it must NOT wrap anything.
-  const layoutOf = (layouts) =>
+describe("layout record shape", () => {
+  // A layout is read exactly as the record declares it, never by calling it to
+  // find out: `lazyLayouts` says whether the entries are loaders or eager
+  // components. These tests pin both readings, the component identity that
+  // follows from not wrapping, and the one mismatch that stays invisible - the
+  // accepted cost of not running user code to classify it.
+  const eagerLayoutOf = (layouts) =>
     buildRouteTree({ "about/page.tsx": loader("about") }, layouts, {})
       .children.get("about").layout;
+  const lazyNodeOf = (layouts) =>
+    buildRouteTree(
+      { "about/page.tsx": loader("about") },
+      layouts,
+      {},
+      undefined,
+      { lazyLayouts: true },
+    ).children.get("about");
 
-  test("wraps a bare function layout and keeps its name", () => {
+  test("uses a bare function layout as the component itself", () => {
     function Shell() {
       return React.createElement("div", null, "shell");
     }
-    Shell.displayName = "Shell";
 
-    const Layout = layoutOf({ "about/layout.tsx": Shell });
-
-    // Wrapped, because the guard has to call it to know what it is...
-    assert.notEqual(Layout, Shell);
-    // ...while still naming the original, which is the whole point of guarding
-    // instead of dropping: a misconfigured glob is reported by name.
-    assert.equal(Layout.displayName, "Shell");
+    // Identity, not a copy: wrapping it would hand React a new component type on
+    // every rebuild and remount the whole subtree for nothing.
+    assert.equal(eagerLayoutOf({ "about/layout.tsx": Shell }), Shell);
     assert.equal(
-      renderToStaticMarkup(React.createElement(Layout)),
+      renderToStaticMarkup(React.createElement(Shell)),
       "<div>shell</div>",
     );
   });
 
-  test("rejects a loader handed to an eager layout, naming the file", () => {
-    const Layout = layoutOf({
-      "about/layout.tsx": () => Promise.resolve({ default: component("shell") }),
-    });
+  test("unwraps an eagerly imported module layout", () => {
+    const Shell = component("shell");
 
-    assert.throws(
-      () => renderToStaticMarkup(React.createElement(Layout)),
-      {
-        message: [
-          'Route layout "about/layout.tsx" rendered a Promise instead of a component.',
-          "Layouts are read as eager components unless told otherwise: pair a non-eager `import.meta.glob` of loaders with `{ lazyLayouts: true }`, or import the layout eagerly (`{ eager: true }`) to keep it a component.",
-        ].join("\n"),
-      },
-    );
+    // `{ eager: true }` yields the module namespace; its `default` is the layout.
+    assert.equal(eagerLayoutOf({ "about/layout.tsx": { default: Shell } }), Shell);
   });
 
-  test("leaves a class layout untouched", () => {
+  test("keeps a class layout as the component", () => {
     class Shell extends React.Component {
       render() {
         return React.createElement("div", null, "shell");
       }
     }
 
-    // A class cannot be called as a function, so probing it would throw; it can
-    // never be an `import()` loader either, so there is nothing to detect.
-    assert.equal(layoutOf({ "about/layout.tsx": Shell }), Shell);
+    assert.equal(eagerLayoutOf({ "about/layout.tsx": Shell }), Shell);
   });
 
-  test("leaves a module namespace layout untouched", () => {
+  test("reads a function as a loader when the record is declared lazy", () => {
     const Shell = component("shell");
+    const node = lazyNodeOf({ "about/layout.tsx": async () => ({ default: Shell }) });
 
-    // `{ eager: true }` yields the module, whose `default` is unambiguously a
-    // component: wrapping it would change the component identity for nothing.
-    assert.equal(layoutOf({ "about/layout.tsx": { default: Shell } }), Shell);
+    assert.equal(node.layout, undefined);
+    assert.equal(typeof node.lazyLayout, "function");
+  });
+
+  test("still reads a module entry eagerly inside a lazy record", () => {
+    const Shell = component("shell");
+    const node = lazyNodeOf({ "about/layout.tsx": { default: Shell } });
+
+    // A mixed record is valid: only a function value needs the declaration.
+    assert.equal(node.layout, Shell);
+    assert.equal(node.lazyLayout, undefined);
+  });
+
+  test("rejects a layout value that is not a component at all", () => {
+    assert.throws(
+      () => eagerLayoutOf({ "about/layout.tsx": { metadata: "no default" } }),
+      /Route layout "about\/layout\.tsx" does not default-export a React component/,
+    );
+  });
+
+  test("leaves the eager-declared loader mismatch to React", () => {
+    // The one shape that cannot be checked without invoking the value, so it is
+    // not checked here: React rejects what the loader returns instead.
+    const Layout = eagerLayoutOf({
+      "about/layout.tsx": async () => ({ default: component("shell") }),
+    });
+
+    assert.equal(typeof Layout, "function");
+    assert.throws(
+      () => renderToStaticMarkup(React.createElement(Layout)),
+      /Objects are not valid as a React child/,
+    );
   });
 });
 
