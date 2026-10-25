@@ -39,19 +39,25 @@ export type RouteTreeOptions = {
    * eager glob the Vite plugin emits:
    *
    * - `"module"` - every entry is a module namespace
-   *   (`import.meta.glob(layouts, { eager: true })`). A bare function is rejected
-   *   here unless it is a class component, because a non-eager glob produces bare
+   *   (`import.meta.glob(layouts, { eager: true })`). Any bare function is
+   *   refused here, class included, because a non-eager glob produces bare
    *   functions too: the caller has to say which one it means.
-   * - `"component"` - an entry may be the unwrapped component itself
+   * - `"component"` - an entry may be the unwrapped component or class itself
    *   (`{ eager: true, import: "default" }`).
    * - `"loader"` - a function entry is `() => import("...")` and lands in
    *   `RouteNode.lazyLayout`; module entries are still read as eager components,
    *   so a mixed record keeps working.
    *
-   * What a declaration cannot cover is a wrong declaration: passing loaders as
-   * `"component"` only surfaces in React ("Objects are not valid as a React child
-   * (found: [object Promise])"), because checking it would mean invoking the
-   * value.
+   * A wrong declaration is the one thing this option cannot protect against:
+   * passing loaders as `"component"` surfaces only in React ("Objects are not
+   * valid as a React child (found: [object Promise])"). Nothing can close that
+   * gap. The runtime would have to invoke the value to tell the two apart, and
+   * the type system cannot either: Vite types an eager record as
+   * `Record<string, unknown>` whatever the module exports, so a signature
+   * discriminated on `layoutShape` would reject the honest `"component"` case too
+   * and push callers into `as any` casts - which then silence the lying case it
+   * was meant to catch. The plugin emits the declaration that matches the glob it
+   * wrote, so only a hand-built record can declare itself wrongly.
    */
   layoutShape?: LayoutRecordShape;
 

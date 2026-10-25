@@ -542,20 +542,27 @@ plain values and the router does not call one to find out which it is:
 | `layoutShape` | Glob that produced the record | How an entry is read |
 | --- | --- | --- |
 | `"module"` (default) | `import.meta.glob(layouts, { eager: true })` | a module namespace; its `default` is the layout |
-| `"component"` | the same plus `import: "default"` | the component itself; a module is still accepted |
+| `"component"` | the same plus `import: "default"` | the component or class itself; a module is still accepted |
 | `"loader"` | a non-eager `import.meta.glob(layouts)` | `() => import("...")`, code-split like a page; module entries stay eager |
 
 A bare function in a record left at the default shape is **refused at build
 time**, with the file named and both declarations offered: that value is exactly
 what a non-eager glob produces, so accepting it silently would be guessing.
-`{ lazyLayouts: true }` means `{ layoutShape: "loader" }` and is deprecated, and
-the plugin emits the declaration that matches the glob it generated — so a project
-built by the plugin never meets the error.
+Nothing is sniffed to soften that rule — not the value's source, not its
+`prototype`, so even a class layout, which no `() => import(...)` loader can be,
+is refused until the record says so. `{ lazyLayouts: true }` means
+`{ layoutShape: "loader" }` and is deprecated, and the plugin emits the
+declaration that matches the glob it generated — so a project built by the plugin
+never meets the error.
 
 What no declaration can catch is a wrong one: loaders passed as `"component"`
 reach React, which rejects the Promise they return
-(`Objects are not valid as a React child`), since verifying it would mean
-invoking the value.
+(`Objects are not valid as a React child`). The runtime cannot check that without
+invoking the value, and neither can TypeScript: an eager `import.meta.glob` is
+typed `Record<string, unknown>` whatever the files export, so a signature
+discriminated on `layoutShape` would refuse the honest `"component"` record too
+and push people into the `as any` cast that hides the lying one. Declare it
+truthfully, or let the plugin write the record for you.
 
 A layout is used exactly as resolved — an eager module yields its `default`, a
 bare function yields itself — so the component keeps its identity across route

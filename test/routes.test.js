@@ -1068,7 +1068,7 @@ describe("lazy layouts", () => {
           'Route layout "dashboard/layout.tsx" is a bare function, which an eager and a non-eager glob produce alike, so the router will not assume which one it is.',
           "Declare the shape of the layouts record:",
           '  { layoutShape: "loader" }    entries are `() => import("...")` from a non-eager `import.meta.glob`',
-          '  { layoutShape: "component" } entries are unwrapped components from `{ eager: true, import: "default" }`',
+          '  { layoutShape: "component" } entries are unwrapped components or classes from `{ eager: true, import: "default" }`',
           'Or keep the default `"module"` shape by leaving the glob eager without unwrapping: `import.meta.glob(layouts, { eager: true })`.',
         ].join("\n"),
       },
@@ -1275,16 +1275,37 @@ describe("layout record shape", () => {
     assert.equal(componentLayoutOf(layouts), Shell);
   });
 
-  test("keeps a class layout as the component even under the module shape", () => {
+  test("refuses a class layout under the module shape exactly like a function", () => {
     class Shell extends React.Component {
       render() {
         return React.createElement("div", null, "shell");
       }
     }
 
-    // Structurally unambiguous: a `() => import("...")` loader is an arrow
-    // function with no prototype, so a class can never be mistaken for one.
-    assert.equal(moduleLayoutOf({ "about/layout.tsx": Shell }), Shell);
+    // No shape rules at all, not even one that could only widen acceptance.
+    // Recognising a class through `prototype.render` is sound - an `import()`
+    // loader is an arrow function - but it still reads the code's form instead of
+    // the declaration, and the declaration here said namespaces.
+    assert.throws(
+      () => moduleLayoutOf({ "about/layout.tsx": Shell }),
+      /is a bare function, which an eager and a non-eager glob produce alike/,
+    );
+  });
+
+  test("reads a declared class layout and keeps its identity", () => {
+    class Shell extends React.Component {
+      render() {
+        return React.createElement("div", null, "shell");
+      }
+    }
+
+    const Layout = componentLayoutOf({ "about/layout.tsx": Shell });
+
+    assert.equal(Layout, Shell);
+    assert.equal(
+      renderToStaticMarkup(React.createElement(Layout)),
+      "<div>shell</div>",
+    );
   });
 
   test("reads a function as a loader when the record is declared lazy", () => {

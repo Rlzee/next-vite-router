@@ -280,30 +280,24 @@ function readLayoutComponent(filePath: string, module: any): RouteNode['layout']
 }
 
 /**
- * A class component is the one function value that cannot be a `() => import(...)`
- * loader: loaders are arrow functions and carry no prototype, while a class
- * component reaches `render` through its own. Structural, so it never invokes
- * anything.
- */
-function isClassComponent(value: unknown): boolean {
-  const prototype = (value as { prototype?: { render?: unknown } } | null)?.prototype;
-  return typeof prototype?.render === 'function';
-}
-
-/**
  * The error for the one value two opposite glob shapes produce identically.
  *
  * An eager `{ import: "default" }` glob and a non-eager glob both hand over a
  * bare function. Reading it by calling it was removed - that meant running user
  * code to classify it - so the record's shape has to be declared, and this says
  * so at build time instead of leaving React to fail on `[object Promise]` later.
+ *
+ * Nothing is sniffed here either: not the value's `prototype`, not its source
+ * text. A shape rule that reads the code's form would still be a guess, just a
+ * quieter one, and a class layout declared as `"module"` is refused for the same
+ * reason a function one is - the record said namespaces.
  */
 function ambiguousLayoutError(filePath: string): Error {
   return new Error(
     `Route layout "${filePath}" is a bare function, which an eager and a non-eager glob produce alike, so the router will not assume which one it is.\n` +
     'Declare the shape of the layouts record:\n' +
     '  { layoutShape: "loader" }    entries are `() => import("...")` from a non-eager `import.meta.glob`\n' +
-    '  { layoutShape: "component" } entries are unwrapped components from `{ eager: true, import: "default" }`\n' +
+    '  { layoutShape: "component" } entries are unwrapped components or classes from `{ eager: true, import: "default" }`\n' +
     'Or keep the default `"module"` shape by leaving the glob eager without unwrapping: `import.meta.glob(layouts, { eager: true })`.',
   );
 }
@@ -421,8 +415,11 @@ export function buildRouteTree(
     // `"module"` and `"component"` both read eager values, and a module namespace
     // means the same thing to either. Only a bare function is ambiguous, and it is
     // ambiguous solely under the default shape - `"component"` is the caller
-    // declaring that it unwrapped the glob, which the router has to believe.
-    if (shape === 'module' && isFunction && !isClassComponent(module)) {
+    // declaring that it unwrapped the glob, which the router has to believe. A
+    // class is refused exactly like a function component: accepting it because a
+    // class cannot be a loader would be telling the value's shape from its code,
+    // which is the kind of guessing this API stopped doing.
+    if (shape === 'module' && isFunction) {
       throw ambiguousLayoutError(filePath);
     }
 
