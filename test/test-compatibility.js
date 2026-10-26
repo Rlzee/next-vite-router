@@ -49,12 +49,18 @@ for (const name of ["react", "react-dom", "vite"]) {
   );
 }
 // Marking both router peers optional also means no package manager installs one
-// on the library's behalf. The unit tests import `react-router-dom`, so the suite
-// has to own that dependency instead of relying on a peer being auto-installed.
-assert.ok(
-  packageJson.devDependencies?.["react-router-dom"],
-  "react-router-dom must be a devDependency: optional peers are never auto-installed",
-);
+// on the library's behalf - and pnpm versions disagree about whether an *optional*
+// peer is auto-installable at all, which is what left the lockfile recording a
+// dependency no manifest ever asked for and every CI job failing on
+// `pnpm install --frozen-lockfile`. The workspace therefore pins the router
+// packages its own tests resolve, so the lock records them from the manifest
+// instead of from a peer-install policy that differs between pnpm releases.
+for (const name of ["react-router", "react-router-dom"]) {
+  assert.ok(
+    packageJson.devDependencies?.[name],
+    `"${name}" must be a devDependency: an optional peer is recorded differently by different pnpm versions`,
+  );
+}
 
 // `engines.node` is a promise about every shipped entry point, and the CLI drags
 // in `commander`, which declares its own Node floor. If a runtime dependency asks
