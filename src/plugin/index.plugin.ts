@@ -1,6 +1,7 @@
 import type { Logger, Plugin, ViteDevServer } from "vite";
 import fs from "node:fs";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import {
   compareOrdinal,
@@ -73,6 +74,114 @@ function normalizePluginPath(value: string): string {
     .replace(/\\/g, "/")
     .replace(/^\.\//, "")
     .replace(/^\/|\/$/g, "");
+}
+
+/**
+ * Bare specifier the application can resolve for the React Router symbols this
+ * plugin emits and the shipped engine imports: `useRoutes`, `Link`, `useParams`,
+ * and the `LinkProps` / `RouteObject` types of the generated declaration.
+ *
+ * React Router v7 folded `react-router-dom` into `react-router` and left the old
+ * name as a re-export shim whose own README tells a migrated app to remove it, so
+ * an application can legitimately have no `react-router-dom` to resolve. The shim
+ * is used whenever it is installed - an existing project keeps exactly the specifiers
+ * it has today - and the core package is substituted only when the shim is absent.
+ */
+type RouterSpecifier = "react-router-dom" | "react-router";
+
+const ROUTER_DOM: RouterSpecifier = "react-router-dom";
+const ROUTER: RouterSpecifier = "react-router";
+
+// `react-router` v6 does not export `Link` or `LinkProps` - those live in
+// `react-router-dom` - so swapping the shim for the v6 core would point the
+// runtime at imports that do not exist. v7 moved every export into the core
+// package, which is the only case the substitution is sound.
+const ROUTER_MIN_MAJOR_FOR_SWAP = 7;
+
+// Rewritten by the `config` hook when the application has `react-router` but no
+// `react-router-dom`. Vite applies `resolve.alias` to every import it resolves,
+// including the ones inside this package's own `dist` files and the ones the
+// application writes itself, so one entry redirects the whole build.
+const routerDomToRouterAlias = {
+  find: /^react-router-dom$/,
+  replacement: ROUTER,
+};
+
+type InstalledPackage = { version: string; major: number };
+
+/**
+ * Read the version of `name` as an application rooted at `root` would resolve it.
+ * Returns `undefined` when the package is not installed there.
+ */
+function readInstalledPackage(root: string, name: string): InstalledPackage | undefined {
+  // Resolve as the application does, from its own root: peers belong to the
+  // application, and a hoisted, linked, or store-based install has to be seen the
+  // way Node and Vite see it - not the way this package's `node_modules` does.
+  const requireFromRoot = createRequire(path.join(root, "resolver-anchor.js"));
+  let entry: string;
+  try {
+    entry = requireFromRoot.resolve(name);
+  } catch {
+    return undefined;
+  }
+
+  // Walk up from the resolved file instead of assuming the manifest sits next to
+  // it: a nested `dist`, a dual-package `dist/package.json`, or a symlink into a
+  // content-addressed store all land elsewhere. Only a manifest that names this
+  // package answers, which is what keeps a workspace root manifest from lying.
+  let directory = path.dirname(entry);
+  for (;;) {
+    const manifestPath = path.join(directory, "package.json");
+    if (fs.existsSync(manifestPath)) {
+      try {
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as {
+          name?: string;
+          version?: string;
+        };
+        if (manifest.name === name && manifest.version) {
+          const major = Number.parseInt(manifest.version, 10);
+          if (!Number.isNaN(major)) {
+            return { version: manifest.version, major };
+          }
+        }
+      } catch {
+        // An unreadable manifest is simply not an answer; keep walking up.
+      }
+    }
+
+    const parent = path.dirname(directory);
+    if (parent === directory) return undefined;
+    directory = parent;
+  }
+}
+
+function resolveRouterSpecifier(root: string, logger?: Logger): RouterSpecifier {
+  if (readInstalledPackage(root, ROUTER_DOM)) {
+    return ROUTER_DOM;
+  }
+
+  const core = readInstalledPackage(root, ROUTER);
+  if (!core) {
+    // Nothing to substitute and nothing to complain about yet: leave the specifier
+    // as it has always been so a project that has not installed its dependencies
+    // still fails with Vite's own "failed to resolve" message rather than a
+    // plugin-specific error thrown before it can build anything.
+    return ROUTER_DOM;
+  }
+
+  if (core.major < ROUTER_MIN_MAJOR_FOR_SWAP) {
+    // The swap would be wrong here, so the build keeps importing the shim and
+    // fails on it. Say what to install instead of leaving an unresolved specifier.
+    logger?.warn(
+      `next-vite-router: "${ROUTER}" ${core.version} is installed but "${ROUTER_DOM}" is not, ` +
+      `and "${ROUTER}" v6 does not export the components this package takes from the shim. ` +
+      `Install "${ROUTER_DOM}@6", or move to "${ROUTER}" 7 or newer, which exports them itself: ` +
+      `the build keeps importing "${ROUTER_DOM}" and cannot resolve it until then.`,
+    );
+    return ROUTER_DOM;
+  }
+
+  return ROUTER;
 }
 
 function collectRoutePaths(
@@ -176,7 +285,7 @@ function collectPageFiles(
   return files;
 }
 
-function createRouteTypes(routePaths: RouteTypeEntry[]): string {
+function createRouteTypes(routePaths: RouteTypeEntry[], routerSpecifier: RouterSpecifier): string {
   const routeLiterals = routePaths
     .map(({ path: route }) => `  | ${JSON.stringify(route)}`)
     .join("\n");
@@ -193,7 +302,7 @@ function createRouteTypes(routePaths: RouteTypeEntry[]): string {
 
   return `declare module 'next-vite-router/routes' {
   import type { ReactElement } from 'react';
-  import type { LinkProps as ReactRouterLinkProps, RouteObject } from 'react-router-dom';
+  import type { LinkProps as ReactRouterLinkProps, RouteObject } from '${routerSpecifier}';
 
   export type RoutePath =
 ${routeLiterals || '  | "/"'};
@@ -234,7 +343,7 @@ ${params}
   export function Router(): ReactElement | null;
   export function useParams<T extends Record<string, string | undefined> = Record<string, string | undefined>>(): T;
   export function useCatchAll(name?: string): string[];
-  export { useRoutes } from 'react-router-dom';
+  export { useRoutes } from '${routerSpecifier}';
 }
 `;
 }
@@ -266,11 +375,20 @@ export function nextViteRouter(
   const resolvedRoutesModuleId = "\0" + routesModuleId;
   let pagesRoot = "";
   let declarationPath = "";
+  // Set by the `config` hook from what the application actually installed; the
+  // default is the specifier this package has always written.
+  let routerSpecifier: RouterSpecifier = ROUTER_DOM;
+  // The root that lookup ran against, kept so `configResolved` can repeat it with
+  // a logger - the `config` hook contributes its alias before Vite creates one.
+  let routerResolveRoot: string | undefined;
   let viteLogger: Logger | undefined;
   let watchedServer: ViteDevServer | undefined;
   let removeWatcherListeners: (() => void) | undefined;
   function writeRouteTypes(): void {
-    const content = createRouteTypes(collectRoutePaths(pagesRoot, fileOptions, normalizedPagesDir));
+    const content = createRouteTypes(
+      collectRoutePaths(pagesRoot, fileOptions, normalizedPagesDir),
+      routerSpecifier,
+    );
     try {
       // The declaration file sits next to the pages directory, which may not
       // exist on a misconfigured project; create it instead of letting the
@@ -297,7 +415,29 @@ export function nextViteRouter(
     // `next-vite-router/routes` alias has no entry in the package "exports" map,
     // and the default resolver would reject it before the alias is honored.
     enforce: "pre",
+    config(userConfig) {
+      // The same root Vite resolves (`config.root`, else the working directory);
+      // Vite merges the config file and the CLI overrides before running this
+      // hook, so the router packages are looked up where the build will run.
+      const root = userConfig.root ? path.resolve(userConfig.root) : process.cwd();
+      routerResolveRoot = root;
+      routerSpecifier = resolveRouterSpecifier(root);
+      if (routerSpecifier === ROUTER) {
+        // The application resolved through `react-router`, so every
+        // `react-router-dom` import - this package's `dist`, the generated module,
+        // and the application's own files - has to land on the same module
+        // instance, not on a specifier it never installed.
+        return {
+          resolve: { alias: [routerDomToRouterAlias] },
+        };
+      }
+    },
     configResolved(config) {
+      // Same root, now with a logger: the one case that is neither aliased nor
+      // buildable (a v6 `react-router` with no shim installed) is reported here.
+      if (routerResolveRoot) {
+        routerSpecifier = resolveRouterSpecifier(routerResolveRoot, config.logger);
+      }
       pagesRoot = path.resolve(config.root, normalizedPagesDir);
       declarationPath = path.join(path.dirname(pagesRoot), "virtual-next-vite-router.d.ts");
       viteLogger = config.logger;
@@ -411,7 +551,7 @@ export function nextViteRouter(
         const engineEntry = fileURLToPath(new URL("./plugin-runtime.js", import.meta.url));
         return `
 import { buildRouteTree, treeToRoutes, useParams, useCatchAll, href as hrefBase, createTypedLink } from ${JSON.stringify(engineEntry)};
-import { useRoutes } from 'react-router-dom';
+import { useRoutes } from '${routerSpecifier}';
 
 const pagesGlob = import.meta.glob(${JSON.stringify(pagesGlobPath)});
 const layoutsGlob = ${layoutsGlobSource};

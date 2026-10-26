@@ -95,9 +95,21 @@ The tree above generates `/`, `/users`, and `/users/:id`.
 
 ### Setup notes
 
-- `next-vite-router` declares `react-router-dom` as a peer dependency. Recent
-  npm versions install peers automatically; if your package manager does not,
-  install `react-router-dom` explicitly.
+- `next-vite-router` needs one React Router install and declares both names as
+  optional peers, because npm has no way to say "either of these": install
+  `react-router-dom` (`>=6 <8`), or `react-router` alone from v7 up. In v7 the
+  `react-router-dom` package is only a re-export shim, and its own README tells a
+  migrated application to remove it. Optional peers are never installed on your
+  behalf, so make sure one of the two is in your `package.json`.
+- On a `react-router`-only install the plugin reads what the project actually
+  resolved at config time and adds a `react-router-dom` → `react-router` alias, so
+  the imports inside this package, the ones in the generated module, and the ones
+  in your own files all land on the core package. Your code may keep importing
+  from `react-router-dom` as every example here does, or switch to `react-router`;
+  both reach the same modules. `react-router` v6 without the shim is the one
+  combination this package cannot serve — v6 keeps `Link` in `react-router-dom` —
+  and the plugin warns with both fixes instead of rewriting imports to components
+  that do not exist.
 - The plugin ships both ESM and CJS, so it works when `package.json` has no
   `"type": "module"` (Vite 5 loads `vite.config.ts` with `require()` in that
   case). Rename the file to `vite.config.mts` to force ESM.
@@ -576,7 +588,8 @@ of the Vite plugin.
 | Package | Supported versions |
 | --- | --- |
 | React / React DOM | `>=18 <20` |
-| React Router DOM | `>=6 <8` |
+| React Router (`react-router-dom`) | `>=6 <8` |
+| React Router (`react-router`, installed alone) | `>=7 <8` |
 | Vite | `>=5 <9` |
 | Node | `>=20` |
 
@@ -586,7 +599,9 @@ combination installs the published tarball into the app under
 [`test/compat-app`](./test/compat-app), builds it for the browser and for the
 server, then renders its route tree through `renderToPipeableStream`, so a
 combination has to paint layouts, dynamic and catch-all parameters, `not-found`
-and the generated `href`/`Link` — not merely compile.
+and the generated `href`/`Link` — not merely compile. One further job runs the
+same app with `react-router` v7 and **no** `react-router-dom` at all, so the
+substitution is proven by a render instead of by this table.
 
 ## Examples
 

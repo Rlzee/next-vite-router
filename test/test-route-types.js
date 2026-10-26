@@ -424,6 +424,122 @@ try {
   fs.rmSync(lazyLayoutRoot, { recursive: true, force: true });
 }
 
+// React Router v7 moved every export into `react-router` and left
+// `react-router-dom` as a re-export shim that its own README tells a migrated
+// application to remove. An install without the shim has to resolve the router
+// through the core package, so the plugin reads what the project actually
+// installed, contributes the alias Vite then applies to every import (this
+// package's own `dist` included), and writes the generated module and the
+// declaration against a specifier the project can resolve. These roots live
+// outside the repository on purpose: resolution walks upward, so a directory
+// under `test/` would find the workspace's own `react-router-dom`.
+const routerRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-router-"));
+const routerRoot6 = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-router6-"));
+
+// A minimal installed package: a manifest Node can resolve and a real entry file,
+// which is all the plugin's lookup needs to answer for it.
+function writeInstalledPackage(root, name, version) {
+  const packageDir = path.join(root, "node_modules", name);
+  fs.mkdirSync(packageDir, { recursive: true });
+  fs.writeFileSync(path.join(packageDir, "index.js"), "module.exports = {};\n");
+  fs.writeFileSync(
+    path.join(packageDir, "package.json"),
+    JSON.stringify({ name, version, main: "index.js" }),
+  );
+}
+
+function writeRouterApp(root) {
+  fs.mkdirSync(path.join(root, "src", "app"), { recursive: true });
+  fs.writeFileSync(path.join(root, "src", "app", "page.tsx"), "");
+}
+
+try {
+  writeRouterApp(routerRoot);
+  writeInstalledPackage(routerRoot, "react-router", "7.18.4");
+
+  const routerOnlyPlugin = nextViteRouter();
+  const contributed = routerOnlyPlugin.config({ root: routerRoot });
+  assert.deepEqual(
+    contributed?.resolve?.alias,
+    [{ find: /^react-router-dom$/, replacement: "react-router" }],
+    "an install without react-router-dom must alias the shim onto react-router",
+  );
+
+  const routerOnlyWarnings = [];
+  routerOnlyPlugin.configResolved({
+    root: routerRoot,
+    logger: { warn: (message) => routerOnlyWarnings.push(message) },
+  });
+  const routerOnlyModule = routerOnlyPlugin.load("\0next-vite-router/routes");
+  const routerOnlyDeclaration = fs.readFileSync(
+    path.join(routerRoot, "src", "virtual-next-vite-router.d.ts"),
+    "utf8",
+  );
+  assert.match(routerOnlyModule, /import \{ useRoutes \} from 'react-router'/);
+  assert.doesNotMatch(routerOnlyModule, /react-router-dom/);
+  assert.match(
+    routerOnlyDeclaration,
+    /import type \{ LinkProps as ReactRouterLinkProps, RouteObject \} from 'react-router';/,
+  );
+  assert.doesNotMatch(routerOnlyDeclaration, /react-router-dom/);
+  // Nothing to report: this install is served by the substitution.
+  assert.deepEqual(routerOnlyWarnings, []);
+
+  // The shim still wins as soon as it is installed, so an existing project keeps
+  // the specifiers it has today and its own React Router imports stay untouched.
+  writeInstalledPackage(routerRoot, "react-router-dom", "7.18.4");
+  const shimPlugin = nextViteRouter();
+  assert.equal(shimPlugin.config({ root: routerRoot }), undefined);
+  const shimWarnings = [];
+  shimPlugin.configResolved({
+    root: routerRoot,
+    logger: { warn: (message) => shimWarnings.push(message) },
+  });
+  assert.match(
+    shimPlugin.load("\0next-vite-router/routes"),
+    /import \{ useRoutes \} from 'react-router-dom'/,
+  );
+  assert.deepEqual(shimWarnings, []);
+
+  // `react-router` v6 has no `Link`, so it cannot stand in for the shim. The
+  // plugin leaves the specifier alone and says what to install, instead of
+  // emitting imports for components the installed package does not export.
+  writeRouterApp(routerRoot6);
+  writeInstalledPackage(routerRoot6, "react-router", "6.30.6");
+  const coreV6Plugin = nextViteRouter();
+  assert.equal(coreV6Plugin.config({ root: routerRoot6 }), undefined);
+  const coreV6Warnings = [];
+  coreV6Plugin.configResolved({
+    root: routerRoot6,
+    logger: { warn: (message) => coreV6Warnings.push(message) },
+  });
+  assert.equal(coreV6Warnings.length, 1, "a v6-only install must be reported once");
+  assert.match(coreV6Warnings[0], /"react-router" 6\.30\.6 is installed but "react-router-dom" is not/);
+  assert.match(coreV6Warnings[0], /Install "react-router-dom@6"/);
+
+  // And an install that has neither router package is left to Vite's own
+  // "failed to resolve" error rather than a plugin message it does not need.
+  const bareRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-norouter-"));
+  try {
+    writeRouterApp(bareRoot);
+    const barePlugin = nextViteRouter();
+    assert.equal(barePlugin.config({ root: bareRoot }), undefined);
+    const bareWarnings = [];
+    barePlugin.configResolved({
+      root: bareRoot,
+      logger: { warn: (message) => bareWarnings.push(message) },
+    });
+    assert.deepEqual(bareWarnings, []);
+  } finally {
+    fs.rmSync(bareRoot, { recursive: true, force: true });
+  }
+
+  console.log("✅ react-router is substituted when the react-router-dom shim is absent");
+} finally {
+  fs.rmSync(routerRoot, { recursive: true, force: true });
+  fs.rmSync(routerRoot6, { recursive: true, force: true });
+}
+
 const nestedAppRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-nested-"));
 const nestedPagesRoot = path.join(nestedAppRoot, "app", "docs", "app");
 fs.mkdirSync(nestedPagesRoot, { recursive: true });

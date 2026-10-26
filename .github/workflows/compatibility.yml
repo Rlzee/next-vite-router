@@ -130,3 +130,85 @@ jobs:
           entry=$(find dist-ssr -maxdepth 1 -name 'entry-server.*' -print -quit)
           echo "rendering with $entry"
           node "$entry"
+
+  # React Router v7 moved every export into `react-router` and left
+  # `react-router-dom` as a re-export shim whose own README tells a migrated
+  # application to remove it. This job removes it: the fixture app keeps importing
+  # `react-router-dom` (as do this package's own `dist` files and the generated
+  # module), and the plugin has to substitute the core package for it. Without
+  # this leg the support is only claimed, never built or rendered.
+  react-router-only:
+    name: Router react-router only (Vite ${{ matrix.vite }} / React ${{ matrix.react }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        react: ["18.3.1", "19.2.0"]
+        router: ["7.18.4"]
+        vite: ["5.4.21", "8.0.0"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install package dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build package
+        run: pnpm run build
+
+      - name: Pack package
+        shell: bash
+        run: echo "PACKAGE_TARBALL=$(pnpm pack --pack-destination "$RUNNER_TEMP" | tail -n 1)" >> "$GITHUB_ENV"
+
+      - name: Create compatibility app
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/compat-app"
+          cp -R test/compat-app/. "$RUNNER_TEMP/compat-app/"
+          # No `react-router-dom` in this app, on purpose.
+          cat > "$RUNNER_TEMP/compat-app/package.json" <<EOF
+          {
+            "private": true,
+            "type": "module",
+            "dependencies": {
+              "next-vite-router": "file:$PACKAGE_TARBALL",
+              "react": "${{ matrix.react }}",
+              "react-dom": "${{ matrix.react }}",
+              "react-router": "${{ matrix.router }}"
+            },
+            "devDependencies": {
+              "vite": "${{ matrix.vite }}"
+            }
+          }
+          EOF
+
+      - name: Install compatibility app
+        working-directory: ${{ runner.temp }}/compat-app
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Build compatibility app (client)
+        working-directory: ${{ runner.temp }}/compat-app
+        run: pnpm exec vite build
+
+      - name: Build compatibility app (SSR)
+        working-directory: ${{ runner.temp }}/compat-app
+        run: pnpm exec vite build --ssr src/entry-server.tsx --outDir dist-ssr
+
+      - name: Render compatibility app (streamed SSR smoke test)
+        working-directory: ${{ runner.temp }}/compat-app
+        env:
+          NODE_ENV: production
+        shell: bash
+        run: |
+          entry=$(find dist-ssr -maxdepth 1 -name 'entry-server.*' -print -quit)
+          echo "rendering with $entry"
+          node "$entry"

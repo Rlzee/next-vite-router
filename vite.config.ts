@@ -24,9 +24,10 @@ export default defineConfig({
         'react-dom',
         'react-router-dom',
         'vite',
-        'node:fs',
-        'node:path',
-        'node:url',
+        // The plugin reads the application's installed router packages, so it
+        // needs the Node builtins as a group (`node:module` for `createRequire`).
+        // Listing them one by one meant every new builtin broke the build.
+        /^node:/,
       ],
       output: {
         exports: 'named',

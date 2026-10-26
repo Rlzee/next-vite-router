@@ -12,8 +12,49 @@ const peers = packageJson.peerDependencies;
 
 assert.equal(peers.react, ">=18 <20");
 assert.equal(peers["react-dom"], ">=18 <20");
+assert.equal(peers["react-router"], ">=6 <8");
 assert.equal(peers["react-router-dom"], ">=6 <8");
 assert.equal(peers.vite, ">=5 <9");
+
+// An application installs the router one of two ways: `react-router-dom` (every
+// supported major - and in v7 that package is only a shim over `react-router`),
+// or `react-router` v7+ on its own, which is what React Router's own upgrade
+// guide tells a migrated app to do. npm cannot express an either/or peer, so both
+// are declared with their ranges and both are marked optional; the plugin picks
+// one at config time and refuses the combination it cannot serve (v6 core, no
+// shim). Any other peer stays required, because an optional marker there would
+// let an install pass that cannot run at all.
+const optionalPeers = Object.keys(packageJson.peerDependenciesMeta ?? {});
+assert.deepEqual(
+  [...optionalPeers].sort(),
+  ["react-router", "react-router-dom"],
+  "only the two interchangeable router peers may carry peerDependenciesMeta",
+);
+for (const name of optionalPeers) {
+  assert.equal(
+    packageJson.peerDependenciesMeta[name].optional,
+    true,
+    `"${name}" must be an optional peer so the other one can be installed alone`,
+  );
+  assert.ok(
+    peers[name],
+    `"${name}" is optional but declares no accepted version range`,
+  );
+}
+for (const name of ["react", "react-dom", "vite"]) {
+  assert.equal(
+    packageJson.peerDependenciesMeta?.[name],
+    undefined,
+    `"${name}" is not optional: every install needs it`,
+  );
+}
+// Marking both router peers optional also means no package manager installs one
+// on the library's behalf. The unit tests import `react-router-dom`, so the suite
+// has to own that dependency instead of relying on a peer being auto-installed.
+assert.ok(
+  packageJson.devDependencies?.["react-router-dom"],
+  "react-router-dom must be a devDependency: optional peers are never auto-installed",
+);
 
 // `engines.node` is a promise about every shipped entry point, and the CLI drags
 // in `commander`, which declares its own Node floor. If a runtime dependency asks
@@ -284,7 +325,64 @@ assert.match(
   "the SSR entry must render through a real stream",
 );
 
+// The `react-router`-only leg is what makes the optional peer above a promise
+// instead of a wish: the fixture app keeps importing `react-router-dom` (so does
+// this package's own `dist`), and on an install that removed the v7 shim the
+// plugin has to resolve the router through `react-router` instead.
+const workflowLines = workflowSource.split(/\r?\n/);
+const routerOnlyStart = workflowLines.findIndex((line) =>
+  /^ {2}react-router-only:$/.test(line),
+);
+assert.ok(
+  routerOnlyStart >= 0,
+  "the workflow must keep a job that installs react-router without react-router-dom",
+);
+// A job body runs until the next job key at the same indentation.
+const routerOnlyBodyLines = [];
+for (const line of workflowLines.slice(routerOnlyStart + 1)) {
+  if (/^ {2}\S/.test(line)) break;
+  routerOnlyBodyLines.push(line);
+}
+const routerOnlyBody = routerOnlyBodyLines.join("\n");
+assert.match(
+  routerOnlyBody,
+  /"react-router": "\$\{\{ matrix\.router \}\}"/,
+  "the react-router-only job must install the router through the matrix version",
+);
+assert.doesNotMatch(
+  routerOnlyBody,
+  /"react-router-dom":/,
+  "the react-router-only job must not install the shim it is testing the absence of",
+);
+assert.match(
+  routerOnlyBody,
+  /cp -R test\/compat-app\//,
+  "the react-router-only job must build the same fixture app",
+);
+const routerOnlyPins = /router: \[([^\]]*)\]/.exec(routerOnlyBody);
+assert.ok(
+  routerOnlyPins,
+  "the react-router-only job must pin the react-router versions it installs",
+);
+const routerPeerBounds = peerBounds(peers["react-router"]);
+for (const pin of [...routerOnlyPins[1].matchAll(/"([^"]+)"/g)].map((match) => match[1])) {
+  const major = Number(pin.split(".")[0]);
+  assert.ok(
+    major >= routerPeerBounds.lowest && major <= routerPeerBounds.highest,
+    `the react-router-only job pins ${pin}, outside the declared range "${peers["react-router"]}"`,
+  );
+  // `react-router` v6 has no `Link`, so substituting it for the shim is only
+  // sound from v7 up - pinning a lower major here would test a refusal.
+  assert.ok(
+    major >= 7,
+    `the react-router-only job pins ${pin}, but only react-router 7.x can stand in for the shim`,
+  );
+}
+
 console.log("✅ Peer dependency ranges are explicit and bounded");
+console.log(
+  "✅ The two interchangeable router peers are declared optional, the rest are required",
+);
 console.log(
   `✅ engines.node ${packageJson.engines.node} covers every runtime dependency floor`,
 );
@@ -296,3 +394,6 @@ console.log(
   `✅ The compatibility matrix covers the full peer range of ${Object.values(MATRIX_PEER_KEYS).join(", ")}`,
 );
 console.log("✅ The compatibility job renders the fixture app, not only builds it");
+console.log(
+  "✅ The compatibility matrix proves react-router works without react-router-dom",
+);
