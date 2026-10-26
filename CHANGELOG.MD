@@ -2,6 +2,138 @@
 
 All notable changes to this project are documented in this file.
 
+## [Unreleased]
+
+Breaking, and therefore slated for **4.0.0** rather than a 3.x patch: the removed
+exports below were all published, and the generated declaration changes file name.
+Nothing here is released yet, so the section is kept until the batch is worth the
+major.
+
+### Removed (breaking)
+
+- `RouteTreeOptions.lazyLayouts`, published since 2.1.0, is gone. A layouts record
+  now declares its shape with `layoutShape` only:
+
+  ```diff
+  - buildRouteTree(pages, layouts, notFounds, fileOptions, { lazyLayouts: true })
+  + buildRouteTree(pages, layouts, notFounds, fileOptions, { layoutShape: "loader" })
+  ```
+
+  The Vite plugin's `nextViteRouter({ lazyLayouts: true })` option is **not**
+  removed: it selects the glob shape it always selected and emits
+  `{ layoutShape: "loader" }` beside that glob, so a project driven by the plugin
+  never met the deleted option. Only hand-built records are affected.
+- `normalizeSegment`, exported from the package root since before 3.0.0. The
+  file-convention rules live in `parseRouteSegments` (which validates) and
+  `routeSegmentToPath` (which converts); nothing inside the package called the
+  wrapper, so keeping it meant keeping a second copy of the rules free to drift.
+- The zero-argument `clearLazyCache()`, deprecated in 2.0.1 when lazy caches
+  stopped being a package-wide singleton. `cache` is now a required parameter and
+  the instance to pass is the one a generator owns. Old callers fail TypeScript
+  compilation; at runtime the removed form had nothing left to clear anyway.
+
+  These three were deleted outright instead of being kept as `@deprecated` aliases
+  until a later major: a clean surface beats a shim that only postpones the same
+  break.
+- `guardEagerLayout`, which wrapped an eager layout to find out what it was.
+  Calling or inspecting a value to tell a component from a loader is the guessing
+  this release stops doing; see `layoutShape`.
+
+### Added
+
+- **`layoutShape`** (`LayoutRecordShape = "module" | "component" | "loader"`,
+  exported from the root) on `buildRouteTree()` and `createRouteGenerator()`:
+  `"module"` (default) reads module namespaces from `{ eager: true }`,
+  `"component"` accepts entries unwrapped by `{ eager: true, import: "default" }`
+  - a component or a class, kept with its identity - and `"loader"` reads
+  `() => import("...")` from a non-eager glob so Vite emits a chunk per layout,
+  while module entries in the same record stay eager. The shape is **declared, not
+  inferred**: a bare function left at the default shape is refused while the tree
+  is built, naming the offending `layout.tsx` and offering both declarations,
+  because an unwrapped eager component and a non-eager loader are indistinguishable
+  as values. The one gap no declaration can close - a record that lies about
+  itself - is documented rather than papered over.
+- **React Router v7 applications without the `react-router-dom` shim.** v7 folded
+  the whole API into `react-router` and left the old package as a re-export shim
+  whose README tells a migrated app to remove it. The plugin now resolves the
+  router from the application at config time, and when the shim is absent and
+  `react-router` is 7 or newer it contributes a `react-router-dom` ->
+  `react-router` alias and writes the generated module and the route declaration
+  against `react-router`, so this package's own imports, the generated ones and the
+  application's all land on what is installed. `react-router` v6 on its own is the
+  one combination that cannot work (v6 keeps `Link` in the shim): it is reported
+  with both fixes instead of rewritten. `react-router` `>=6 <8` joins the peers,
+  and both router peers are `optional` in `peerDependenciesMeta` because npm has no
+  way to declare an either/or peer.
+- **`next-vite-router configure`** wires the package into a Vite project that
+  already exists: `--dir <path>`, `--no-src` for a root-level `app/` folder,
+  `--tailwind`, and `--yes` to accept that an existing `main.tsx` is replaced. It
+  rewrites `vite.config.ts`, the tsconfigs and `index.html` in place, is safe to
+  run twice, and reports leftover template files instead of deleting anything the
+  project authored.
+
+### Changed
+
+- **Breaking:** the generated declaration file is `routes.d.ts`, named after the
+  module it declares (`next-vite-router/routes`) rather than after the
+  `virtual:next-vite-router` specifier that 3.0.0 retired. Same place - beside the
+  pages directory - same working-tree artifact, so refresh the `.gitignore` entry
+  you copied from the README or let the CLI re-add it. The build that writes
+  `routes.d.ts` also removes a sibling `virtual-next-vite-router.d.ts`, but only
+  one carrying `declare module 'next-vite-router/routes'`: a leftover copy declares
+  that module twice, and TypeScript merges ambient module bodies, so every alias
+  inside reports `TS2300: Duplicate identifier` - or, under the `skipLibCheck` the
+  Vite templates enable, keeps serving the stale route union in silence.
+- **Breaking for a hand-written `routes.d.ts`:** the plugin writes only the
+  declaration files it recognises as its own. An existing file without that marker
+  is left untouched and the refusal is warned about - `routes.d.ts` is a generic
+  enough name that an application may already use it for its own route table, and a
+  build must not destroy it.
+- Everything this package orders and emits is sorted by UTF-16 code unit instead of
+  `String.prototype.localeCompare`: the `RoutePath` union, the route tree's
+  children, and the file lists in conflict errors. The same folder tree now yields
+  byte-identical output on every machine and locale, so a build host's ICU data
+  cannot cause review diffs or bust a cache.
+
+### Fixed
+
+- A required catch-all no longer swallows its own base URL. `[...slug]` used to
+  match `/blog` with an empty splat; the folder now gets a guard index route that
+  renders the nearest `not-found`, and a `not-found.tsx` beside the catch-all folder
+  is accepted as that fallback, the way Next.js answers it. A root-level required
+  catch-all coexisting with a root page is now reported as the collision it is,
+  since both would answer `/`.
+
+### Tests
+
+- The compatibility matrix now *renders* the fixture app for every React / Router /
+  Vite combination instead of only bundling it (`test/compat-app`, streamed through
+  `renderToPipeableStream`), and `test/test-compatibility.js` pins the matrix
+  versions against the published peer ranges, the `engines.node` floor against every
+  runtime dependency's own, and the CLI's install commands.
+- A `react-router-only` CI job builds and renders the same fixture with no
+  `react-router-dom` installed, so the substitution is proven by a render instead of
+  by a sentence in the README.
+- Router detection is pinned on every branch: shim present, `react-router` 7 alone,
+  `react-router` 6 alone, nothing installed, an explicit `root`, a relative `root`,
+  and the no-`root` fallback - the last from a child process whose working
+  directory is a react-router-only project, because the suite's own cwd cannot tell
+  a fallback from an explicit value.
+- Layout record shapes: loaders, eager modules, unwrapped components, classes, mixed
+  records, the ambiguous refusal, and a lying declaration reaching React.
+- Declaration authorship: a marked legacy copy is removed, a foreign one survives,
+  and an application-owned `routes.d.ts` is refused with exactly one warning.
+- The catch-all base fallback, the guard index route shape, the new collision rule,
+  the `configure` command, and the `create` guards.
+
+### Documentation
+
+- README: the two supported router installs and what happens on a shim-free one;
+  the `layoutShape` table with the misdeclaration nothing can catch;
+  `next-vite-router configure` and its flags; where `routes.d.ts` is written, why it
+  stays ignored, and the authorship marker; how catch-all folders and `not-found`
+  answer a base path.
+
 ## [3.0.0] - 2026-10-24
 
 ### Removed (breaking)
