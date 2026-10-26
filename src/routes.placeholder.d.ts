@@ -1,3 +1,7 @@
+// Ambient fallback for this package's own sources: the generated declaration is
+// only ever written into an application, so `next-vite-router/routes` needs a
+// local shape to type-check against. Named apart from the generated file
+// (`routes.d.ts`) so the two never collide.
 declare module 'next-vite-router/routes' {
   import type { ReactElement } from 'react';
   import type { LinkProps as ReactRouterLinkProps, RouteObject } from 'react-router-dom';

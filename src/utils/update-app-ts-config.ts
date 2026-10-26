@@ -1,6 +1,7 @@
 import path from "path";
 import fs from "fs";
 import { stripJsonComments } from "./strip-json-comments";
+import { ROUTE_DECLARATION_FILE_NAME } from "./route-declaration";
 
 /**
  * Update tsconfig.app.json
@@ -27,7 +28,7 @@ export function updateAppTsConfig(projectDir: string, src: boolean) {
     tsConfigApp.include = [
       "./**/*.ts",
       "./**/*.tsx",
-      "virtual-next-vite-router.d.ts",
+      ROUTE_DECLARATION_FILE_NAME,
     ];
   } else {
     tsConfigApp.include = ["src"];

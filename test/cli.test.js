@@ -207,7 +207,7 @@ test("configure wires an existing src/ project without deleting from it", () => 
     assert.match(read(path.join(project, "src", "main.tsx")), /from 'next-vite-router\/routes'/);
     assert.match(read(path.join(project, "src", "globals.css")), /box-sizing: border-box/);
     assert.match(
-      read(path.join(project, "src", "virtual-next-vite-router.d.ts")),
+      read(path.join(project, "src", "routes.d.ts")),
       /declare module 'next-vite-router\/routes'/,
     );
 
@@ -215,7 +215,7 @@ test("configure wires an existing src/ project without deleting from it", () => 
     // scaffold has to ignore it.
     assert.match(
       read(path.join(project, ".gitignore")),
-      /^src\/virtual-next-vite-router\.d\.ts$/m,
+      /^src\/routes\.d\.ts$/m,
     );
 
     // Alias and include for the src layout; the entry script keeps pointing at it.
@@ -274,7 +274,7 @@ test("configure --no-src moves the generated structure to the project root", () 
     assert.match(read(path.join(project, "index.html")), /src="\/main\.tsx"/);
     assert.match(
       read(path.join(project, ".gitignore")),
-      /^virtual-next-vite-router\.d\.ts$/m,
+      /^routes\.d\.ts$/m,
     );
     assert.equal(fs.existsSync(path.join(project, "src", "app")), false);
     // src/ itself survives: a project may still import from it.

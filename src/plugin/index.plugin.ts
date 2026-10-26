@@ -12,6 +12,11 @@ import {
   type RouteSegment,
 } from "../utils/path";
 import { assertNoRouteConflicts } from "../routes/tree";
+import {
+  LEGACY_ROUTE_DECLARATION_FILE_NAMES,
+  ROUTE_DECLARATION_FILE_NAME,
+  ROUTE_DECLARATION_MARKER,
+} from "../utils/route-declaration";
 
 export type NextViteRouterPluginOptions = {
   pagesDir?: string;
@@ -384,7 +389,66 @@ export function nextViteRouter(
   let viteLogger: Logger | undefined;
   let watchedServer: ViteDevServer | undefined;
   let removeWatcherListeners: (() => void) | undefined;
+
+  /**
+   * Route types power editor completion and typed `href` only, so every problem
+   * here degrades to a warning instead of failing the build or the dev server.
+   */
+  function reportRouteTypesIssue(message: string): void {
+    if (viteLogger) {
+      viteLogger.warn(message);
+    } else {
+      console.warn(message);
+    }
+  }
+
+  /** Contents of a declaration file: `undefined` when absent, `""` when unreadable. */
+  function readDeclaration(file: string): string | undefined {
+    try {
+      return fs.readFileSync(file, "utf-8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      // Locked or unreadable: treat it as a file this plugin did not write, which
+      // is the only assumption that can neither overwrite nor delete it.
+      return "";
+    }
+  }
+
+  /** Drop declarations this package wrote under names it no longer uses. */
+  function removeLegacyDeclarations(): void {
+    const directory = path.dirname(declarationPath);
+    for (const name of LEGACY_ROUTE_DECLARATION_FILE_NAMES) {
+      const legacyPath = path.join(directory, name);
+      const content = readDeclaration(legacyPath);
+      // Only a copy this package authored; a project's own file keeps its place.
+      if (content === undefined || !content.includes(ROUTE_DECLARATION_MARKER)) continue;
+      try {
+        fs.rmSync(legacyPath);
+      } catch (error) {
+        reportRouteTypesIssue(
+          `next-vite-router could not remove the outdated route declaration ${legacyPath}: ` +
+          `${error instanceof Error ? error.message : String(error)}. Delete it, or TypeScript ` +
+          `merges it with ${ROUTE_DECLARATION_FILE_NAME} and reports duplicate identifiers.`,
+        );
+      }
+    }
+  }
+
   function writeRouteTypes(): void {
+    // `routes.d.ts` is a name an application may well own - hand-written route
+    // tables use it - so the plugin writes only files it recognises as its own.
+    // Refusing costs typed completion, which is reported; overwriting would
+    // silently destroy code the project authored.
+    const existing = readDeclaration(declarationPath);
+    if (existing !== undefined && !existing.includes(ROUTE_DECLARATION_MARKER)) {
+      reportRouteTypesIssue(
+        `next-vite-router did not write route types: ${declarationPath} is not a file this plugin ` +
+        "generated. Rename or move that file, and the declaration will be written on the next build; " +
+        "until then `next-vite-router/routes` has no declaration and TypeScript cannot resolve it.",
+      );
+      return;
+    }
+
     const content = createRouteTypes(
       collectRoutePaths(pagesRoot, fileOptions, normalizedPagesDir),
       routerSpecifier,
@@ -396,17 +460,17 @@ export function nextViteRouter(
       fs.mkdirSync(path.dirname(declarationPath), { recursive: true });
       fs.writeFileSync(declarationPath, content, "utf-8");
     } catch (error) {
-      // Route types only power editor completions, so a failed write degrades
-      // to a warning instead of failing the build or the dev server.
-      const message = `next-vite-router could not write route types to ${declarationPath}: ${
-        error instanceof Error ? error.message : String(error)
-      }`;
-      if (viteLogger) {
-        viteLogger.warn(message);
-      } else {
-        console.warn(message);
-      }
+      reportRouteTypesIssue(
+        `next-vite-router could not write route types to ${declarationPath}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return;
     }
+
+    // Only once the current declaration exists: if the write failed, the older
+    // copy is still the best completion available.
+    removeLegacyDeclarations();
   }
 
   return {
@@ -439,7 +503,7 @@ export function nextViteRouter(
         routerSpecifier = resolveRouterSpecifier(routerResolveRoot, config.logger);
       }
       pagesRoot = path.resolve(config.root, normalizedPagesDir);
-      declarationPath = path.join(path.dirname(pagesRoot), "virtual-next-vite-router.d.ts");
+      declarationPath = path.join(path.dirname(pagesRoot), ROUTE_DECLARATION_FILE_NAME);
       viteLogger = config.logger;
       assertNoRouteConflicts(
         collectPageFiles(pagesRoot, pageFile, normalizedPagesDir),

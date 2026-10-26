@@ -1,19 +1,22 @@
 import fs from "fs";
 import path from "path";
+import { ROUTE_DECLARATION_FILE_NAME } from "./route-declaration";
 
 /**
- * Create virtual-next-vite-router.d.ts file
+ * Create the route declaration file (`routes.d.ts`, named by the shared constant
+ * the Vite plugin writes to as well) so `next-vite-router/routes` resolves from
+ * the first editor session, before anything has been built.
  * @param projectDir - project directory
  * @param useSrc - if true, the file is placed in src/, otherwise at the root
  */
-export function createVirtualDTS(projectDir: string, useSrc: boolean) {
+export function createRoutesDeclaration(projectDir: string, useSrc: boolean) {
   const targetDir = useSrc ? path.join(projectDir, "src") : projectDir;
 
   if (useSrc && !fs.existsSync(targetDir)) {
     fs.mkdirSync(targetDir, { recursive: true });
   }
 
-  const filePath = path.join(targetDir, "virtual-next-vite-router.d.ts");
+  const filePath = path.join(targetDir, ROUTE_DECLARATION_FILE_NAME);
 
   const content = `declare module 'next-vite-router/routes' {
   import type { ReactElement } from 'react';
@@ -60,8 +63,8 @@ export function createVirtualDTS(projectDir: string, useSrc: boolean) {
 
   const gitignorePath = path.join(projectDir, ".gitignore");
   const entry = useSrc
-    ? "src/virtual-next-vite-router.d.ts"
-    : "virtual-next-vite-router.d.ts";
+    ? `src/${ROUTE_DECLARATION_FILE_NAME}`
+    : ROUTE_DECLARATION_FILE_NAME;
   const currentGitignore = fs.existsSync(gitignorePath)
     ? fs.readFileSync(gitignorePath, "utf-8")
     : "";

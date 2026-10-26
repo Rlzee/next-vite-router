@@ -42,7 +42,11 @@ coverage/
 # beside the pages directory (so `src/` for the default `src/app`). A plain
 # `vite build` rewrites them; they are derived from the folder tree and must
 # never be committed. The pattern is unanchored to cover every fixture, the
-# example app, and any project scaffolded inside the repository.
+# example app, and any project scaffolded inside the repository - which is also
+# why the plugin refuses to overwrite a `routes.d.ts` it did not generate, and
+# why a hand-authored file of that name has to live somewhere else. The old
+# generated name stays listed until the plugin has removed those copies.
+routes.d.ts
 virtual-next-vite-router.d.ts
 # Artifacts of building the compatibility fixture locally
 /test/compat-app/dist-ssr/

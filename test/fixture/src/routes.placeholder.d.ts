@@ -1,7 +1,7 @@
 // Checked-in snapshot of the declaration the Vite plugin generates for this
 // fixture, so the project type-checks in an editor before any test runs.
 // `node test/test-route-types.js` regenerates it and compares, which keeps this
-// file honest; the real `virtual-next-vite-router.d.ts` stays gitignored.
+// file honest; the real `routes.d.ts` stays gitignored.
 
 declare module 'next-vite-router/routes' {
   import type { ReactElement } from 'react';

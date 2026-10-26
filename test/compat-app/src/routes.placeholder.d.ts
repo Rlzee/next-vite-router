@@ -2,8 +2,8 @@
 // temporary directory (the CI compatibility job copies it next to the packed
 // tarball), so the declaration the Vite plugin writes does not appear in the
 // repository. These widened shapes keep the fixture readable; building it in
-// place produces the real `virtual-next-vite-router.d.ts` beside this file,
-// which pins `RoutePath` to the routes the fixture actually declares.
+// place produces the real `routes.d.ts` beside this file, which pins
+// `RoutePath` to the routes the fixture actually declares.
 declare module "next-vite-router/routes" {
   import type { ReactElement } from "react";
   import type { LinkProps as ReactRouterLinkProps, RouteObject } from "react-router-dom";

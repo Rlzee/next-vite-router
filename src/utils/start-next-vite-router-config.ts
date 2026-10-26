@@ -6,7 +6,7 @@ import {
 import { updateAppTsConfig } from "./update-app-ts-config";
 import { updateTsConfigJson } from "./update-tsconfig-json";
 import { updateIndexHtml } from "./update-index-html";
-import { createVirtualDTS } from "./create-virtual-dts";
+import { createRoutesDeclaration } from "./create-routes-dts";
 import { createMainTSX } from "./create-main-tsx";
 import { createGlobalsCss } from "./create-globals-css";
 import { createExampleStructure } from "./create-example-structure";
@@ -68,7 +68,7 @@ export function startNextViteRouterConfig({
 
   updateTsConfigJson(projectDir, src);
   updateAppTsConfig(projectDir, src);
-  createVirtualDTS(projectDir, src);
+  createRoutesDeclaration(projectDir, src);
   createMainTSX(projectDir, src);
   updateIndexHtml(projectDir, src);
   if (tailwindcss) {

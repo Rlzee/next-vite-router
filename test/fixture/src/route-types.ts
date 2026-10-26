@@ -1,6 +1,6 @@
-// The ambient module comes from ./virtual.d.ts in this project, and from the
-// declaration passed on the command line when the test suite compiles this file
-// against a freshly generated one.
+// The ambient module comes from ./routes.placeholder.d.ts in this project, and
+// from the declaration passed on the command line when the test suite compiles
+// this file against a freshly generated one.
 import { href, useCatchAll } from "next-vite-router/routes";
 import type {
   LinkProps,

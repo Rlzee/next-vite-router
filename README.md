@@ -343,9 +343,9 @@ reading and re-linking share one shape —
 
 ### Typed routes
 
-The Vite plugin generates `virtual-next-vite-router.d.ts` automatically, so no
-manual declaration is required. Invalid paths and missing dynamic parameters are
-reported by TypeScript.
+The Vite plugin generates `routes.d.ts` automatically, so no manual declaration
+is required. Invalid paths and missing dynamic parameters are reported by
+TypeScript.
 
 ```tsx
 import type { RouteParams, RoutePath } from "next-vite-router/routes";
@@ -369,8 +369,25 @@ CLI setup already appends it to `.gitignore`, and in a manually configured
 project you should add it yourself:
 
 ```gitignore
-virtual-next-vite-router.d.ts
+routes.d.ts
 ```
+
+The file is named after the module it declares, and the plugin never writes to a
+`routes.d.ts` it did not generate: an application's own `src/routes.d.ts` is left
+untouched and the refusal is reported instead, because silently replacing a
+hand-written route table with a generated declaration is a loss nobody notices in
+review. Move that file if you want the typed routes. (The placeholder trick works
+the other way too: the bundled examples and fixtures keep a hand-written
+`src/routes.placeholder.d.ts` under a **different** name, so the generated file can
+stay ignored and still be overwritten freely.)
+
+A project coming from the older generated name needs nothing from you: the build
+that writes `routes.d.ts` also deletes a sibling
+`virtual-next-vite-router.d.ts`, and only when the file carries this package's
+`declare module 'next-vite-router/routes'` line. A leftover copy would declare the
+same module twice, and TypeScript merges ambient module bodies — every alias
+inside then reports `TS2300: Duplicate identifier`, or, under the `skipLibCheck`
+the Vite templates enable, quietly keeps serving the stale route union.
 
 Nothing is lost by ignoring it: the file is derived entirely from the folder
 tree, so the next build recreates it byte for byte. Committing it only adds a
@@ -379,11 +396,7 @@ fails to find `next-vite-router/routes` until Vite has run once.
 
 Route paths are listed in UTF-16 code-unit order, never by locale collation, so
 the same folder tree yields the same declaration on every machine: no spurious
-review diffs and no cache bust caused by the build host's locale. To keep editor
-completion working in a fresh clone, before anything has been built, put a
-hand-written placeholder under a **different** name (the bundled examples and
-fixtures use `src/virtual.d.ts`) — the generated file can then stay ignored and
-still be overwritten freely.
+review diffs and no cache bust caused by the build host's locale.
 
 ### Using React Router directly
 

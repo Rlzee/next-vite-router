@@ -32,7 +32,7 @@ function createContext({ pagesDir = "src/app", initialFiles = [] } = {}) {
   const root = makeProject(pagesDir, initialFiles);
   const appRoot = path.join(root, ...pagesDir.split("/"));
   // The declaration is written next to the pages directory: dirname(<pagesRoot>).
-  const declarationPath = path.join(root, ...pagesDir.split("/").slice(0, -1), "virtual-next-vite-router.d.ts");
+  const declarationPath = path.join(root, ...pagesDir.split("/").slice(0, -1), "routes.d.ts");
 
   const plugin = nextViteRouter({ pagesDir });
   plugin.configResolved({ root });

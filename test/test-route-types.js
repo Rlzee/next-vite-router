@@ -35,7 +35,7 @@ const runTypeScript = (filePath, declarationFiles) => {
 // relative `../../../dist/...` imports keep pointing at the built library.
 const fixtureSource = path.resolve("test", "fixture");
 const projectRoot = fs.mkdtempSync(path.join(path.resolve("test"), "route-types-"));
-const declarationPath = path.join(projectRoot, "src", "virtual-next-vite-router.d.ts");
+const declarationPath = path.join(projectRoot, "src", "routes.d.ts");
 
 try {
   fs.cpSync(fixtureSource, projectRoot, { recursive: true });
@@ -66,10 +66,10 @@ try {
     .trim();
   assert.equal(
     withoutComments(
-      fs.readFileSync(path.join(fixtureSource, "src", "virtual.d.ts"), "utf8"),
+      fs.readFileSync(path.join(fixtureSource, "src", "routes.placeholder.d.ts"), "utf8"),
     ),
     withoutComments(declaration),
-    "test/fixture/src/virtual.d.ts no longer matches the generated declaration; refresh it",
+    "test/fixture/src/routes.placeholder.d.ts no longer matches the generated declaration; refresh it",
   );
 
   assert.match(declaration, /export type RoutePath =/);
@@ -315,7 +315,7 @@ try {
   fallbackPairPlugin.configResolved({ root: fallbackPairRoot });
 
   const fallbackPairDeclaration = fs.readFileSync(
-    path.join(fallbackPairRoot, "src", "virtual-next-vite-router.d.ts"),
+    path.join(fallbackPairRoot, "src", "routes.d.ts"),
     "utf8",
   );
   assert.match(fallbackPairDeclaration, /\| "\/docs\/\*"/);
@@ -344,7 +344,7 @@ try {
   customPlugin.configResolved({ root: customProjectRoot });
 
   const customDeclaration = fs.readFileSync(
-    path.join(customProjectRoot, "src", "virtual-next-vite-router.d.ts"),
+    path.join(customProjectRoot, "src", "routes.d.ts"),
     "utf8",
   );
   const customVirtualModule = customPlugin.load("\0next-vite-router/routes");
@@ -356,7 +356,7 @@ try {
   const customDeclarationPath = path.join(
     customProjectRoot,
     "src",
-    "virtual-next-vite-router.d.ts",
+    "routes.d.ts",
   );
   fs.writeFileSync(customTypesPath, `
 import type { RouteParams, RoutePath } from "next-vite-router/routes";
@@ -472,7 +472,7 @@ try {
   });
   const routerOnlyModule = routerOnlyPlugin.load("\0next-vite-router/routes");
   const routerOnlyDeclaration = fs.readFileSync(
-    path.join(routerRoot, "src", "virtual-next-vite-router.d.ts"),
+    path.join(routerRoot, "src", "routes.d.ts"),
     "utf8",
   );
   assert.match(routerOnlyModule, /import \{ useRoutes \} from 'react-router'/);
@@ -540,6 +540,74 @@ try {
   fs.rmSync(routerRoot6, { recursive: true, force: true });
 }
 
+// `routes.d.ts` is a name an application may already own, and the pre-rename
+// declaration is a file an upgrading project still has on disk. Both decisions
+// hinge on the marker this package writes, so both are pinned here: a foreign
+// `routes.d.ts` is never overwritten, and a legacy copy is deleted only when this
+// package wrote it - two bodies for one ambient module merge, and TypeScript then
+// reports every alias inside as a duplicate identifier.
+const declarationRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-declaration-"));
+const declarationMarker = "declare module 'next-vite-router/routes'";
+
+function makeDeclarationProject(name) {
+  const root = path.join(declarationRoot, name);
+  fs.mkdirSync(path.join(root, "src", "app"), { recursive: true });
+  fs.writeFileSync(path.join(root, "src", "app", "page.tsx"), "");
+  return root;
+}
+
+function runDeclarationWrite(root) {
+  const warnings = [];
+  const plugin = nextViteRouter();
+  plugin.configResolved({
+    root,
+    logger: { warn: (message) => warnings.push(message) },
+  });
+  return warnings;
+}
+
+try {
+  // The upgrade path: the new file is written and the stale copy this package
+  // generated goes with it.
+  const legacyRoot = makeDeclarationProject("legacy");
+  const legacyPath = path.join(legacyRoot, "src", "virtual-next-vite-router.d.ts");
+  fs.writeFileSync(legacyPath, `${declarationMarker} {\n  export type RoutePath = "/";\n}\n`);
+  assert.deepEqual(runDeclarationWrite(legacyRoot), []);
+  assert.ok(
+    fs.existsSync(path.join(legacyRoot, "src", "routes.d.ts")),
+    "the declaration must be written as routes.d.ts beside the pages directory",
+  );
+  assert.equal(
+    fs.existsSync(legacyPath),
+    false,
+    "a stale declaration this package wrote must not survive next to the new one",
+  );
+
+  // A file under the old name that this package did not write is none of its
+  // business, even though the name is one it used to generate.
+  const keptRoot = makeDeclarationProject("kept-legacy");
+  const keptPath = path.join(keptRoot, "src", "virtual-next-vite-router.d.ts");
+  const keptContent = "export type RouteTable = { path: string };\n";
+  fs.writeFileSync(keptPath, keptContent);
+  runDeclarationWrite(keptRoot);
+  assert.equal(fs.readFileSync(keptPath, "utf8"), keptContent);
+
+  // And the same rule protects the new name: `routes.d.ts` is generic enough that
+  // an application may have written its own, which a build must not replace.
+  const ownedRoot = makeDeclarationProject("app-owned");
+  const ownedPath = path.join(ownedRoot, "src", "routes.d.ts");
+  const ownedContent = "export type AppRoutes = { checkout: string };\n";
+  fs.writeFileSync(ownedPath, ownedContent);
+  const ownedWarnings = runDeclarationWrite(ownedRoot);
+  assert.equal(fs.readFileSync(ownedPath, "utf8"), ownedContent);
+  assert.equal(ownedWarnings.length, 1, "refusing to write must be reported once");
+  assert.match(ownedWarnings[0], /is not a file this plugin generated/);
+
+  console.log("✅ routes.d.ts is only written, and old declarations only removed, by their author");
+} finally {
+  fs.rmSync(declarationRoot, { recursive: true, force: true });
+}
+
 const nestedAppRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-nested-"));
 const nestedPagesRoot = path.join(nestedAppRoot, "app", "docs", "app");
 fs.mkdirSync(nestedPagesRoot, { recursive: true });
@@ -550,7 +618,7 @@ try {
   nestedPlugin.configResolved({ root: nestedAppRoot });
 
   const nestedDeclaration = fs.readFileSync(
-    path.join(nestedAppRoot, "virtual-next-vite-router.d.ts"),
+    path.join(nestedAppRoot, "routes.d.ts"),
     "utf8",
   );
   assert.match(nestedDeclaration, /\| "\/"/);
@@ -594,7 +662,7 @@ try {
   assert.match(relativeVirtualModule, /"pagesDir":"src\/app"/);
 
   const relativeDeclaration = fs.readFileSync(
-    path.join(relativePagesDirRoot, "src", "virtual-next-vite-router.d.ts"),
+    path.join(relativePagesDirRoot, "src", "routes.d.ts"),
     "utf8",
   );
   assert.match(relativeDeclaration, /\| "\/"/);
@@ -625,7 +693,7 @@ try {
   assert.match(backslashVirtualModule, /"pagesDir":"src\/app"/);
 
   const backslashDeclaration = fs.readFileSync(
-    path.join(backslashPagesDirRoot, "src", "virtual-next-vite-router.d.ts"),
+    path.join(backslashPagesDirRoot, "src", "routes.d.ts"),
     "utf8",
   );
   assert.match(backslashDeclaration, /\| "\/"/);
@@ -712,7 +780,7 @@ try {
     fs.mkdirSync(path.join(hmrPagesRoot, "(contact)"));
     fs.writeFileSync(path.join(hmrPagesRoot, "(contact)", "page.tsx"), "");
     const declarationBeforeCollision = fs.readFileSync(
-      path.join(hmrProjectRoot, "src", "virtual-next-vite-router.d.ts"),
+      path.join(hmrProjectRoot, "src", "routes.d.ts"),
       "utf8",
     );
     watcher.emit("add", path.join(hmrPagesRoot, "(contact)", "page.tsx"));
@@ -721,7 +789,7 @@ try {
     assert.equal(errors.length, 1);
     assert.equal(
       fs.readFileSync(
-        path.join(hmrProjectRoot, "src", "virtual-next-vite-router.d.ts"),
+        path.join(hmrProjectRoot, "src", "routes.d.ts"),
         "utf8",
       ),
       declarationBeforeCollision,
