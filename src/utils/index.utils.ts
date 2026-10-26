@@ -1,5 +1,4 @@
 export {
-  normalizeSegment,
   extractRoutePath,
   parseRouteSegments,
   routeSegmentToPath,

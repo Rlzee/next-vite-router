@@ -391,8 +391,7 @@ export function buildRouteTree(
   // both functions, and nothing here calls one to find out which it is. Each
   // shape therefore accepts exactly what its glob produces and rejects what it
   // cannot tell apart.
-  const shape: LayoutRecordShape =
-    options?.layoutShape ?? (options?.lazyLayouts === true ? 'loader' : 'module');
+  const shape: LayoutRecordShape = options?.layoutShape ?? 'module';
 
   Object.entries(layouts).forEach(([filePath, module]) => {
     const isFunction = typeof module === 'function';

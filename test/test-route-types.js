@@ -136,14 +136,14 @@ try {
   );
   // The generated module may only import what it uses or re-exports; a dead
   // import stays in the module graph of every app that loads the virtual module.
-  assert.doesNotMatch(virtualModule, /normalizeSegment|createLazyElement/);
+  assert.doesNotMatch(virtualModule, /createLazyElement/);
   assert.match(virtualModule, /routes \?\?= generateRoutes\(\)/);
   assert.match(virtualModule, /import\.meta\.glob\(["']\/src\/app\/\*\*\/page\.tsx["']\)/);
   assert.match(virtualModule, /import\.meta\.glob\(["']\/src\/app\/\*\*\/not-found\.tsx["']\)/);
   assert.match(virtualModule, /import\.meta\.glob\(["']\/src\/app\/\*\*\/layout\.tsx["'], \{ eager: true \}\)/);
-  // Layouts stay eager unless `lazyLayouts` is on, so the default module must
-  // not carry the runtime flag either.
-  assert.doesNotMatch(virtualModule, /\{ lazyLayouts:/);
+  // Layouts stay eager unless the plugin's `lazyLayouts` option is on, so the
+  // default module must not declare a non-eager record shape either.
+  assert.doesNotMatch(virtualModule, /layoutShape/);
   assert.match(virtualModule, /import\.meta\.hot\.accept\(\(\) => \{\s*routes = undefined;/);
 
   runTypeScript(path.join(projectRoot, "src", "route-types.ts"), [declarationPath]);

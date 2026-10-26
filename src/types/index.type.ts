@@ -18,8 +18,8 @@ export type RouteNode = {
   page?: RouteModuleLoader;
   layout?: ComponentType;
   /**
-   * Layout read out of a non-eager glob (`lazyLayouts`). Kept apart from
-   * `layout`, which always holds a ready component, because a component and a
+   * Layout read out of a non-eager glob (`layoutShape: "loader"`). Kept apart
+   * from `layout`, which always holds a ready component, because a component and a
    * module loader are both functions: only the glob's shape tells them apart,
    * so the choice has to be recorded instead of guessed.
    */
@@ -60,14 +60,4 @@ export type RouteTreeOptions = {
    * wrote, so only a hand-built record can declare itself wrongly.
    */
   layoutShape?: LayoutRecordShape;
-
-  /**
-   * Read `layout.tsx` entries as loaders (`() => import("...")`) instead of
-   * eagerly imported modules, so Vite emits a separate chunk per layout.
-   *
-   * @deprecated Use `layoutShape: "loader"`, which names the same thing as the
-   *   record shape it always described. Kept as an alias so existing manual
-   *   callers keep working; the Vite plugin emits `layoutShape` directly.
-   */
-  lazyLayouts?: boolean;
 }

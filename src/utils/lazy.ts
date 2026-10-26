@@ -22,23 +22,13 @@ export function createLazyCache(): LazyComponentCache {
 /**
  * Drop every memoized lazy component held by `cache`.
  *
- * The no-argument form is deprecated and kept only so an older caller does not
- * throw: caches stopped being a package-wide singleton, so there is nothing left
- * for it to clear and it can only warn. It goes away with the next major, which
- * also makes `cache` a required parameter.
+ * Caches stopped being a package-wide singleton, so the caller names the one it
+ * wants reset - usually the instance a generator owns (see `createLazyCache`).
  *
- * @param cache - The cache to reset. Pass the instance the generator owns.
+ * @param cache - The cache to reset.
  */
-export function clearLazyCache(cache?: LazyComponentCache): void {
-  if (cache) {
-    cache.clear();
-    return;
-  }
-
-  console.warn(
-    "next-vite-router: clearLazyCache() no longer clears a global cache. " +
-    "Pass the cache to reset, e.g. clearLazyCache(myCache).",
-  );
+export function clearLazyCache(cache: LazyComponentCache): void {
+  cache.clear();
 }
 
 /**

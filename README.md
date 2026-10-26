@@ -550,10 +550,9 @@ time**, with the file named and both declarations offered: that value is exactly
 what a non-eager glob produces, so accepting it silently would be guessing.
 Nothing is sniffed to soften that rule — not the value's source, not its
 `prototype`, so even a class layout, which no `() => import(...)` loader can be,
-is refused until the record says so. `{ lazyLayouts: true }` means
-`{ layoutShape: "loader" }` and is deprecated, and the plugin emits the
-declaration that matches the glob it generated — so a project built by the plugin
-never meets the error.
+is refused until the record says so. The plugin always emits the declaration that
+matches the glob it generated — `{ layoutShape: "loader" }` next to a non-eager
+layout glob — so a project built by the plugin never meets the error.
 
 What no declaration can catch is a wrong one: loaders passed as `"component"`
 reach React, which rejects the Promise they return
@@ -571,18 +570,6 @@ regeneration instead of being wrapped in a freshly created type.
 `createRouteGenerator(pages, layouts, notFounds, fileOptions, options)` returns a
 zero-argument `generateRoutes()`; use it when you drive the globs yourself instead
 of the Vite plugin.
-
-### Deprecated on the root entry
-
-Two exports are kept only for compatibility and will leave at the next major:
-
-- `normalizeSegment` — nothing inside the package uses it, and the segment rules
-  live in `parseRouteSegments` + `routeSegmentToPath`. It now forwards to those
-  two, so it behaves like the router (an invalid parameter name such as `[123]`
-  is rejected rather than converted to `:123`).
-- `clearLazyCache()` without an argument — lazy caches stopped being a
-  package-wide singleton, so there is nothing global left to clear and the call
-  can only warn. Pass the cache the generator owns: `clearLazyCache(myCache)`.
 
 ## Compatibility
 

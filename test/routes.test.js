@@ -14,7 +14,7 @@ import {
   resetRouterConfig,
   treeToRoutes,
 } from "../dist/index.js";
-import { extractRoutePath, parseRouteSegments, normalizeSegment } from "../dist/index.js";
+import { extractRoutePath, parseRouteSegments } from "../dist/index.js";
 // The navigation engine is not on the public root entry; the generated routes
 // module re-exports these, and tests import them from the internal build entry
 // that the generated module itself resolves by path.
@@ -829,20 +829,6 @@ describe("lazy component cache", () => {
     assert.notEqual(before, after);
   });
 
-  test("clearLazyCache() without a cache warns and clears nothing", () => {
-    const warnings = [];
-    const originalWarn = console.warn;
-    console.warn = (message) => warnings.push(message);
-    try {
-      clearLazyCache();
-    } finally {
-      console.warn = originalWarn;
-    }
-
-    assert.equal(warnings.length, 1);
-    assert.match(warnings[0], /no longer clears a global cache/);
-  });
-
   test("repeated calls to one generator reuse its components", () => {
     const generate = createRouteGenerator(
       { "page.tsx": loader("home") },
@@ -919,14 +905,12 @@ describe("lazy layouts", () => {
 
   /**
    * Tree built from a non-eager layout glob: every layout entry is a loader, and
-   * the record has to declare that shape. `{ lazyLayouts: true }` is the
-   * deprecated alias of `{ layoutShape: "loader" }`, kept working for manual
-   * callers, so this suite exercises the alias while `layout record shape`
-   * exercises the declaration.
+   * the record has to declare that shape. `{ layoutShape: "loader" }` is the only
+   * way to declare it.
    */
   function createLazyLayoutRoutes({ pages, layouts }) {
     const tree = buildRouteTree(pages, layouts, {}, undefined, {
-      lazyLayouts: true,
+      layoutShape: "loader",
     });
     return { tree, routes: treeToRoutes(tree, true) };
   }
@@ -944,7 +928,7 @@ describe("lazy layouts", () => {
       /is a bare function, which an eager and a non-eager glob produce alike/,
     );
 
-    const lazy = buildRouteTree(pages, layouts, {}, undefined, { lazyLayouts: true });
+    const lazy = buildRouteTree(pages, layouts, {}, undefined, { layoutShape: "loader" });
     assert.equal(lazy.children.get("dashboard").layout, undefined);
     assert.equal(typeof lazy.children.get("dashboard").lazyLayout, "function");
     assert.deepEqual(await lazy.children.get("dashboard").lazyLayout(), {
@@ -1026,7 +1010,7 @@ describe("lazy layouts", () => {
       { "dashboard/layout.tsx": componentLoader("shell") },
       {},
       undefined,
-      { lazyLayouts: true },
+      { layoutShape: "loader" },
     );
 
     assert.equal(lazyOf(generate()[0].element), lazyOf(generate()[0].element));
@@ -1075,16 +1059,17 @@ describe("lazy layouts", () => {
     );
   });
 
-  test("reports an eager component layout passed to lazyLayouts as a loader", async () => {
-    // `{ eager: true, import: "default" }` yields the component itself, which
-    // `lazyLayouts: true` reads as a loader. Resolving it used to render an
-    // empty element in silence because a React element matched `$$typeof`.
+  test("reports an eager component layout declared as a loader", async () => {
+    // `{ eager: true, import: "default" }` yields the component itself, which a
+    // record declared as `"loader"` reads as `() => import("...")`. Resolving it
+    // used to render an empty element in silence because a React element matched
+    // `$$typeof`.
     const tree = buildRouteTree(
       { "dashboard/page.tsx": componentLoader("dashboard") },
       { "dashboard/layout.tsx": component("shell") },
       {},
       undefined,
-      { lazyLayouts: true },
+      { layoutShape: "loader" },
     );
 
     await assert.rejects(
@@ -1318,25 +1303,6 @@ describe("layout record shape", () => {
     assert.equal(typeof node.lazyLayout, "function");
   });
 
-  test("maps the deprecated lazyLayouts flag onto the loader shape", () => {
-    const Shell = component("shell");
-    const layouts = { "about/layout.tsx": async () => ({ default: Shell }) };
-    const alias = build(layouts, { lazyLayouts: true });
-    const declared = build(layouts, { layoutShape: "loader" });
-
-    assert.equal(alias.layout, undefined);
-    assert.equal(typeof alias.lazyLayout, "function");
-    assert.equal(typeof declared.lazyLayout, "function");
-
-    // An explicit declaration is what counts when both are supplied.
-    const both = build({ "about/layout.tsx": { default: Shell } }, {
-      lazyLayouts: true,
-      layoutShape: "component",
-    });
-    assert.equal(both.layout, Shell);
-    assert.equal(both.lazyLayout, undefined);
-  });
-
   test("still reads a module entry eagerly inside a lazy record", () => {
     const Shell = component("shell");
     const node = build({ "about/layout.tsx": { default: Shell } }, {
@@ -1368,32 +1334,6 @@ describe("layout record shape", () => {
     assert.throws(
       () => renderToStaticMarkup(React.createElement(Layout)),
       /Objects are not valid as a React child/,
-    );
-  });
-});
-
-describe("normalizeSegment", () => {
-  // Deprecated public utility: it stays on the root entry only because removing
-  // an export is breaking. It now forwards to `parseRouteSegments` plus
-  // `routeSegmentToPath`, so it cannot drift from the router. These tests pin the
-  // shapes it always returned and the edges the wrapper has to keep sane.
-  test("maps every file-convention segment to its route segment", () => {
-    assert.equal(normalizeSegment("(admin)"), "");
-    assert.equal(normalizeSegment("[id]"), ":id");
-    assert.equal(normalizeSegment("[...slug]"), "*");
-    assert.equal(normalizeSegment("[[...slug]]"), "*");
-    assert.equal(normalizeSegment("about"), "about");
-    assert.equal(normalizeSegment(""), "");
-  });
-
-  test("leaves a path untouched instead of re-joining its segments", () => {
-    assert.equal(normalizeSegment("docs/[id]"), "docs/[id]");
-  });
-
-  test("rejects a parameter name the router itself would reject", () => {
-    assert.throws(
-      () => normalizeSegment("[123]"),
-      /Invalid route parameter name "123"/,
     );
   });
 });

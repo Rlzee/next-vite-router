@@ -19,7 +19,6 @@ export type {
 
 // Utils
 export {
-  normalizeSegment,
   extractRoutePath,
   parseRouteSegments,
   routeSegmentToPath,
