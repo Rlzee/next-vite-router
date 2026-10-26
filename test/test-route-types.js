@@ -540,6 +540,59 @@ try {
   fs.rmSync(routerRoot6, { recursive: true, force: true });
 }
 
+// The `config` hook falls back to the process working directory when the user
+// config carries no `root`, which is the same default Vite applies in
+// `resolveConfig`. That branch cannot be exercised in this process: the suite runs
+// from the repository, which installs `react-router-dom`, so "no root" and "the
+// repository as root" answer the same and the fallback could be dead code without
+// anything noticing. A child process whose working directory is a
+// react-router-only project is the only configuration where the two differ.
+const configCwdRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-cwd-"));
+try {
+  writeRouterApp(configCwdRoot);
+  writeInstalledPackage(configCwdRoot, "react-router", "7.18.4");
+
+  const probePath = path.join(configCwdRoot, "probe-config.mjs");
+  fs.writeFileSync(probePath, `
+import { pathToFileURL } from "node:url";
+
+const { nextViteRouter } = await import(pathToFileURL(process.env.NVR_PLUGIN).href);
+const contributed = nextViteRouter().config({});
+const alias = contributed?.resolve?.alias;
+process.stdout.write(JSON.stringify(alias ? alias.map((entry) => [String(entry.find), entry.replacement]) : null));
+`, "utf8");
+
+  const probe = spawnSync(process.execPath, [probePath], {
+    encoding: "utf8",
+    cwd: configCwdRoot,
+    env: { ...process.env, NVR_PLUGIN: path.resolve("dist", "plugin.js") },
+  });
+  assert.equal(probe.status, 0, probe.stdout + probe.stderr);
+  assert.deepEqual(
+    JSON.parse(probe.stdout),
+    [["/^react-router-dom$/", "react-router"]],
+    "config() with no root must detect the router from the working directory",
+  );
+
+  // A relative `root` is resolved the way Vite resolves it, so a project opened
+  // through a relative path is answered like the same project opened by name.
+  const relativeContributed = nextViteRouter().config({
+    root: path.relative(process.cwd(), configCwdRoot),
+  });
+  assert.deepEqual(
+    relativeContributed?.resolve?.alias?.map((entry) => [
+      String(entry.find),
+      entry.replacement,
+    ]),
+    [["/^react-router-dom$/", "react-router"]],
+    "a relative root must resolve against the working directory, as Vite does",
+  );
+
+  console.log("✅ router detection honors the configured root and the working directory");
+} finally {
+  fs.rmSync(configCwdRoot, { recursive: true, force: true });
+}
+
 // `routes.d.ts` is a name an application may already own, and the pre-rename
 // declaration is a file an upgrading project still has on disk. Both decisions
 // hinge on the marker this package writes, so both are pinned here: a foreign
