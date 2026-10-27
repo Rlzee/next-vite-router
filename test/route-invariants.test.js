@@ -100,6 +100,8 @@ const MATRIX = [
     urls: [
       { url: "/dashboard", chain: ["dashboard"], params: {} },
       { url: "/admin/dashboard", chain: null },
+      // No page answers the root - the group is not one - so the base guard is.
+      { url: "/", chain: ["index"], params: {} },
     ],
   },
   {
@@ -131,14 +133,111 @@ const MATRIX = [
     ],
   },
   {
-    name: "layout-only node adds no index route",
+    name: "layout-only node guards its base with the nearest not-found",
     rows: {
       pages: [page(["shop/items/page", "items"])],
-      layouts: [layout(["shop/layout", "shop"])],
+      layouts: [layout(["shop/layout", "shop"]), layout(["layout", "root"])],
+      notFounds: [notFound(["not-found", "root"])],
     },
     urls: [
-      { url: "/shop", chain: ["shop"], params: {} },
-      { url: "/shop/items", chain: ["shop", "items"], params: {} },
+      // `/shop` has no page: the guard index makes it a leaf match, so the
+      // chain stops at the base instead of painting an empty outlet.
+      { url: "/shop", chain: ["/", "shop", "index"], params: {} },
+      { url: "/shop/items", chain: ["/", "shop", "items"], params: {} },
+    ],
+    paints: [
+      {
+        url: "/shop",
+        includes: ['data-layout="root"', 'data-layout="shop"', 'data-not-found="root"'],
+        order: ["[root", "[shop", "nf:root", "/shop]", "/root]"],
+        excludes: ['data-page="items"'],
+      },
+    ],
+  },
+  {
+    name: "a folder without a page 404s at its own URL, at every level",
+    rows: {
+      pages: [
+        page(["docs/intro/page", "intro"]),
+        page(["deep/leaf/page", "leaf"]),
+        pageWithId(["shop/[cat]/[item]/page", "item"]),
+      ],
+      layouts: [layout(["layout", "root"])],
+      notFounds: [notFound(["not-found", "root"])],
+    },
+    urls: [
+      // Each intermediate folder is guarded, and the guards stay leaf matches:
+      // the URLs that do have a page still resolve to it.
+      { url: "/docs", chain: ["/", "docs", "index"], params: {} },
+      { url: "/docs/intro", chain: ["/", "docs", "intro"], params: {} },
+      { url: "/deep", chain: ["/", "deep", "index"], params: {} },
+      { url: "/deep/leaf", chain: ["/", "deep", "leaf"], params: {} },
+      { url: "/shop", chain: ["/", "shop", "index"], params: {} },
+      { url: "/shop/a", chain: ["/", "shop", ":cat", "index"], params: { cat: "a" } },
+      { url: "/shop/a/b", chain: ["/", "shop", ":cat", ":item"], params: { cat: "a", item: "b" } },
+    ],
+    paints: [
+      { url: "/docs", includes: ['data-not-found="root"'], excludes: ['data-page="intro"'] },
+      { url: "/deep/leaf", includes: ['data-page="leaf"'] },
+      { url: "/shop", includes: ['data-not-found="root"'], excludes: ['data-page="item"'] },
+      { url: "/shop/a", includes: ['data-not-found="root"'], excludes: ['data-page="item"'] },
+      { url: "/shop/a/b", includes: ['data-page="item"'] },
+    ],
+  },
+  {
+    name: "a page-less folder guards its base even with no not-found anywhere",
+    rows: { pages: [page(["docs/intro/page", "intro"])] },
+    urls: [
+      // Still a leaf match, rendering nothing: the blank 404 an app without a
+      // `not-found.tsx` gets, and never the page below with an empty value.
+      { url: "/docs", chain: ["docs", "index"], params: {} },
+      { url: "/docs/intro", chain: ["docs", "intro"], params: {} },
+    ],
+    paints: [
+      { url: "/docs", excludes: ['data-page="intro"'] },
+      { url: "/docs/intro", includes: ['data-page="intro"'] },
+    ],
+  },
+  {
+    name: "a page-less folder answers its base with its own not-found",
+    rows: {
+      pages: [page(["docs/intro/page", "intro"])],
+      notFounds: [notFound(["not-found", "root"]), notFound(["docs/not-found", "docs"])],
+    },
+    urls: [
+      // Same rule as the required catch-all base: the folder's own `not-found`
+      // wins, so `/docs` and `/docs/anything` show one boundary.
+      { url: "/docs", chain: ["/", "docs", "index"], params: {} },
+      { url: "/docs/missing", chain: ["/", "docs", "*"], params: { "*": "missing" } },
+    ],
+    paints: [
+      {
+        url: "/docs",
+        includes: ['data-not-found="docs"'],
+        excludes: ['data-not-found="root"', 'data-page="intro"'],
+      },
+      { url: "/docs/missing", includes: ['data-not-found="docs"'] },
+    ],
+  },
+  {
+    name: "a group adds no base guard of its own",
+    rows: {
+      pages: [page(["(marketing)/docs/intro/page", "intro"])],
+      layouts: [layout(["(marketing)/layout", "marketing"]), layout(["layout", "root"])],
+      notFounds: [notFound(["not-found", "root"])],
+    },
+    urls: [
+      // The group owns no URL: the guard belongs to `docs`, which sits at the
+      // same level once the group is dropped from the path.
+      { url: "/docs", chain: ["/", "(layout)", "docs", "index"], params: {} },
+      { url: "/docs/intro", chain: ["/", "(layout)", "docs", "intro"], params: {} },
+    ],
+    paints: [
+      {
+        url: "/docs",
+        includes: ['data-layout="marketing"', 'data-not-found="root"'],
+        order: ["[root", "[marketing", "nf:root", "/marketing]", "/root]"],
+      },
     ],
   },
   {

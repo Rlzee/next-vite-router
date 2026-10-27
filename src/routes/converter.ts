@@ -25,6 +25,35 @@ function isRequiredCatchAll(segment: string): boolean {
 }
 
 /**
+ * Lazily rendered `not-found` element for a base guard: the folder's own
+ * `not-found` when it has one, else the nearest ancestor's. Without any
+ * `not-found` the guard renders nothing, the same blank 404 Next.js paints for
+ * an app without a `not-found.tsx`.
+ *
+ * One rule for both guards - the required catch-all's and a page-less
+ * folder's - so a folder answers its base with the same `not-found` its `*`
+ * splat shows for everything below it (`docs/not-found.tsx` serving both
+ * `/docs` and `/docs/missing`).
+ */
+function createNotFoundFallbackElement(
+  node: RouteNode,
+  cache: LazyComponentCache,
+  inheritedFallback: RouteModuleLoader | undefined,
+  cacheKey: string,
+): React.ReactElement | undefined {
+  const fallbackLoader = node.notFound ?? inheritedFallback;
+  if (!fallbackLoader) {
+    return undefined;
+  }
+
+  return createLazyElement(
+    async () => ({ default: (await fallbackLoader()).default }),
+    cacheKey,
+    cache,
+  );
+}
+
+/**
  * Element rendered at the base URL of a *required* catch-all (`[...slug]`).
  *
  * React Router's `*` splat consumes zero or more segments, and no pattern can
@@ -52,9 +81,9 @@ function CatchAllBaseGuard({ fallback, children }: {
 }
 
 /**
- * `*` route rendering the not-found of the folder that owns it. A required
- * catch-all page child suppresses it (see `processChildren`), because its own
- * splat already covers that region.
+ * `*` route rendering the not-found of the folder that owns it. A child that
+ * claims the splat region suppresses it (see `processChildren`), because its
+ * own splat already covers that region.
  */
 function createNotFoundRoute(
   node: RouteNode,
@@ -188,46 +217,90 @@ function createLayoutRoute(
 }
 
 /**
+ * What a converted node contributes at the level of the route array it was
+ * emitted into - the enclosing folder's own children.
+ *
+ * `emitsIndex`: an index route sits there, answering the enclosing folder's
+ * base URL. A page folder emits one inside its own path (so not at this
+ * level), a pathless group passes its own page up to this level, and a
+ * required catch-all page emits its base guard here.
+ *
+ * `claimsSplats`: a `*` route sits there, owning everything below this level,
+ * so the enclosing folder must not add a competing `not-found` splat.
+ *
+ * A URL-bearing folder's own base guard is nested inside its path, so it
+ * contributes neither: only what lands at the parent's level is reported.
+ */
+type LevelClaims = { emitsIndex: boolean; claimsSplats: boolean };
+
+const NO_CLAIMS: LevelClaims = { emitsIndex: false, claimsSplats: false };
+
+/** Routes plus the claims they make at the level they were emitted into. */
+type NodeConversion = { routes: RouteObject[]; claims: LevelClaims };
+
+/**
  * The tree walk of one folder's children: the routes each child contributes
- * plus `childClaimsSplats`, true when a child is a required catch-all with a
- * page. Such a child takes the splat route that would otherwise sit beside it,
- * so the folder's own `not-found` must not also emit a `*` there - it becomes
- * that guard's base fallback instead (`blog/not-found.tsx` serving `/blog`).
- * Both come out of the same enumeration of `node.children`, which the
- * traversal-cost test in `routes.test.js` pins to one read per node.
+ * plus the claims gathered from the same walk.
+ *
+ * `childEmitsIndex` - some child already answers this folder's own URL with an
+ * index route, so the folder's base guard must not duplicate it.
+ *
+ * `childClaimsSplats` - some child owns the splat region at this level (a
+ * required catch-all), so the folder's own `not-found` must not also emit a
+ * `*` there - it becomes that guard's base fallback instead
+ * (`blog/not-found.tsx` serving `/blog`).
+ *
+ * `childCount` - the size of the enumeration the walk already did: asking
+ * `node.children.size` separately would read the subtree a second time, which
+ * the traversal-cost test in `routes.test.js` pins to one read per node.
  */
 function processChildren(
   node: RouteNode,
   currentPath: string,
   cache: LazyComponentCache,
   notFoundFallback: RouteModuleLoader | undefined,
-): { routes: RouteObject[]; childClaimsSplats: boolean } {
+): {
+  routes: RouteObject[];
+  childEmitsIndex: boolean;
+  childClaimsSplats: boolean;
+  childCount: number;
+} {
   const routes: RouteObject[] = [];
+  let childEmitsIndex = false;
   let childClaimsSplats = false;
 
-  [...node.children.entries()]
-    // Ordinal, not locale-aware: children order the emitted route array, and a
-    // collation that varies with the machine would reorder the generated tree.
-    .sort(([left], [right]) => compareOrdinal(left, right))
-    .forEach(([segment, childNode]) => {
-    if (childNode.page && isRequiredCatchAll(childNode.segment)) {
-      childClaimsSplats = true;
-    }
+  // Enumerated once through the counted `children` getter: this is the only
+  // pass over the folder's children.
+  const childEntries = [...node.children.entries()];
+
+  // Ordinal, not locale-aware: children order the emitted route array, and a
+  // collation that varies with the machine would reorder the generated tree.
+  childEntries.sort(([left], [right]) => compareOrdinal(left, right));
+
+  for (const [segment, childNode] of childEntries) {
     const childSegment = normalizedSegment(segment);
     const childPath = childSegment
       ? (currentPath ? `${currentPath}/${childSegment}` : `/${childSegment}`)
       : currentPath;
-    
-      routes.push(...treeToRoutes(
-        childNode,
-        false,
-        childPath,
-        cache,
-        notFoundFallback,
-      ));
-    });
 
-  return { routes, childClaimsSplats };
+    const { routes: childRoutes, claims } = convertNode(
+      childNode,
+      false,
+      childPath,
+      cache,
+      notFoundFallback,
+    );
+    routes.push(...childRoutes);
+    childEmitsIndex = childEmitsIndex || claims.emitsIndex;
+    childClaimsSplats = childClaimsSplats || claims.claimsSplats;
+  }
+
+  return {
+    routes,
+    childEmitsIndex,
+    childClaimsSplats,
+    childCount: childEntries.length,
+  };
 }
 
 /**
@@ -242,19 +315,54 @@ function createCatchAllBaseRoute(
   cache: LazyComponentCache,
   inheritedFallback: RouteModuleLoader | undefined,
 ): RouteObject {
-  const fallbackLoader = node.notFound ?? inheritedFallback;
-  const fallback = fallbackLoader
-    ? createLazyElement(
-        async () => ({ default: (await fallbackLoader()).default }),
-        `notfound:${node.fullPath}:base`,
-        cache,
-      )
-    : undefined;
-
   return {
     index: true,
-    element: React.createElement(CatchAllBaseGuard, { fallback }),
+    element: React.createElement(CatchAllBaseGuard, {
+      fallback: createNotFoundFallbackElement(
+        node,
+        cache,
+        inheritedFallback,
+        `notfound:${node.fullPath}:base`,
+      ),
+    }),
   };
+}
+
+/**
+ * Index route answering the base URL of a folder that has no `page.tsx`.
+ *
+ * Next.js gives such a folder no route at its own URL: `/docs` is a 404 even
+ * when `docs/intro/page.tsx` exists, and the same holds one level deeper
+ * (`/docs/deep` with `docs/deep/leaf/page.tsx`) and under a dynamic segment
+ * (`/shop/a` with `shop/[cat]/[item]/page.tsx`). React Router instead keeps the
+ * folder's static segment as a valid partial match, which used to paint the
+ * layouts below the first page-less level with an empty outlet. A guard index
+ * makes the base a real leaf match, so the chain stops there and the nearest
+ * `not-found` renders inside the layouts above - nothing, when the app declares
+ * none, the same blank 404 Next.js paints without a `not-found.tsx`.
+ */
+function createEmptyFolderBaseRoute(
+  node: RouteNode,
+  cache: LazyComponentCache,
+  inheritedFallback: RouteModuleLoader | undefined,
+): RouteObject {
+  return {
+    index: true,
+    // A real element, not `null`: React Router warns and renders an empty
+    // outlet for a leaf without one, which is the very shape this guard
+    // replaces. `undefined` renders nothing, the declared no-not-found case.
+    element: createNotFoundFallbackElement(
+      node,
+      cache,
+      inheritedFallback,
+      `notfound:${node.fullPath}:empty-base`,
+    ) ?? React.createElement(BaseNotFound),
+  };
+}
+
+/** Placeholder leaf for a page-less folder in an app without any `not-found`. */
+function BaseNotFound(): React.ReactNode {
+  return null;
 }
 
 /**
@@ -282,28 +390,61 @@ function createRequiredCatchAllRoutes(
   ];
 }
 
+/**
+ * Children of a folder that renders nothing itself: the page index (when the
+ * folder has a page), the walked children, the folder's `not-found` splat
+ * (suppressed when a child owns the splat region), and the base guard
+ * answering a folder that owns no content at its own URL.
+ *
+ * `hasUrl` tells a folder that owns a URL (any static/dynamic folder, and the
+ * root) from a pathless group. A group adds no guard of its own - it has no
+ * base to answer - and reports what its children emit instead, so exactly one
+ * index answers each URL.
+ */
 function createNodeChildren(
   node: RouteNode,
   currentPath: string,
   cache: LazyComponentCache,
   notFoundFallback: RouteModuleLoader | undefined,
-): RouteObject[] {
+  hasUrl: boolean,
+): {
+  routes: RouteObject[];
+  childEmitsIndex: boolean;
+  childClaimsSplats: boolean;
+} {
+  const {
+    routes,
+    childEmitsIndex,
+    childClaimsSplats,
+    childCount,
+  } = processChildren(node, currentPath, cache, notFoundFallback);
+
+  // A folder with a URL, no page, and no child index at its base owns no
+  // content there: a guard index makes that base a leaf match rendering the
+  // nearest `not-found`, the Next.js 404. With no `not-found` in the app the
+  // leaf renders nothing, the same blank 404 the required catch-all guard
+  // paints for an app without a `not-found.tsx`.
+  const addsBaseGuard = hasUrl && !node.page && !childEmitsIndex && childCount > 0;
+
   const children: RouteObject[] = [];
 
   if (node.page) {
     children.push(createIndexRoute(node, currentPath || "/", cache));
   }
 
-  const { routes, childClaimsSplats } = processChildren(
-    node, currentPath, cache, notFoundFallback,
-  );
   children.push(...routes);
 
   if (!childClaimsSplats) {
     children.push(...createNotFoundRoutes(node, cache));
   }
 
-  return children;
+  // Appended last: the routes the children contribute keep the positions the
+  // emitted tree had before the base guard existed.
+  if (addsBaseGuard) {
+    children.push(createEmptyFolderBaseRoute(node, cache, notFoundFallback));
+  }
+
+  return { routes: children, childEmitsIndex, childClaimsSplats };
 }
 
 function createPageRoutes(
@@ -315,45 +456,61 @@ function createPageRoutes(
   notFound: RouteObject[],
   cache: LazyComponentCache,
   notFoundFallback: RouteModuleLoader | undefined,
-): RouteObject[] {
+): NodeConversion {
   if (isOptionalCatchAll(node.segment)) {
     const catchAllChildren = [...descendants, ...notFound];
-    return [
-      createIndexRoute(node, currentPath, cache),
-      {
-        path: nodeSegment,
-        element: createPageRoute(node, nodePath, cache).element,
-        children: catchAllChildren.length > 0 ? catchAllChildren : undefined,
-      },
-    ];
+    return {
+      // The base index renders the page, so it answers the enclosing folder's
+      // URL; the splat below it is optional and claims nothing.
+      claims: { emitsIndex: true, claimsSplats: false },
+      routes: [
+        createIndexRoute(node, currentPath, cache),
+        {
+          path: nodeSegment,
+          element: createPageRoute(node, nodePath, cache).element,
+          children: catchAllChildren.length > 0 ? catchAllChildren : undefined,
+        },
+      ],
+    };
   }
 
   if (isRequiredCatchAll(node.segment)) {
-    return [
-      ...createRequiredCatchAllRoutes(node, nodePath, cache, notFoundFallback),
-      // A hand-built tree can still attach files under the catch-all folder;
-      // file validation rejects them, but keep them reachable rather than
-      // silently dropping them here.
-      ...descendants,
-      ...notFound,
-    ];
-  }
-
-  if (descendants.length > 0 || notFound.length > 0) {
-    return [{
-      path: nodeSegment,
-      children: [
-        createIndexRoute(node, nodePath, cache),
+    return {
+      // The guard index answers the enclosing folder's base and the splat owns
+      // everything below it.
+      claims: { emitsIndex: true, claimsSplats: true },
+      routes: [
+        ...createRequiredCatchAllRoutes(node, nodePath, cache, notFoundFallback),
+        // A hand-built tree can still attach files under the catch-all folder;
+        // file validation rejects them, but keep them reachable rather than
+        // silently dropping them here.
         ...descendants,
         ...notFound,
       ],
-    }];
+    };
   }
 
-  return [{
-    path: nodeSegment,
-    element: createPageRoute(node, nodePath, cache).element,
-  }];
+  if (descendants.length > 0 || notFound.length > 0) {
+    return {
+      claims: NO_CLAIMS,
+      routes: [{
+        path: nodeSegment,
+        children: [
+          createIndexRoute(node, nodePath, cache),
+          ...descendants,
+          ...notFound,
+        ],
+      }],
+    };
+  }
+
+  return {
+    claims: NO_CLAIMS,
+    routes: [{
+      path: nodeSegment,
+      element: createPageRoute(node, nodePath, cache).element,
+    }],
+  };
 }
 
 function createPathlessNodeRoutes(
@@ -362,16 +519,26 @@ function createPathlessNodeRoutes(
   descendants: RouteObject[],
   notFound: RouteObject[],
   cache: LazyComponentCache,
-): RouteObject[] {
+  childEmitsIndex: boolean,
+  childClaimsSplats: boolean,
+): NodeConversion {
   const children = [
     ...(node.page ? [createIndexRoute(node, nodePath, cache)] : []),
     ...descendants,
     ...notFound,
   ];
 
-  return [{
-    children: children.length > 0 ? children : undefined,
-  }];
+  return {
+    // A group is transparent: whatever its subtree emits at its own level is
+    // what the enclosing folder sees.
+    claims: {
+      emitsIndex: node.page !== undefined || childEmitsIndex,
+      claimsSplats: childClaimsSplats,
+    },
+    routes: [{
+      children: children.length > 0 ? children : undefined,
+    }],
+  };
 }
 
 function createRootRoutes(
@@ -379,7 +546,17 @@ function createRootRoutes(
   cache: LazyComponentCache,
 ): RouteObject[] {
   const notFoundFallback = node.notFound;
-  const children = createNodeChildren(node, "", cache, notFoundFallback);
+  // Folds an unclaimed base into a guard index before the shape below wraps
+  // the children, so every root shape answers "/" like Next.js: the not-found
+  // inside the root layout when one exists. "/" is a URL, so the root always
+  // passes `hasUrl`.
+  const { routes: children } = createNodeChildren(
+    node,
+    "",
+    cache,
+    notFoundFallback,
+    true,
+  );
 
   if (hasLayout(node)) {
     return [{
@@ -407,6 +584,12 @@ function createRootRoutes(
   return children;
 }
 
+/**
+ * Public entry: the route array for a tree. `isRoot` nodes are the whole
+ * application; every other node is converted as the children of its parent's
+ * URL. The conversion is a single top-down walk, and claims travel back up
+ * with the routes they belong to.
+ */
 export function treeToRoutes(
   node: RouteNode,
   isRoot = false,
@@ -414,8 +597,18 @@ export function treeToRoutes(
   cache: LazyComponentCache = createLazyCache(),
   notFoundFallback: RouteModuleLoader | undefined = undefined,
 ): RouteObject[] {
+  return convertNode(node, isRoot, currentPath, cache, notFoundFallback).routes;
+}
+
+function convertNode(
+  node: RouteNode,
+  isRoot = false,
+  currentPath = "",
+  cache: LazyComponentCache = createLazyCache(),
+  notFoundFallback: RouteModuleLoader | undefined = undefined,
+): NodeConversion {
   if (isRoot) {
-    return createRootRoutes(node, cache);
+    return { routes: createRootRoutes(node, cache), claims: NO_CLAIMS };
   }
 
   // Folders below this one can use its `not-found` as the base fallback for a
@@ -441,26 +634,45 @@ export function treeToRoutes(
       // catch-all matched, and the not-found still renders inside this
       // folder's layout.
       const pageRoute = createPageRoute(node, nodePath, cache);
-      return [
-        createCatchAllBaseRoute(node, cache, notFoundFallback),
-        {
-          path: nodeSegment,
-          element: createLayoutElement(node, nodePath, cache),
-          children: [{ path: "*", element: pageRoute.element }],
-        },
-      ];
+      return {
+        claims: { emitsIndex: true, claimsSplats: true },
+        routes: [
+          createCatchAllBaseRoute(node, cache, notFoundFallback),
+          {
+            path: nodeSegment,
+            element: createLayoutElement(node, nodePath, cache),
+            children: [{ path: "*", element: pageRoute.element }],
+          },
+        ],
+      };
     }
 
-    return [createLayoutRoute(
-      isPathless ? "" : nodeSegment,
-      createLayoutElement(node, nodePath, cache),
-      createNodeChildren(node, nodePath, cache, inheritedNotFound),
-    )];
+    // `createNodeChildren` folds an unclaimed base into a guard index.
+    const { routes: layoutChildren, childEmitsIndex, childClaimsSplats } =
+      createNodeChildren(node, nodePath, cache, inheritedNotFound, !isPathless);
+
+    return {
+      // A page-less catch-all folder puts its splat route (and, when it has
+      // children, the guard nested inside it) at this level, so the splat
+      // region belongs to that branch either way.
+      claims: isPathless
+        ? { emitsIndex: node.page !== undefined || childEmitsIndex, claimsSplats: childClaimsSplats }
+        : isRequiredCatchAll(node.segment)
+          ? { emitsIndex: false, claimsSplats: true }
+          : NO_CLAIMS,
+      routes: [createLayoutRoute(
+        isPathless ? "" : nodeSegment,
+        createLayoutElement(node, nodePath, cache),
+        layoutChildren,
+      )],
+    };
   }
 
   const {
     routes: descendants,
+    childEmitsIndex,
     childClaimsSplats,
+    childCount,
   } = processChildren(node, nodePath, cache, inheritedNotFound);
   const notFound = createNotFoundRoutes(node, cache);
 
@@ -478,20 +690,53 @@ export function treeToRoutes(
   }
 
   if (node.page || node.notFound || !isPathless) {
-    // A required catch-all child already covers this folder's splat region, so
-    // the folder's own `not-found` only serves as that guard's base fallback.
+    // Same base guard as the layout branch: a folder with a URL, no page, and
+    // no child index at its base renders the nearest `not-found` there instead
+    // of leaving an empty outlet to the partial match.
+    const addsBaseGuard = !isPathless
+      && !node.page
+      && !childEmitsIndex
+      && childCount > 0;
     const ownNotFound = childClaimsSplats ? [] : notFound;
-    return isPathless
-      ? createPathlessNodeRoutes(node, nodePath, descendants, ownNotFound, cache)
-      : [{
-          path: nodeSegment,
-          children: [
-            ...(node.page ? [createIndexRoute(node, nodePath, cache)] : []),
-            ...descendants,
-            ...ownNotFound,
-          ],
-        }];
+
+    if (isPathless) {
+      return createPathlessNodeRoutes(
+        node,
+        nodePath,
+        descendants,
+        ownNotFound,
+        cache,
+        childEmitsIndex,
+        childClaimsSplats,
+      );
+    }
+
+    return {
+      // A page-less required catch-all is emitted as its own `*` route right
+      // here, so it owns the folder's splat region even though its base guard
+      // (a child of that splat) is not the folder's answer. Any other folder
+      // keeps everything it emits inside its own segment: no claim here.
+      claims: isRequiredCatchAll(node.segment)
+        ? { emitsIndex: false, claimsSplats: true }
+        : NO_CLAIMS,
+      routes: [{
+        path: nodeSegment,
+        children: [
+          ...(node.page ? [createIndexRoute(node, nodePath, cache)] : []),
+          ...descendants,
+          ...ownNotFound,
+          ...(addsBaseGuard
+            ? [createEmptyFolderBaseRoute(node, cache, inheritedNotFound)]
+            : []),
+        ],
+      }],
+    };
   }
 
-  return descendants;
+  // A pathless folder with nothing of its own: its children's routes stand on
+  // their own, and so do their claims.
+  return {
+    claims: { emitsIndex: childEmitsIndex, claimsSplats: childClaimsSplats },
+    routes: descendants,
+  };
 }

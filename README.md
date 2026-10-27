@@ -123,7 +123,7 @@ it and produces the matching `RouteObject[]`.
 | --- | --- |
 | `page.tsx` | Route page |
 | `layout.tsx` | Nested layout rendered with React Router's `Outlet` |
-| `not-found.tsx` | `*` route for that subtree, and the fallback for a catch-all base path |
+| `not-found.tsx` | `*` route for that subtree, the fallback for a catch-all base path, and for a folder without a page |
 | `[id]` | Dynamic segment `:id` |
 | `[...slug]` | Catch-all `*` segment (one or more segments; its base path 404s) |
 | `[[...slug]]` | Optional catch-all `*` segment (also matches the base path) |
@@ -215,6 +215,27 @@ A `not-found.tsx` becomes a `*` route for its subtree. Nest it under a layout to
 give a section its own fallback. Beside a required catch-all folder it does not
 become a `*` route — the catch-all page already owns every URL below the base —
 so it is used as the fallback for that folder's base URL instead.
+
+### Folders without a page are 404s
+
+A folder that holds children but no `page.tsx` has no content at its own URL,
+exactly as in Next.js: only the URLs that resolve to a page render one. With
+`docs/intro/page.tsx` alone, `/docs/intro` renders the page and `/docs` is a
+404; the same holds one level deeper (`docs/deep/leaf/page.tsx` makes
+`/docs/deep` a 404) and for dynamic segments (`shop/[cat]/[item]/page.tsx`
+makes `/shop` and `/shop/a` 404s).
+
+React Router keeps a static parent as a valid *partial* match, which would paint
+every layout down to that folder with an empty outlet. The converter therefore
+adds a guard index at each such base: the match stops there and renders the
+nearest `not-found.tsx` (that folder's own, else the one further up) inside the
+layouts above it. A folder that has a `layout.tsx` and no page is guarded the
+same way, and route groups are not — they own no URL, so their guard belongs to
+the first URL-bearing folder around them.
+
+With no `not-found.tsx` anywhere the guard renders nothing, so you get the
+layouts with an empty content area where Next.js would show its built-in 404
+page. This is the same trade the required catch-all base makes.
 
 ### Custom file names and pages directory
 
