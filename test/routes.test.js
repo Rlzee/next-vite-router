@@ -1595,6 +1595,27 @@ describe("typed navigation helpers", () => {
     );
   });
 
+  test("treats a param named like an Object.prototype key as missing", () => {
+    // A `[constructor]` folder puts inherited members on a plain-object lookup,
+    // so the value store is null-prototype: an unsupplied param reads as
+    // undefined and is reported instead of encoding the function itself
+    // ("/ctor/function%20Object()%20%7B...%7D").
+    assert.throws(
+      () => href("/ctor/:constructor", {}),
+      { message: 'Route "/ctor/:constructor" is missing the required ":constructor" param.' },
+    );
+    assert.throws(
+      () => href("/s/:toString", {}),
+      { message: 'Route "/s/:toString" is missing the required ":toString" param.' },
+    );
+    assert.throws(
+      () => href("/v/:valueOf", {}),
+      { message: 'Route "/v/:valueOf" is missing the required ":valueOf" param.' },
+    );
+    // A supplied value for such a param still fills the pattern normally.
+    assert.equal(href("/ctor/:constructor", { constructor: "42" }), "/ctor/42");
+  });
+
   test("rejects a pattern that is not root-relative", () => {
     assert.throws(
       () => href("users/:id", { id: "42" }),

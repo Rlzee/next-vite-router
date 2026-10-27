@@ -180,7 +180,10 @@ export function href(
   // and no friendly name can be validated, so one is rejected rather than guessed.
   const catchAll = hasCatchAll ? metadata.catchAll : undefined;
 
-  const values: Record<string, string> = {};
+  // A null-prototype object so a param named like an `Object.prototype` key
+  // (`constructor`, `toString`, …) reads as `undefined` when missing instead of
+  // resolving to the inherited member and being encoded into the path.
+  const values: Record<string, string> = Object.create(null);
   let catchAllSegments: string[] = [];
   const catchAllKeys: string[] = [];
 
