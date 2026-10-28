@@ -24,6 +24,18 @@ export type NextViteRouterPluginOptions = {
   layoutFile?: string;
   notFoundFile?: string;
   /**
+   * Import `loading.tsx` files with an eager glob and render them as the folder's
+   * placeholder while its page (or one below it) is not ready. Defaults to
+   * `"loading.tsx"`; set it to another name to avoid a clash with a component the
+   * project already uses that name for.
+   */
+  loadingFile?: string;
+  /**
+   * Import `error.tsx` files with an eager glob and render them from an error
+   * boundary around the folder's content. Defaults to `"error.tsx"`.
+   */
+  errorFile?: string;
+  /**
    * Import `layout.tsx` files with a non-eager glob so Vite emits a separate
    * chunk per layout instead of keeping them in the entry chunk.
    *
@@ -75,6 +87,8 @@ function validatePluginOptions(
     ["pageFile", options.pageFile],
     ["layoutFile", options.layoutFile],
     ["notFoundFile", options.notFoundFile],
+    ["loadingFile", options.loadingFile],
+    ["errorFile", options.errorFile],
   ] as const;
 
   for (const [name, value] of entries) {
@@ -403,10 +417,19 @@ export function nextViteRouter(
     pageFile = "page.tsx",
     layoutFile = "layout.tsx",
     notFoundFile = "not-found.tsx",
+    loadingFile = "loading.tsx",
+    errorFile = "error.tsx",
     lazyLayouts = false,
     caseSensitive = true,
   } = options;
-  validatePluginOptions({ pagesDir, pageFile, layoutFile, notFoundFile });
+  validatePluginOptions({
+    pagesDir,
+    pageFile,
+    layoutFile,
+    notFoundFile,
+    loadingFile,
+    errorFile,
+  });
   // The switch the string validator above cannot judge, and the only option
   // whose value travels verbatim into the generated `treeToRoutes` call.
   assertBooleanOption("caseSensitive", options.caseSensitive);
@@ -415,7 +438,14 @@ export function nextViteRouter(
   // keys Vite emits (`/${normalizedPagesDir}/...`), the config-time
   // collectPageFiles prefix, and buildRouteTree's extractRoutePath all agree
   // even when the user writes `./src/app`, `src\app`, or `src/app/`.
-  const fileOptions: RouteFileOptions = { pagesDir: normalizedPagesDir, pageFile, layoutFile, notFoundFile };
+  const fileOptions: RouteFileOptions = {
+    pagesDir: normalizedPagesDir,
+    pageFile,
+    layoutFile,
+    notFoundFile,
+    loadingFile,
+    errorFile,
+  };
 
   // The generated module has a single public specifier, `next-vite-router/routes`;
   // the leading `\0` marks it as a virtual module so neither Vite nor Node ever
@@ -570,7 +600,7 @@ export function nextViteRouter(
         const relativeFile = path.relative(pagesRoot, file);
         if (
           relativeFile.startsWith("..") ||
-          ![pageFile, layoutFile, notFoundFile].includes(path.basename(file))
+          ![pageFile, layoutFile, notFoundFile, loadingFile, errorFile].includes(path.basename(file))
         ) {
           return;
         }
@@ -637,6 +667,8 @@ export function nextViteRouter(
         const pagesGlobPath = `/${normalizedPagesDir}/**/${pageFile}`;
         const layoutsGlobPath = `/${normalizedPagesDir}/**/${layoutFile}`;
         const notFoundGlobPath = `/${normalizedPagesDir}/**/${notFoundFile}`;
+        const loadingGlobPath = `/${normalizedPagesDir}/**/${loadingFile}`;
+        const errorGlobPath = `/${normalizedPagesDir}/**/${errorFile}`;
         // Layouts stay eager unless asked otherwise, so the default output is
         // unchanged. `lazyLayouts` flips the glob AND declares the record shape it
         // just produced: a component and a loader are both functions, so the shape
@@ -644,7 +676,13 @@ export function nextViteRouter(
         const layoutsGlobSource = lazyLayouts
           ? `import.meta.glob(${JSON.stringify(layoutsGlobPath)})`
           : `import.meta.glob(${JSON.stringify(layoutsGlobPath)}, { eager: true })`;
-        const routeTreeOptions = lazyLayouts ? ', { layoutShape: "loader" }' : "";
+        // The file options now travel inside the records bag - the records-object
+        // style has no separate slot for them - while `layoutShape` stays in the
+        // tree options, where the shape of the layouts glob belongs.
+        const recordsFileOptions = JSON.stringify(fileOptions);
+        const recordsTreeOptions = lazyLayouts
+          ? ", { layoutShape: \"loader\" }"
+          : "";
         // The public pattern drops the catch-all folder name, so re-derive it from
         // the type traversal and forward it to the generated href/Link; without it
         // the runtime could only address the splat as "*" and could not reject a
@@ -666,6 +704,11 @@ import { useRoutes } from '${routerSpecifier}';
 const pagesGlob = import.meta.glob(${JSON.stringify(pagesGlobPath)});
 const layoutsGlob = ${layoutsGlobSource};
 const notFoundsGlob = import.meta.glob(${JSON.stringify(notFoundGlobPath)});
+// Both eager, like the default layouts record: a placeholder that arrives by
+// chunk would wait for a chunk to announce that a chunk is loading, and a
+// boundary that has not loaded yet cannot report the failure it exists for.
+const loadingsGlob = import.meta.glob(${JSON.stringify(loadingGlobPath)}, { eager: true });
+const errorsGlob = import.meta.glob(${JSON.stringify(errorGlobPath)}, { eager: true });
 
 // Keep the raw root-relative glob keys. extractRoutePath (via buildRouteTree)
 // is the single place that strips the pagesDir prefix; stripping it here as
@@ -674,6 +717,8 @@ const notFoundsGlob = import.meta.glob(${JSON.stringify(notFoundGlobPath)});
 const pages = pagesGlob;
 const layouts = layoutsGlob;
 const notFounds = notFoundsGlob;
+const loadings = loadingsGlob;
+const errors = errorsGlob;
 
 // Generated catch-all metadata: every "*" pattern mapped to the folder name it
 // declares, so the navigation helpers validate a key against the route instead
@@ -681,7 +726,9 @@ const notFounds = notFoundsGlob;
 const routeMetadata = ${JSON.stringify(catchAllMetadata)};
 
 export function generateRoutes() {
-  const tree = buildRouteTree(pages, layouts, notFounds, ${JSON.stringify(fileOptions)}${routeTreeOptions});
+  // The records-object form: loadings and errors have no positional slot in the
+  // other style, and the tree options keep their own second argument.
+  const tree = buildRouteTree({ pages, layouts, notFounds, loadings, errors, fileOptions: ${recordsFileOptions} }${recordsTreeOptions});
   // One flag per path-bearing route, from the plugin option: React Router
   // matches case-insensitively unless a route opts in, so the generated module
   // has to carry the Next.js default (true) into the conversion.

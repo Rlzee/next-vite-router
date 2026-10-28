@@ -13,6 +13,8 @@ import {
   type LazyComponentCache,
 } from '../utils/index.utils';
 import { CatchAllParamProvider } from '../router-params-context';
+import { wrapSegmentBoundaries } from '../router-boundary';
+import { hasSegmentBoundaries } from '../router-boundary-registry';
 
 function isOptionalCatchAll(segment: string): boolean {
   const parsed = parseRouteSegments(segment)[0];
@@ -617,6 +619,10 @@ function applyCaseSensitivity(
  *
  * `caseSensitive` defaults to `true`, the Next.js contract: see
  * `applyCaseSensitivity` for why React Router's own default is not usable.
+ *
+ * `loading.tsx` / `error.tsx` are applied last, and only when the tree declares
+ * one: an app without those files gets the route array it had before the
+ * conventions existed - no extra path-less route, no changed element.
  */
 export function treeToRoutes(
   node: RouteNode,
@@ -628,6 +634,9 @@ export function treeToRoutes(
 ): RouteObject[] {
   const routes = convertNode(node, isRoot, currentPath, cache, notFoundFallback).routes;
   applyCaseSensitivity(routes, caseSensitive);
+  if (hasSegmentBoundaries(node)) {
+    wrapSegmentBoundaries(routes, node);
+  }
   return routes;
 }
 

@@ -102,6 +102,8 @@ export type RouteFileOptions = {
   pageFile?: string;
   layoutFile?: string;
   notFoundFile?: string;
+  loadingFile?: string;
+  errorFile?: string;
 };
 
 /**
@@ -119,7 +121,14 @@ export type RouteFileOptions = {
  */
 export function extractRoutePath(
   filePath: string,
-  { pagesDir, pageFile = "page.tsx", layoutFile = "layout.tsx", notFoundFile = "not-found.tsx" }: RouteFileOptions = {},
+  {
+    pagesDir,
+    pageFile = "page.tsx",
+    layoutFile = "layout.tsx",
+    notFoundFile = "not-found.tsx",
+    loadingFile = "loading.tsx",
+    errorFile = "error.tsx",
+  }: RouteFileOptions = {},
 ): string {
   const normalized = filePath.replace(/\\/g, "/");
   // Normalize `pagesDir` to a root-relative POSIX form so relative spellings
@@ -131,7 +140,10 @@ export function extractRoutePath(
     .replace(/^\.\//, "")
     .replace(/^\/|\/$/g, "");
   const escapedBase = base?.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const fileNames = [pageFile, layoutFile, notFoundFile]
+  // Every route-file name the extractor knows: a file that is not one of these
+  // is not a route file, and stripping the wrong suffix would turn
+  // `page.tsx`-adjacent files into phantom segments.
+  const fileNames = [pageFile, layoutFile, notFoundFile, loadingFile, errorFile]
     .map((file) => file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
     .join("|");
 

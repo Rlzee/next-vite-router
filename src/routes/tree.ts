@@ -1,6 +1,8 @@
 import type { ComponentType } from 'react';
 import type {
   LayoutRecordShape,
+  RouteErrorComponent,
+  RouteFileRecords,
   RouteModuleLoader,
   RouteNode,
   RouteTreeOptions,
@@ -12,6 +14,7 @@ import {
   routeSegmentToPath,
   type RouteFileOptions,
 } from '../utils/index.utils';
+import { markSegmentBoundaries } from '../router-boundary-registry';
 
 type RouteCollision = {
   kind: "literal" | "pattern";
@@ -185,7 +188,7 @@ export function assertNoRouteConflicts(
   assertNoCatchAllFallbackCollisions(pageFiles, notFoundFiles, fileOptions);
 }
 
-type RouteFileType = 'layout' | 'page' | 'notFound';
+type RouteFileType = 'layout' | 'page' | 'notFound' | 'loading' | 'error';
 
 /**
  * The slots a route node stores route files in. `lazyLayout` shares the
@@ -197,12 +200,16 @@ const ROUTE_FILE_LABELS: Record<RouteFileType, string> = {
   layout: 'layout',
   page: 'page',
   notFound: 'not-found',
+  loading: 'loading',
+  error: 'error',
 };
 
 const DEFAULT_EXPORT_EXAMPLES: Record<RouteFileType, string> = {
   layout: 'export default function Layout({ children }) { ... }',
   page: 'export default function Page() { ... }',
   notFound: 'export default function NotFound() { ... }',
+  loading: 'export default function Loading() { ... }',
+  error: 'export default function Error({ error, reset }) { ... }',
 };
 
 /**
@@ -277,6 +284,39 @@ function readLayoutComponent(filePath: string, module: any): RouteNode['layout']
   // Returned exactly as resolved - a module yields its `default`, a bare function
   // yields itself - so the component keeps the identity React compares against.
   return layout;
+}
+
+/**
+ * Read the component out of an eagerly imported `loading.tsx` / `error.tsx`
+ * entry.
+ *
+ * Both conventions are read eagerly by the plugin, and only eagerly makes sense:
+ * a placeholder that arrives by chunk would wait for a chunk to announce that a
+ * chunk is loading, and an error boundary that has not loaded yet cannot report
+ * the failure it exists for. Both files are a handful of lines by nature, so the
+ * cost of keeping them in the entry chunk is negligible.
+ *
+ * A bare function is refused rather than read as an unwrapped component: unlike
+ * a layout, these globs have no declared shape to point at, so accepting one
+ * would be guessing that the caller unwrapped the glob.
+ */
+function readEagerRouteComponent(
+  filePath: string,
+  fileType: 'loading' | 'error',
+  module: any,
+): ComponentType | RouteErrorComponent {
+  if (typeof module === 'function') {
+    const label = ROUTE_FILE_LABELS[fileType];
+    throw new Error(
+      `Route ${label} "${filePath}" must come from an eager glob: \`import.meta.glob(pattern, { eager: true })` +
+      '` yields the module, whose `default` is the component.\n' +
+      `Received a bare function, which this package will not read as either a component or a loader.`,
+    );
+  }
+
+  const component = resolveRouteComponent(module);
+  assertComponentType(filePath, fileType, component);
+  return component;
 }
 
 /**
@@ -368,18 +408,72 @@ function addFileToTree(
   }
 }
 
+export function buildRouteTree(records: RouteFileRecords, options?: RouteTreeOptions): RouteNode;
 export function buildRouteTree(
   pages: Record<string, () => Promise<any>>,
-  layouts: Record<string, any>,
-  notFounds: Record<string, () => Promise<any>>,
+  layouts?: Record<string, any>,
+  notFounds?: Record<string, () => Promise<any>>,
   fileOptions?: RouteFileOptions,
   options?: RouteTreeOptions,
+): RouteNode;
+/**
+ * Build the route tree a set of glob records describes.
+ *
+ * Two calling styles, on purpose. The records-object style names every kind
+ * (`pages`, `layouts`, `notFounds`, `loadings`, `errors`), carries the file-name
+ * options inside the bag as `fileOptions`, and takes the tree options as its
+ * second argument; it is the one to use for the two conventions added here,
+ * because a fifth and sixth positional slot between the loaders and the file
+ * options would have been impossible to read at the call site. The positional
+ * style keeps the three-record shape it has always had, so
+ * `buildRouteTree(pages, layouts, notFounds, fileOptions, options)` written for
+ * an older release still compiles and still behaves - it simply carries no
+ * loading or error files, because there is no place to put them.
+ *
+ * The styles are told apart by the required `pages` key: a records bag always
+ * names it, while a positional pages record is keyed by file path (`page.tsx`
+ * files, never a bare `pages`), so the two can only collide on an impossible
+ * glob key. Checking that the value is an object too seals it: a positional
+ * `pages` route is a loader or an eager module, and `pages` is not a route name.
+ */
+export function buildRouteTree(
+  first: RouteFileRecords | Record<string, () => Promise<any>>,
+  second?: Record<string, any> | RouteTreeOptions,
+  third?: Record<string, () => Promise<any>>,
+  fourth?: RouteFileOptions,
+  fifth?: RouteTreeOptions,
 ): RouteNode {
+  const asRecords = isRouteFileRecords(first);
+  const records: RouteFileRecords = asRecords
+    ? first
+    : { pages: first, layouts: second as Record<string, any> | undefined, notFounds: third };
+  // Records style reads its options from inside the bag and its tree options from
+  // the second argument; the positional style keeps the fourth and fifth slots.
+  const fileOptions = asRecords ? first.fileOptions : fourth;
+  const options = (asRecords ? second : fifth) as RouteTreeOptions | undefined;
+
+  // The positional style's fourth slot is the file options: a tree-options
+  // object passed there (`layoutShape`, `caseSensitive`) would otherwise be read
+  // as a set of unknown file names and the declared shape would silently not
+  // apply. The records style has no such slot, so this only guards positional.
+  if (!asRecords && fourth !== undefined && !isRouteFileOptions(fourth as Record<string, any>)) {
+    throw new Error(
+      'buildRouteTree: the fourth positional argument is the file options (`pagesDir`, `pageFile`, '
+      + '`layoutFile`, `notFoundFile`, `loadingFile`, `errorFile`), and the fifth is the tree options. '
+      + 'Pass the tree options as the fifth argument, or use the records-object form: '
+      + '`buildRouteTree({ pages, layouts, notFounds, loadings, errors, fileOptions }, options)`.',
+    );
+  }
+
   assertNoRouteConflicts(
-    Object.keys(pages),
-    Object.keys(notFounds),
+    Object.keys(records.pages),
+    Object.keys(records.notFounds ?? {}),
     fileOptions,
   );
+  // Same rule as the other kinds: two files of one kind claiming one route is a
+  // coin flip over which renders, so it is reported instead of decided later.
+  assertNoDuplicateRoutes(Object.keys(records.loadings ?? {}), fileOptions);
+  assertNoDuplicateRoutes(Object.keys(records.errors ?? {}), fileOptions);
 
   const root: RouteNode = {
     segment: "",
@@ -393,7 +487,7 @@ export function buildRouteTree(
   // cannot tell apart.
   const shape: LayoutRecordShape = options?.layoutShape ?? 'module';
 
-  Object.entries(layouts).forEach(([filePath, module]) => {
+  Object.entries(records.layouts ?? {}).forEach(([filePath, module]) => {
     const isFunction = typeof module === 'function';
 
     if (shape === 'loader') {
@@ -431,13 +525,79 @@ export function buildRouteTree(
     );
   });
 
-  Object.entries(pages).forEach(([filePath, loader]) => {
+  Object.entries(records.pages).forEach(([filePath, loader]) => {
     addFileToTree(root, filePath, checkedLoader(filePath, 'page', loader), 'page', fileOptions);
   });
 
-  Object.entries(notFounds).forEach(([filePath, loader]) => {
+  Object.entries(records.notFounds ?? {}).forEach(([filePath, loader]) => {
     addFileToTree(root, filePath, checkedLoader(filePath, 'notFound', loader), 'notFound', fileOptions);
   });
 
+  Object.entries(records.loadings ?? {}).forEach(([filePath, module]) => {
+    addFileToTree(
+      root,
+      filePath,
+      readEagerRouteComponent(filePath, 'loading', module),
+      'loading',
+      fileOptions,
+    );
+  });
+
+  Object.entries(records.errors ?? {}).forEach(([filePath, module]) => {
+    addFileToTree(
+      root,
+      filePath,
+      readEagerRouteComponent(filePath, 'error', module),
+      'error',
+      fileOptions,
+    );
+  });
+
+  // Only trees that actually declare a placeholder or boundary are marked, so
+  // `treeToRoutes` skips the wrapping pass - and its per-folder child scan -
+  // when every glob is empty, which is the overwhelming case.
+  const hasBoundaries =
+    Object.keys(records.loadings ?? {}).length > 0 ||
+    Object.keys(records.errors ?? {}).length > 0;
+  if (hasBoundaries) {
+    markSegmentBoundaries(root);
+  }
+
   return root;
+}
+
+/**
+ * Whether the first argument is a records bag rather than the pages record of
+ * the positional style.
+ *
+ * A records bag always carries the required `pages` key mapped to a record; a
+ * positional pages record is keyed by file path, so `pages` is at best a route
+ * folder and never a top-level key whose value is an object. Requiring the value
+ * to be an object also reads a positional call that mistypes a page as an eager
+ * module (`{ "about/page.tsx": { default: ... } }`) as positional, which is what
+ * lets `checkedLoader` name the offending file instead of this helper guessing.
+ */
+function isRouteFileRecords(value: unknown): value is RouteFileRecords {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const pages = (value as { pages?: unknown }).pages;
+  return typeof pages === 'object' && pages !== null;
+}
+
+/** The file options of the positional style, used to reject a misplaced argument. */
+function isRouteFileOptions(value: Record<string, any>): boolean {
+  const known: Array<string> = [
+    'pagesDir',
+    'pageFile',
+    'layoutFile',
+    'notFoundFile',
+    'loadingFile',
+    'errorFile',
+  ];
+  // An empty object is a valid (if useless) file-options bag, and the walk
+  // resolves every missing key to its default, so nothing can go wrong there.
+  return Object.keys(value).every((key) => known.includes(key))
+    && Object.values(value).every((entry) => entry === undefined || typeof entry === 'string');
 }

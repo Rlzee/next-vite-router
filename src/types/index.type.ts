@@ -3,6 +3,19 @@ import type { ComponentType } from 'react';
 export type RouteModuleLoader = () => Promise<{ default: ComponentType }>;
 
 /**
+ * Props `error.tsx` receives: the thrown error, and a `reset()` that retries the
+ * render. The shape is structural because the component is a plain user file -
+ * nothing imports these types to declare one.
+ */
+export type RouteErrorProps = {
+  error: unknown;
+  reset: () => void;
+};
+
+/** An `error.tsx` default export: a component that renders the failure of its subtree. */
+export type RouteErrorComponent = ComponentType<RouteErrorProps>;
+
+/**
  * How the layouts record handed to `buildRouteTree` must be read.
  *
  * A component, a loader, and a module namespace come out of three different
@@ -25,6 +38,19 @@ export type RouteNode = {
    */
   lazyLayout?: RouteModuleLoader;
   notFound?: RouteModuleLoader;
+  /**
+   * `loading.tsx` of this folder, read eagerly: the placeholder shown while the
+   * folder's page (or one below it) is not ready yet. Eager because a lazily
+   * loaded placeholder would wait for a chunk to announce that a chunk is
+   * loading, and it is a few lines of markup by nature.
+   */
+  loading?: ComponentType;
+  /**
+   * `error.tsx` of this folder, read eagerly like `loading`. An error boundary
+   * has to exist before the code it guards can fail, so a lazily loaded one
+   * could not catch the failure of its own chunk.
+   */
+  error?: RouteErrorComponent;
   children: Map<string, RouteNode>;
 }
 
@@ -32,6 +58,24 @@ export type RouterConfig = {
   loadingFallback?: React.ComponentType;
   enableLazyLoading?: boolean;
 }
+
+/**
+ * The glob records `buildRouteTree` reads, one per route-file kind.
+ *
+ * Passed as a single object so a new kind costs one key instead of a new
+ * positional slot between the loaders and the file options. Every key is
+ * optional except `pages`: a folder tree with no `page.tsx` has no route. The
+ * file-name options ride along in `fileOptions` because the records style has no
+ * separate positional slot for them.
+ */
+export type RouteFileRecords = {
+  pages: Record<string, () => Promise<any>>;
+  layouts?: Record<string, any>;
+  notFounds?: Record<string, () => Promise<any>>;
+  loadings?: Record<string, any>;
+  errors?: Record<string, any>;
+  fileOptions?: import('../utils/index.utils').RouteFileOptions;
+};
 
 export type RouteTreeOptions = {
   /**

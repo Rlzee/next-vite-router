@@ -71,6 +71,26 @@ section is kept until the batch is worth the major.
   rewrites `vite.config.ts`, the tsconfigs and `index.html` in place, is safe to
   run twice, and reports leftover template files instead of deleting anything the
   project authored.
+- **`loading.tsx` and `error.tsx`** per folder, matching the Next.js conventions.
+  `loading.tsx` is the folder's placeholder: pages arrive through `React.lazy`, so
+  while one loads the placeholder paints inside the layout's `Outlet` instead of
+  the global `loadingFallback`, and a nested `loading.tsx` overrides its parent's.
+  `error.tsx` renders from a boundary around the folder's content when a render
+  below it throws, receiving `{ error, reset }`; `reset()` retries, and the
+  boundary also clears itself when the URL changes so another page of the folder
+  is not stuck on a stale error. Both are read eagerly (a placeholder fetched by
+  chunk would wait for a chunk to announce a chunk; a boundary not yet loaded
+  cannot report the failure it exists for). The converter reproduces Next's
+  `layout > error > loading > not-found > page` order, so a folder's `error.tsx`
+  catches its page and children but **not its own layout** - that is the parent's
+  job - and `not-found.tsx` renders inside both. The boundary is a class of this
+  package's own, not React Router's `errorElement`, so it works under `useRoutes`
+  and a data router alike. The plugin globs both files and watches them for HMR;
+  `loadingFile` / `errorFile` rename them, and `buildRouteTree` gained a
+  records-object form - `buildRouteTree({ pages, layouts, notFounds, loadings,
+  errors, fileOptions }, options)` - to carry them (the positional form is
+  unchanged and simply cannot). `createRouteGenerator` takes them as trailing
+  `loadings` / `errors` arguments.
 
 ### Changed
 
@@ -161,6 +181,13 @@ section is kept until the batch is worth the major.
   root's `/`, a guarded chain under a layout, and the interaction with required
   and optional catch-alls.
 - Parameters named after `Object.prototype` keys, missing and supplied.
+- `loading.tsx` / `error.tsx`: the converter's boundary placement (folder index,
+  a child page and a child layout guarded by the parent but not by their own,
+  content inside a layout below it, route groups), a static render that proves
+  `loading.tsx` replaces the configured fallback while an undeclared folder keeps
+  it, the `RouteErrorBoundary` lifecycle (derive, reset-on-navigation, render),
+  duplicate loading detection, and the refusal of a lazy or default-export-less
+  boundary file. A no-boundaries tree is asserted byte-identical to before.
 
 ### Documentation
 
@@ -168,8 +195,10 @@ section is kept until the batch is worth the major.
   the `layoutShape` table with the misdeclaration nothing can catch;
   `next-vite-router configure` and its flags; where `routes.d.ts` is written, why it
   stays ignored, and the authorship marker; how catch-all folders and `not-found`
-  answer a base path; folders that hold no page; and a `Case sensitivity` section
-  with the plugin and generator switches.
+  answer a base path; folders that hold no page; a `Case sensitivity` section with
+  the plugin and generator switches; and a `Loading and error boundaries` section
+  covering the two conventions, the `layout > error > loading` order and what it
+  does not catch, and the eager-import rationale.
 
 ## [3.0.0] - 2026-10-24
 

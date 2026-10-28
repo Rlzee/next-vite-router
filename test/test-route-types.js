@@ -434,7 +434,7 @@ try {
   assert.doesNotMatch(lazyLayoutModule, /layout\.tsx["'], \{ eager: true \}/);
   assert.match(
     lazyLayoutModule,
-    /buildRouteTree\(pages, layouts, notFounds, \{[^}]*\}, \{ layoutShape: "loader" \}\)/,
+    /buildRouteTree\(\{ pages, layouts, notFounds, loadings, errors, fileOptions: \{[^}]*\} \}, \{ layoutShape: "loader" \}\)/,
   );
   // Pages and not-found files keep their own non-eager globs.
   assert.match(

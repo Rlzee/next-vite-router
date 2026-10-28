@@ -59,6 +59,14 @@ import type { RouteTreeOptions } from '../types/index.type';
  * bare function at the default shape is refused while the tree is built: a loader
  * is the same kind of value, and the router will not call one to tell them apart.
  *
+ * Loading and error placeholders:
+ * `loadings` and `errors` carry the `loading.tsx` / `error.tsx` records, both read
+ * from an EAGER glob (`{ eager: true }`) like the default layouts record - a
+ * placeholder that arrives by chunk waits for a chunk to announce a chunk, and a
+ * boundary that has not loaded yet cannot report the failure it exists for. They
+ * are trailing optional arguments, so a caller that has neither keeps the exact
+ * call it wrote before these conventions existed.
+ *
  * Case sensitivity:
  * `{ caseSensitive: false }` opts the emitted routes back into React Router's
  * case-insensitive matching. Left unset (or `true`), every path-bearing route
@@ -71,7 +79,9 @@ export function createRouteGenerator(
   layouts: Record<string, any>,
   notFounds: Record<string, () => Promise<any>>,
   fileOptions?: RouteFileOptions,
-  options?: RouteTreeOptions
+  options?: RouteTreeOptions,
+  loadings?: Record<string, any>,
+  errors?: Record<string, any>,
 ) {
   // One cache per generator: lazy components stay memoized across repeated calls
   // to the returned function, while separate generators never share (and so can
@@ -79,11 +89,10 @@ export function createRouteGenerator(
   const lazyCache = createLazyCache();
 
   return (): RouteObject[] => {
+    // The records-object form: `loadings`, `errors` and the file options all ride
+    // in the bag, and the tree options keep their own argument.
     const routeTree = buildRouteTree(
-      pages,
-      layouts,
-      notFounds,
-      fileOptions,
+      { pages, layouts, notFounds, loadings, errors, fileOptions },
       options,
     );
     // `caseSensitive` is the one option that belongs to the conversion rather

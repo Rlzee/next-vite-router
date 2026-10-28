@@ -1,5 +1,6 @@
 import React, { lazy, Suspense } from "react";
 import { getRouterConfig } from '../config/index.config';
+import { useRouteLoading } from '../router-loading-context';
 
 const DefaultLoadingFallback = () => React.createElement("div");
 
@@ -32,7 +33,7 @@ export function clearLazyCache(cache: LazyComponentCache): void {
 }
 
 /**
- * Resolve the configured loading fallback at render time rather than at route
+ * Resolve the loading placeholder at render time rather than at route
  * generation time.
  *
  * `treeToRoutes` / `generateRoutes` build React elements eagerly, so reading
@@ -44,6 +45,13 @@ export function clearLazyCache(cache: LazyComponentCache): void {
  * dedicated fallback component defers the read until the route is actually
  * painted, keeping the `Suspense` boundary stable while honoring the latest
  * configuration.
+ *
+ * A folder's `loading.tsx` takes precedence over the configured fallback: it
+ * arrives through `RouteLoadingContext`, because this element renders inside
+ * the page's own `Suspense`, which is deeper than any boundary the converter
+ * could place around it. With no `loading.tsx` above, the context is empty and
+ * the configured fallback answers exactly as before, so apps that declare no
+ * `loading.tsx` cannot observe this change.
  */
 function RouteLoadingFallback() {
   const config = getRouterConfig();
@@ -54,7 +62,8 @@ function RouteLoadingFallback() {
     return null;
   }
 
-  const FallbackComponent = config.loadingFallback || DefaultLoadingFallback;
+  const FolderFallback = useRouteLoading();
+  const FallbackComponent = FolderFallback || config.loadingFallback || DefaultLoadingFallback;
   return React.createElement(FallbackComponent);
 }
 

@@ -124,6 +124,8 @@ it and produces the matching `RouteObject[]`.
 | `page.tsx` | Route page |
 | `layout.tsx` | Nested layout rendered with React Router's `Outlet` |
 | `not-found.tsx` | `*` route for that subtree, the fallback for a catch-all base path, and for a folder without a page |
+| `loading.tsx` | Placeholder shown while that folder's page (or one below it) is not ready |
+| `error.tsx` | Error boundary around that folder's content, rendered instead of a failed page |
 | `[id]` | Dynamic segment `:id` |
 | `[...slug]` | Catch-all `*` segment (one or more segments; its base path 404s) |
 | `[[...slug]]` | Optional catch-all `*` segment (also matches the base path) |
@@ -508,6 +510,56 @@ letting a truthy string decide the default. Typed navigation is not affected
 either way: `href` and `Link` reuse your folder names verbatim, so the URLs they
 produce match whatever case the router accepts.
 
+### Loading and error boundaries
+
+`loading.tsx` and `error.tsx` sit in a folder and wrap everything that folder
+renders below its layout:
+
+```text
+src/app/shop/
+├── layout.tsx      # renders first, outside the two below
+├── error.tsx       # catches a render failure in the shop subtree
+├── loading.tsx     # shown while the matched page has not arrived
+└── page.tsx
+```
+
+`loading.tsx` is the folder's placeholder. Pages arrive through `React.lazy`, so
+while one is loading the placeholder paints in the layout's `Outlet` instead of
+the global `loadingFallback` — a nested `loading.tsx` overrides its parent's, and
+a folder that declares none keeps the configured fallback. `error.tsx` renders in
+place of the content when something below throws, and receives
+`{ error, reset }`; `reset()` retries the render. The boundary also clears itself
+when the URL changes, so navigating to another page of the same folder after a
+failure no longer shows the stale error.
+
+Next.js stacks these as `layout > error > loading > not-found > page`, and this
+package reproduces that order, which fixes two consequences:
+
+- A folder's `error.tsx` catches its page **and its children**, but **not its own
+  `layout.tsx`** — a layout's failure is reported by the parent folder's
+  `error.tsx`, not its own. There is no `global-error.tsx` yet, so to guard the
+  root layout wrap `<Router />` in a boundary of your own.
+- `not-found.tsx` renders inside both boundaries, exactly as it does in Next.js.
+
+Both files are imported eagerly, like layouts: a placeholder fetched by chunk
+would wait for a chunk to announce a chunk, and a boundary that has not loaded
+cannot report the failure it exists for. A chunk that fails outright (a stale
+deploy) surfaces through `error.tsx`, but React caches the rejection, so `reset()`
+fails again — reload the document (`window.location.reload()`) in that case.
+
+A boundary only sees render errors: nothing thrown from an event handler or a
+bare `async` callback reaches it, and `loading.tsx` is meaningful for chunk
+loading and Suspense-aware reads (`use()`), because this package ships no data
+loaders.
+
+Rename the conventions like the other file options, and `createRouteGenerator`
+takes the matching eager records as its trailing `loadings` / `errors` arguments:
+
+```ts
+// vite.config.ts
+nextViteRouter({ loadingFile: "skeleton.tsx", errorFile: "failure.tsx" });
+```
+
 ### Router configuration
 
 `configureRouter` (from the `next-vite-router` root) sets the lazy-loading
@@ -649,7 +701,16 @@ regeneration instead of being wrapped in a freshly created type.
 `createRouteGenerator(pages, layouts, notFounds, fileOptions, options)` returns a
 zero-argument `generateRoutes()`; use it when you drive the globs yourself instead
 of the Vite plugin. Its `options` also carries `caseSensitive` — the same switch
-as the plugin's, see [Case sensitivity](#case-sensitivity).
+as the plugin's, see [Case sensitivity](#case-sensitivity). Pass eager `loading.tsx`
+and `error.tsx` records as the trailing `loadings` / `errors` arguments to wire
+those conventions by hand.
+
+`buildRouteTree` accepts the same records either way: the positional
+`buildRouteTree(pages, layouts, notFounds, fileOptions, options)` it has always
+taken, or a single named bag
+`buildRouteTree({ pages, layouts, notFounds, loadings, errors, fileOptions }, options)`
+— the only way to reach the loading and error records. The generated module uses
+the bag form.
 
 ## Compatibility
 

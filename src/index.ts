@@ -12,9 +12,12 @@ export { configureRouter, resetRouterConfig } from './config/index.config';
 export type {
   RouterConfig,
   RouteNode,
+  RouteFileRecords,
   RouteModuleLoader,
   RouteTreeOptions,
   LayoutRecordShape,
+  RouteErrorProps,
+  RouteErrorComponent,
 } from './types/index.type';
 
 // Utils
