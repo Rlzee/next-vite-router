@@ -2,9 +2,9 @@ import React, { Suspense } from "react";
 import { useLocation } from "react-router-dom";
 import type { ComponentType } from "react";
 import type { RouteObject } from "react-router-dom";
-import type { RouteErrorComponent, RouteNode } from "./types/index.type";
-import { RouteLoadingProvider } from "./router-loading-context";
-import { parseRouteSegments, routeSegmentToPath } from "./utils/index.utils";
+import type { RouteErrorComponent, RouteNode } from "../types/index.type";
+import { RouteLoadingProvider } from "./loading-context";
+import { parseRouteSegments, routeSegmentToPath } from "../utils/index.utils";
 
 type BoundaryProps = {
   /** This folder's own `loading.tsx`, when it declared one. */

@@ -12,9 +12,9 @@ import {
   routeSegmentToPath,
   type LazyComponentCache,
 } from '../utils/index.utils';
-import { CatchAllParamProvider } from '../router-params-context';
-import { wrapSegmentBoundaries } from '../router-boundary';
-import { hasSegmentBoundaries } from '../router-boundary-registry';
+import { CatchAllParamProvider } from '../router/params-context';
+import { wrapSegmentBoundaries } from '../router/boundary';
+import { hasSegmentBoundaries } from '../router/boundary-registry';
 
 function isOptionalCatchAll(segment: string): boolean {
   const parsed = parseRouteSegments(segment)[0];

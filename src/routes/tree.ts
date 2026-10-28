@@ -14,7 +14,7 @@ import {
   routeSegmentToPath,
   type RouteFileOptions,
 } from '../utils/index.utils';
-import { markSegmentBoundaries } from '../router-boundary-registry';
+import { markSegmentBoundaries } from '../router/boundary-registry';
 
 type RouteCollision = {
   kind: "literal" | "pattern";

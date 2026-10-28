@@ -1,4 +1,4 @@
-import type { RouteNode } from "./types/index.type";
+import type { RouteNode } from "../types/index.type";
 
 /**
  * Roots whose tree declares at least one `loading.tsx` or `error.tsx`.

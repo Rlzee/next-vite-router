@@ -1,6 +1,6 @@
 import React, { lazy, Suspense } from "react";
 import { getRouterConfig } from '../config/index.config';
-import { useRouteLoading } from '../router-loading-context';
+import { useRouteLoading } from '../router/loading-context';
 
 const DefaultLoadingFallback = () => React.createElement("div");
 

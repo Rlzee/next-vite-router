@@ -1,5 +1,5 @@
 import { useParams as useReactRouterParams } from "react-router-dom";
-import { useCatchAllParam } from "./router-params-context";
+import { useCatchAllParam } from "./params-context";
 
 export function useParams<T extends Record<string, string | undefined> = Record<string, string | undefined>>(): T {
   const params = useReactRouterParams();
