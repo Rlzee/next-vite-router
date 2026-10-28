@@ -9,7 +9,7 @@ import {
   createLazyElement,
   compareOrdinal,
   parseRouteSegments,
-  routeSegmentToPath,
+  normalizedSegment,
   type LazyComponentCache,
 } from '../utils/index.utils';
 import { CatchAllParamProvider } from '../router/params-context';
@@ -111,11 +111,6 @@ function createNotFoundRoutes(
   cache: LazyComponentCache,
 ): RouteObject[] {
   return node.notFound ? [createNotFoundRoute(node, cache)] : [];
-}
-
-function normalizedSegment(segment: string): string {
-  const parsed = parseRouteSegments(segment)[0];
-  return parsed ? routeSegmentToPath(parsed) : "";
 }
 
 function createIndexRoute(

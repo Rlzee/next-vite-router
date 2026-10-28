@@ -33,6 +33,17 @@ export function routeSegmentToPath(segment: RouteSegment): string {
 }
 
 /**
+ * Convert one raw folder name to the route segment it emits (`[id]` -> `:id`,
+ * `(group)` -> ``), or `""` when the name parses to nothing. Shared by the route
+ * converter's walk and the boundary pass so the two agree on which path a folder
+ * is routed under, instead of each re-deriving it.
+ */
+export function normalizedSegment(segment: string): string {
+  const parsed = parseRouteSegments(segment)[0];
+  return parsed ? routeSegmentToPath(parsed) : "";
+}
+
+/**
  * Parse a route path into normalized segments.
  *
  * `source` optionally names the file the path came from so validation errors

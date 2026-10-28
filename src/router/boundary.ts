@@ -4,7 +4,7 @@ import type { ComponentType } from "react";
 import type { RouteObject } from "react-router-dom";
 import type { RouteErrorComponent, RouteNode } from "../types/index.type";
 import { RouteLoadingProvider } from "./loading-context";
-import { parseRouteSegments, routeSegmentToPath } from "../utils/index.utils";
+import { normalizedSegment } from "../utils/index.utils";
 
 type BoundaryProps = {
   /** This folder's own `loading.tsx`, when it declared one. */
@@ -88,7 +88,7 @@ export function SegmentBoundary(props: BoundaryProps): React.ReactElement {
   if (props.loading) {
     // The provider names the placeholder for every page suspended below - each
     // page still suspends inside its own `Suspense`, deeper than this one, and
-    // only a context can reach that fallback (see `router-loading-context`).
+    // only a context can reach that fallback (see `RouteLoadingProvider`).
     content = React.createElement(
       RouteLoadingProvider,
       { loading: props.loading, children: content },
@@ -135,16 +135,6 @@ function createBoundaryElement(
 }
 
 /**
- * The path a folder's own children array routes it under: the same conversion
- * `normalizedSegment` applies during the walk, reached through the shared utils
- * so this module does not import the converter that imports it.
- */
-function segmentPath(segment: string): string {
-  const parsed = parseRouteSegments(segment)[0];
-  return parsed ? routeSegmentToPath(parsed) : "";
-}
-
-/**
  * The child node a route in `node`'s own children array came from, if any.
  *
  * `processChildren` sorts a folder's children by code unit and emits their
@@ -158,7 +148,7 @@ function matchChildNode(node: RouteNode, path: string): RouteNode | undefined {
   // route's path - a hand-built node may name itself differently, and the
   // emitted tree, not the node, is what this pass has to classify.
   for (const [key, child] of node.children) {
-    if (segmentPath(key) === path) {
+    if (normalizedSegment(key) === path) {
       return child;
     }
   }
@@ -167,7 +157,7 @@ function matchChildNode(node: RouteNode, path: string): RouteNode | undefined {
   // enclosing folder's level (the group owns no URL segment), so resolve it
   // through the transparent children that carry no path of their own.
   for (const [key, child] of node.children) {
-    if (segmentPath(key) === "" && child.children.size > 0) {
+    if (normalizedSegment(key) === "" && child.children.size > 0) {
       const found = matchChildNode(child, path);
       if (found) {
         return found;

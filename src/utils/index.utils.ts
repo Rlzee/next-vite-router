@@ -2,6 +2,7 @@ export {
   extractRoutePath,
   parseRouteSegments,
   routeSegmentToPath,
+  normalizedSegment,
   compareOrdinal,
 } from './path';
 export type { RouteSegment } from './path';
