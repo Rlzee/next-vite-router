@@ -726,8 +726,6 @@ const errors = errorsGlob;
 const routeMetadata = ${JSON.stringify(catchAllMetadata)};
 
 export function generateRoutes() {
-  // The records-object form: loadings and errors have no positional slot in the
-  // other style, and the tree options keep their own second argument.
   const tree = buildRouteTree({ pages, layouts, notFounds, loadings, errors, fileOptions: ${recordsFileOptions} }${recordsTreeOptions});
   // One flag per path-bearing route, from the plugin option: React Router
   // matches case-insensitively unless a route opts in, so the generated module

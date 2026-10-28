@@ -89,8 +89,6 @@ export function createRouteGenerator(
   const lazyCache = createLazyCache();
 
   return (): RouteObject[] => {
-    // The records-object form: `loadings`, `errors` and the file options all ride
-    // in the bag, and the tree options keep their own argument.
     const routeTree = buildRouteTree(
       { pages, layouts, notFounds, loadings, errors, fileOptions },
       options,
