@@ -585,10 +585,38 @@ function createRootRoutes(
 }
 
 /**
+ * Opt every path-bearing route into (or out of) case-sensitive matching.
+ *
+ * React Router compiles a route's pattern to a regexp and adds the `i` flag
+ * unless the route says `caseSensitive: true`, so a left-to-its-own-devices
+ * tree answers `/USERS` from a `users/` folder - the opposite of Next.js.
+ * `caseSensitive` is per route, and the conversion builds each route deep
+ * inside its branch, so one recursive pass over the finished array stamps
+ * them all here. Index and pathless routes are skipped: they own no segment
+ * to compare, and React Router reads the flag only for path routes.
+ */
+function applyCaseSensitivity(
+  routes: RouteObject[],
+  caseSensitive: boolean,
+): void {
+  for (const route of routes) {
+    if (route.path !== undefined) {
+      route.caseSensitive = caseSensitive;
+    }
+    if (route.children) {
+      applyCaseSensitivity(route.children, caseSensitive);
+    }
+  }
+}
+
+/**
  * Public entry: the route array for a tree. `isRoot` nodes are the whole
  * application; every other node is converted as the children of its parent's
  * URL. The conversion is a single top-down walk, and claims travel back up
  * with the routes they belong to.
+ *
+ * `caseSensitive` defaults to `true`, the Next.js contract: see
+ * `applyCaseSensitivity` for why React Router's own default is not usable.
  */
 export function treeToRoutes(
   node: RouteNode,
@@ -596,8 +624,11 @@ export function treeToRoutes(
   currentPath = "",
   cache: LazyComponentCache = createLazyCache(),
   notFoundFallback: RouteModuleLoader | undefined = undefined,
+  caseSensitive = true,
 ): RouteObject[] {
-  return convertNode(node, isRoot, currentPath, cache, notFoundFallback).routes;
+  const routes = convertNode(node, isRoot, currentPath, cache, notFoundFallback).routes;
+  applyCaseSensitivity(routes, caseSensitive);
+  return routes;
 }
 
 function convertNode(

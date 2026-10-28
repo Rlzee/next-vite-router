@@ -32,6 +32,17 @@ export type NextViteRouterPluginOptions = {
    * requested. Turn it on for large, rarely visited shells.
    */
   lazyLayouts?: boolean;
+  /**
+   * Stamp `caseSensitive` onto every path-bearing route the generated module
+   * builds, so URL matching follows the case of the folder names on disk - the
+   * Next.js contract. React Router's own default is the opposite (its pattern
+   * regexp gets the `i` flag unless a route opts in), which is why the flag has
+   * to travel with the generated `treeToRoutes` call.
+   *
+   * Defaults to `true`. Set it to `false` for an app whose existing links come
+   * in mixed case and must keep resolving.
+   */
+  caseSensitive?: boolean;
 };
 
 function routePathFromSegments(segments: RouteSegment[]): string {
@@ -47,8 +58,17 @@ type RouteTypeEntry = {
   params: Array<{ name: string; optional: boolean; variadic: boolean }>;
 };
 
+/**
+ * Validate the string options only.
+ *
+ * The `Required<...>` wrapper is what forces every path/file-name option to
+ * reach the call already resolved to a non-empty string; the boolean switches
+ * (`lazyLayouts`, `caseSensitive`) are therefore omitted from the shape - they
+ * have nothing to trim, and a new boolean option has to join this Omit rather
+ * than the entries below.
+ */
 function validatePluginOptions(
-  options: Required<Omit<NextViteRouterPluginOptions, "lazyLayouts">>,
+  options: Required<Omit<NextViteRouterPluginOptions, "lazyLayouts" | "caseSensitive">>,
 ): void {
   const entries = [
     ["pagesDir", options.pagesDir],
@@ -362,6 +382,7 @@ export function nextViteRouter(
     layoutFile = "layout.tsx",
     notFoundFile = "not-found.tsx",
     lazyLayouts = false,
+    caseSensitive = true,
   } = options;
   validatePluginOptions({ pagesDir, pageFile, layoutFile, notFoundFile });
   const normalizedPagesDir = normalizePluginPath(pagesDir);
@@ -636,7 +657,10 @@ const routeMetadata = ${JSON.stringify(catchAllMetadata)};
 
 export function generateRoutes() {
   const tree = buildRouteTree(pages, layouts, notFounds, ${JSON.stringify(fileOptions)}${routeTreeOptions});
-  const routes = treeToRoutes(tree, true);
+  // One flag per path-bearing route, from the plugin option: React Router
+  // matches case-insensitively unless a route opts in, so the generated module
+  // has to carry the Next.js default (true) into the conversion.
+  const routes = treeToRoutes(tree, true, "", undefined, undefined, ${JSON.stringify(caseSensitive)});
   return routes;
 }
 

@@ -244,6 +244,93 @@ describe("route generator", () => {
     assert.equal(matchRoutes(routes, "/admin/dashboard"), null);
   });
 
+  test("matches paths case-sensitively by default, like Next.js", () => {
+    // React Router compiles a route pattern to a case-INsensitive regexp unless
+    // the route carries `caseSensitive: true`, so `/USERS` would otherwise
+    // answer the `users/` folder and `/Blog/a` would match the `/blog/*`
+    // catch-all. The converter stamps every path-bearing route; without a root
+    // layout the emitted array is the root folder's children, flat.
+    const routes = createRoutes({
+      pages: {
+        "users/page.tsx": loader("list"),
+        "users/[id]/page.tsx": loader("detail"),
+        "blog/[...slug]/page.tsx": loader("blog"),
+      },
+    });
+
+    assert.deepEqual(
+      routes.map(({ path }) => path),
+      ["blog", "users", undefined],
+    );
+    assert.equal(routes[0].caseSensitive, true);
+    assert.equal(routes[0].children[1].caseSensitive, true);
+    assert.equal(routes[1].caseSensitive, true);
+    assert.equal(routes[1].children[1].caseSensitive, true);
+
+    // Segment NAMES are compared case-sensitively; a matched value keeps its
+    // own case (`/users/ABC` fills `id` with `"ABC"`), exactly like Next.js.
+    assert.equal(matchRoutes(routes, "/USERS"), null);
+    assert.equal(matchRoutes(routes, "/users/ABC")?.at(-1)?.params.id, "ABC");
+    assert.equal(matchRoutes(routes, "/Blog/a"), null);
+    // Exact-case URLs are unaffected by the stamp.
+    assert.equal(matchRoutes(routes, "/users")?.at(-1)?.route.index, true);
+    assert.deepEqual(matchRoutes(routes, "/blog/a")?.at(-1)?.params, { "*": "a" });
+  });
+
+  test("caseSensitive: false restores React Router's case-insensitive matching", () => {
+    const tree = buildRouteTree({
+      "users/page.tsx": loader("list"),
+      "blog/[...slug]/page.tsx": loader("blog"),
+    }, {}, {});
+    const routes = treeToRoutes(tree, true, "", undefined, undefined, false);
+
+    assert.deepEqual(
+      routes.map(({ path }) => path),
+      ["blog", "users", undefined],
+    );
+    assert.equal(routes[0].caseSensitive, false);
+    assert.equal(routes[0].children[1].caseSensitive, false);
+    assert.equal(routes[1].caseSensitive, false);
+
+    // `/USERS` lands on the `users` page - a lone `page.tsx` is the path route
+    // itself here - and the mixed-case base lets `/Blog/a` reach the splat.
+    assert.equal(matchRoutes(routes, "/USERS")?.at(-1)?.route.path, "users");
+    assert.deepEqual(
+      matchRoutes(routes, "/Blog/a")?.at(-1)?.params,
+      { "*": "a" },
+    );
+  });
+
+  test("caseSensitive: false also opts the routes a generator emits", () => {
+    const generateRoutes = createRouteGenerator(
+      { "users/page.tsx": loader("list") },
+      {},
+      {},
+      undefined,
+      { caseSensitive: false },
+    );
+    const routes = generateRoutes();
+
+    // A lone `users/page.tsx` is one path route plus the root's base guard.
+    assert.deepEqual(
+      routes.map(({ path }) => path),
+      ["users", undefined],
+    );
+    assert.equal(routes[0].caseSensitive, false);
+    assert.equal(matchRoutes(routes, "/USERS")?.at(-1)?.route.path, "users");
+
+    // The generator default keeps the Next.js contract without an explicit key.
+    const defaultRoutes = createRouteGenerator(
+      { "users/page.tsx": loader("list") },
+      {},
+      {},
+    )();
+    assert.equal(defaultRoutes[0].caseSensitive, true);
+    assert.equal(matchRoutes(defaultRoutes, "/USERS"), null);
+    // Index routes own no segment, so they are not stamped.
+    assert.equal(defaultRoutes[1].caseSensitive, undefined);
+  });
+
   test("rejects duplicate routes created by route groups", () => {
     assert.throws(
       () => assertNoDuplicateRoutes([

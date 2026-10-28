@@ -60,4 +60,15 @@ export type RouteTreeOptions = {
    * wrote, so only a hand-built record can declare itself wrongly.
    */
   layoutShape?: LayoutRecordShape;
+  /**
+   * Match URLs case-sensitively, like Next.js. Defaults to `true`.
+   *
+   * React Router's own default is the opposite: a route without
+   * `caseSensitive: true` matches its pattern with a case-insensitive regexp,
+   * so `/USERS` would answer a `users/` folder and `/Blog/A` would match the
+   * `/blog/*` catch-all. This package opts every emitted route in.
+   * Set it to `false` to restore React Router's case-insensitive matching
+   * for an app whose existing links come in mixed case.
+   */
+  caseSensitive?: boolean;
 }

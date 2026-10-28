@@ -475,6 +475,37 @@ Each layout then gets its own chunk, rendered behind a `Suspense` boundary that
 so a nested page is requested only after the layout chunk arrives. That trade is
 worth it for large or rarely visited shells, not for the root.
 
+### Case sensitivity
+
+URLs match the case of the folder names, like Next.js: with `src/app/users/`,
+`/users` renders the page and `/USERS` is a miss. Static and dynamic segments
+are covered the same way — a mixed-case `/Users` does not claim the `users/`
+folder — and so are catch-alls: with a `blog/[...slug]` folder, `/Blog/a` is a
+miss, not a catch-all match whose base came in another case. The value a dynamic
+segment captures keeps its own case: `/users/ABC` fills `[id]` with `"ABC"`.
+
+This is deliberate. React Router leaves `caseSensitive` off its route objects,
+which compiles every pattern to a case-**in**sensitive regexp, so a tree built
+without the flag would answer `/USERS` from `users/`. The converter stamps
+`caseSensitive: true` onto each path-bearing route instead; index and pathless
+routes own no segment and are left alone.
+
+`caseSensitive: false` on the plugin restores React Router's behavior:
+
+```ts
+// vite.config.ts
+import { nextViteRouter } from "next-vite-router/plugin";
+
+export default defineConfig({
+  plugins: [react(), nextViteRouter({ caseSensitive: false })],
+});
+```
+
+The manual `createRouteGenerator` takes the same switch as `{ caseSensitive:
+false }` in its `options` argument. Typed navigation is not affected either
+way: `href` and `Link` reuse your folder names verbatim, so the URLs they
+produce match whatever case the router accepts.
+
 ### Router configuration
 
 `configureRouter` (from the `next-vite-router` root) sets the lazy-loading
@@ -615,7 +646,8 @@ regeneration instead of being wrapped in a freshly created type.
 
 `createRouteGenerator(pages, layouts, notFounds, fileOptions, options)` returns a
 zero-argument `generateRoutes()`; use it when you drive the globs yourself instead
-of the Vite plugin.
+of the Vite plugin. Its `options` also carries `caseSensitive` — the same switch
+as the plugin's, see [Case sensitivity](#case-sensitivity).
 
 ## Compatibility
 

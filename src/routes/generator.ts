@@ -58,6 +58,13 @@ import type { RouteTreeOptions } from '../types/index.type';
  * yields bare components and is declared `{ layoutShape: "component" }`. Leaving a
  * bare function at the default shape is refused while the tree is built: a loader
  * is the same kind of value, and the router will not call one to tell them apart.
+ *
+ * Case sensitivity:
+ * `{ caseSensitive: false }` opts the emitted routes back into React Router's
+ * case-insensitive matching. Left unset (or `true`), every path-bearing route
+ * carries `caseSensitive: true`, so `/USERS` does not answer a `users/` folder
+ * and `/Blog/a` does not match a `blog/[...slug]` catch-all, as in Next.js;
+ * a value that does match keeps its own case.
  */
 export function createRouteGenerator(
   pages: Record<string, () => Promise<any>>,
@@ -79,7 +86,17 @@ export function createRouteGenerator(
       fileOptions,
       options,
     );
-    const routes = treeToRoutes(routeTree, true, "", lazyCache);
+    // `caseSensitive` is the one option that belongs to the conversion rather
+    // than the tree; read it with the package default so an omitted key keeps
+    // the Next.js contract instead of React Router's case-insensitive one.
+    const routes = treeToRoutes(
+      routeTree,
+      true,
+      "",
+      lazyCache,
+      undefined,
+      options?.caseSensitive ?? true,
+    );
     return routes;
   };
 }

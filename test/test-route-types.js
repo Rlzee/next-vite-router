@@ -138,6 +138,13 @@ try {
   // import stays in the module graph of every app that loads the virtual module.
   assert.doesNotMatch(virtualModule, /createLazyElement/);
   assert.match(virtualModule, /routes \?\?= generateRoutes\(\)/);
+  // Matching follows the case of the folder names, like Next.js: React Router
+  // compiles a route pattern to a case-insensitive regexp unless the route
+  // carries `caseSensitive: true`, so the generated call must pass the flag.
+  assert.match(
+    virtualModule,
+    /const routes = treeToRoutes\(tree, true, "", undefined, undefined, true\);/,
+  );
   assert.match(virtualModule, /import\.meta\.glob\(["']\/src\/app\/\*\*\/page\.tsx["']\)/);
   assert.match(virtualModule, /import\.meta\.glob\(["']\/src\/app\/\*\*\/not-found\.tsx["']\)/);
   assert.match(virtualModule, /import\.meta\.glob\(["']\/src\/app\/\*\*\/layout\.tsx["'], \{ eager: true \}\)/);
@@ -422,6 +429,24 @@ try {
   console.log("✅ lazyLayouts pairs a non-eager layout glob with the runtime flag");
 } finally {
   fs.rmSync(lazyLayoutRoot, { recursive: true, force: true });
+}
+
+const caseSensitiveRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-case-"));
+fs.mkdirSync(path.join(caseSensitiveRoot, "src", "app"), { recursive: true });
+fs.writeFileSync(path.join(caseSensitiveRoot, "src", "app", "page.tsx"), "");
+try {
+  // Matching is case-sensitive unless the plugin option opts the app back into
+  // React Router's case-insensitive default; the flag reaches the routes only
+  // through the generated `treeToRoutes` call, so pin that spelling too.
+  const ciModule = nextViteRouter({ caseSensitive: false });
+  ciModule.configResolved({ root: caseSensitiveRoot });
+  assert.match(
+    ciModule.load("\0next-vite-router/routes"),
+    /const routes = treeToRoutes\(tree, true, "", undefined, undefined, false\);/,
+  );
+  console.log("✅ caseSensitive forwards the opt-out into the generated treeToRoutes call");
+} finally {
+  fs.rmSync(caseSensitiveRoot, { recursive: true, force: true });
 }
 
 // React Router v7 moved every export into `react-router` and left
