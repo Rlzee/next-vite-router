@@ -5,9 +5,9 @@ All notable changes to this project are documented in this file.
 ## [Unreleased]
 
 Breaking, and therefore slated for **4.0.0** rather than a 3.x patch: the removed
-exports below were all published, and the generated declaration changes file name.
-Nothing here is released yet, so the section is kept until the batch is worth the
-major.
+exports below were all published, the generated declaration changes file name, and
+URL matching changes its default case. Nothing here is released yet, so the
+section is kept until the batch is worth the major.
 
 ### Removed (breaking)
 
@@ -89,6 +89,18 @@ major.
   is left untouched and the refusal is warned about - `routes.d.ts` is a generic
   enough name that an application may already use it for its own route table, and a
   build must not destroy it.
+- **Breaking:** URL matching is case-sensitive, like Next.js. React Router
+  compiles a route pattern to a case-**in**sensitive regexp unless the route
+  carries `caseSensitive: true`, and nothing set the flag, so `/USERS` answered
+  `src/app/users/` and `/Blog/a` matched a `blog/[...slug]` catch-all with a
+  lowercase base. The converter now stamps every path-bearing route - a sixth
+  `treeToRoutes()` parameter, defaulting to `true`, with index and pathless
+  routes left alone because they own no segment to compare - and both surfaces
+  can opt back out: `nextViteRouter({ caseSensitive: false })` on the plugin,
+  `RouteTreeOptions.caseSensitive` on `createRouteGenerator()`. Generated code
+  passes the flag explicitly, so an app only changes behavior, never its
+  imports. A value that does match keeps its own case (`/users/ABC` still fills
+  `[id]` with `"ABC"`).
 - Everything this package orders and emits is sorted by UTF-16 code unit instead of
   `String.prototype.localeCompare`: the `RoutePath` union, the route tree's
   children, and the file lists in conflict errors. The same folder tree now yields
@@ -97,6 +109,18 @@ major.
 
 ### Fixed
 
+- A folder with children but no `page.tsx` no longer paints every layout down to
+  an empty outlet. React Router keeps a static parent as a valid *partial* match,
+  so `/docs` rendered on its own from `docs/intro/page.tsx`; the converter now
+  stops the chain with a guard index at that base and renders the nearest
+  `not-found` (nothing when the app declares none, the same blank 404 Next.js
+  paints without a `not-found.tsx`). The root answers `/` under the same rule,
+  and route groups are not guarded - they own no URL.
+- A missing route parameter whose name is also an `Object.prototype` member
+  (`constructor`, `toString`, `valueOf`) no longer resolves to the inherited
+  function and gets it encoded into the path; the parameter bag is now a
+  null-prototype object, so an absent value reads as absent and is reported like
+  any other missing parameter.
 - A required catch-all no longer swallows its own base URL. `[...slug]` used to
   match `/blog` with an empty splat; the folder now gets a guard index route that
   renders the nearest `not-found`, and a `not-found.tsx` beside the catch-all folder
@@ -125,6 +149,15 @@ major.
   and an application-owned `routes.d.ts` is refused with exactly one warning.
 - The catch-all base fallback, the guard index route shape, the new collision rule,
   the `configure` command, and the `create` guards.
+- Case variants of every emitted route: the `caseSensitive: true` stamp on each
+  path-bearing route and its absence on index routes, mixed-case misses against an
+  exact-case match, `caseSensitive: false` restoring React Router's behavior at
+  both the converter and the generator, and the plugin option reaching the
+  generated `treeToRoutes` call.
+- Page-less folder bases: the guard index shape, the not-found it renders, the
+  root's `/`, a guarded chain under a layout, and the interaction with required
+  and optional catch-alls.
+- Parameters named after `Object.prototype` keys, missing and supplied.
 
 ### Documentation
 
@@ -132,7 +165,8 @@ major.
   the `layoutShape` table with the misdeclaration nothing can catch;
   `next-vite-router configure` and its flags; where `routes.d.ts` is written, why it
   stays ignored, and the authorship marker; how catch-all folders and `not-found`
-  answer a base path.
+  answer a base path; folders that hold no page; and a `Case sensitivity` section
+  with the plugin and generator switches.
 
 ## [3.0.0] - 2026-10-24
 
@@ -638,10 +672,6 @@ major.
 ### Documentation
 
 - Added the initial usage guide, route conventions, and project examples.
-
-## [Unreleased]
-
-No unreleased changes.
 
 [1.0.3]: https://github.com/Rlzee/next-vite-router/commit/418b2e3
 [1.1.0]: https://github.com/Rlzee/next-vite-router/releases/tag/v1.1.0
