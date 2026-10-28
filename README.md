@@ -502,8 +502,10 @@ export default defineConfig({
 ```
 
 The manual `createRouteGenerator` takes the same switch as `{ caseSensitive:
-false }` in its `options` argument. Typed navigation is not affected either
-way: `href` and `Link` reuse your folder names verbatim, so the URLs they
+false }` in its `options` argument. Only a boolean is accepted: the plugin
+rejects `nextViteRouter({ caseSensitive: "false" })` at config time instead of
+letting a truthy string decide the default. Typed navigation is not affected
+either way: `href` and `Link` reuse your folder names verbatim, so the URLs they
 produce match whatever case the router accepts.
 
 ### Router configuration

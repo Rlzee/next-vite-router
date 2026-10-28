@@ -99,8 +99,11 @@ section is kept until the batch is worth the major.
   can opt back out: `nextViteRouter({ caseSensitive: false })` on the plugin,
   `RouteTreeOptions.caseSensitive` on `createRouteGenerator()`. Generated code
   passes the flag explicitly, so an app only changes behavior, never its
-  imports. A value that does match keeps its own case (`/users/ABC` still fills
-  `[id]` with `"ABC"`).
+  imports. The plugin refuses anything but a boolean for the option - `"no"`,
+  `1`, `null` included - because a destructuring default only covers `undefined`
+  and the value is written into the generated module as it arrived, where
+  `"false"` would have read as *on*. A value that does match keeps its own case
+  (`/users/ABC` still fills `[id]` with `"ABC"`).
 - Everything this package orders and emits is sorted by UTF-16 code unit instead of
   `String.prototype.localeCompare`: the `RoutePath` union, the route tree's
   children, and the file lists in conflict errors. The same folder tree now yields
@@ -152,8 +155,8 @@ section is kept until the batch is worth the major.
 - Case variants of every emitted route: the `caseSensitive: true` stamp on each
   path-bearing route and its absence on index routes, mixed-case misses against an
   exact-case match, `caseSensitive: false` restoring React Router's behavior at
-  both the converter and the generator, and the plugin option reaching the
-  generated `treeToRoutes` call.
+  both the converter and the generator, the plugin option reaching the generated
+  `treeToRoutes` call, and the refusal of a non-boolean option value.
 - Page-less folder bases: the guard index shape, the not-found it renders, the
   root's `/`, a guarded chain under a layout, and the interaction with required
   and optional catch-alls.

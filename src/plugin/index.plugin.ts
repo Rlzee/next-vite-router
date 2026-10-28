@@ -94,6 +94,28 @@ function validatePluginOptions(
   }
 }
 
+/**
+ * Reject a boolean switch that is not a boolean.
+ *
+ * A destructuring default only substitutes for `undefined`, so `"no"`, `1` or
+ * `null` would reach the generated module as written: `JSON.stringify("no")`
+ * emits a truthy string, and an app asking out of case-sensitive matching
+ * would quietly keep it. A JS-only caller could not make that mistake, because
+ * the option is typed `boolean`; a config authored in JSON, or read from an
+ * environment, can, and the build is where the mistake is still cheap to name.
+ */
+function assertBooleanOption(
+  name: "caseSensitive",
+  value: unknown,
+): void {
+  if (value !== undefined && typeof value !== "boolean") {
+    throw new Error(
+      `nextViteRouter option "${name}" must be a boolean; received ` +
+      `${value === null ? "null" : typeof value}.`,
+    );
+  }
+}
+
 function normalizePluginPath(value: string): string {
   return value
     .replace(/\\/g, "/")
@@ -385,6 +407,9 @@ export function nextViteRouter(
     caseSensitive = true,
   } = options;
   validatePluginOptions({ pagesDir, pageFile, layoutFile, notFoundFile });
+  // The switch the string validator above cannot judge, and the only option
+  // whose value travels verbatim into the generated `treeToRoutes` call.
+  assertBooleanOption("caseSensitive", options.caseSensitive);
   const normalizedPagesDir = normalizePluginPath(pagesDir);
   // Use the normalized, root-relative form as the runtime base so the glob
   // keys Vite emits (`/${normalizedPagesDir}/...`), the config-time

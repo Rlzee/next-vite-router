@@ -293,6 +293,21 @@ assert.throws(
   () => nextViteRouter({ pageFile: "page.tsx", layoutFile: "page.tsx" }),
   /file options must be distinct/,
 );
+// A boolean switch is checked by type, not by content: `"no"`, `1` and `null`
+// are all truthy-or-odd values a destructuring default would accept, and
+// `caseSensitive` is written into the generated module as it arrived, so
+// `"no"` would have become a truthy `caseSensitive: "no"` in the built routes.
+// The casts stand in for a JSON/ENV-authored config, which TypeScript cannot
+// guard for this package.
+for (const bad of ["no", "false", 1, null]) {
+  assert.throws(
+    () => nextViteRouter({ caseSensitive: bad }),
+    /option "caseSensitive" must be a boolean/,
+    `caseSensitive: ${JSON.stringify(bad)} must be rejected`,
+  );
+}
+// `undefined` (absent key) is the documented way to take the default.
+assert.doesNotThrow(() => nextViteRouter({ caseSensitive: undefined }));
 console.log("✅ Plugin options are validated");
 
 const fallbackConflictRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-fallback-"));
