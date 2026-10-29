@@ -14,7 +14,6 @@ import {
   routeSegmentToPath,
   type RouteFileOptions,
 } from '../utils/index.utils';
-import { markSegmentBoundaries } from '../router/boundary-registry';
 
 type RouteCollision = {
   kind: "literal" | "pattern";
@@ -552,16 +551,6 @@ export function buildRouteTree(
       fileOptions,
     );
   });
-
-  // Only trees that actually declare a placeholder or boundary are marked, so
-  // `treeToRoutes` skips the wrapping pass - and its per-folder child scan -
-  // when every glob is empty, which is the overwhelming case.
-  const hasBoundaries =
-    Object.keys(records.loadings ?? {}).length > 0 ||
-    Object.keys(records.errors ?? {}).length > 0;
-  if (hasBoundaries) {
-    markSegmentBoundaries(root);
-  }
 
   return root;
 }

@@ -535,11 +535,22 @@ failure no longer shows the stale error.
 Next.js stacks these as `layout > error > loading > not-found > page`, and this
 package reproduces that order, which fixes two consequences:
 
-- A folder's `error.tsx` catches its page **and its children**, but **not its own
-  `layout.tsx`** — a layout's failure is reported by the parent folder's
-  `error.tsx`, not its own. There is no `global-error.tsx` yet, so to guard the
-  root layout wrap `<Router />` in a boundary of your own.
+- A folder's `error.tsx` catches its page **and every descendant at any depth**,
+  but **not its own `layout.tsx`** — a layout's failure is reported by the parent
+  folder's `error.tsx`, not its own. A boundary sits between the folder's layout
+  and everything the folder emits at its own URL, so a page two levels below
+  (`dx/y/z/page.tsx` under `dx/error.tsx`, with no `layout.tsx` in between)
+  still lands inside `dx`'s error and loading instead of being caught by the
+  nearest enclosing boundary. There is no `global-error.tsx` yet, so to guard
+  the root layout wrap `<Router />` in a boundary of your own.
 - `not-found.tsx` renders inside both boundaries, exactly as it does in Next.js.
+
+A route group (`(name)`) is a folder like any other for these two files:
+`(grp)/loading.tsx` and `(grp)/error.tsx` guard every page the group emits, at
+any depth below it. Placing an `error.tsx` in a group that sits directly under
+the pages root alongside the root's own `error.tsx` still reports the
+`Duplicate route "/"` collision, the same rule that already applies to
+`not-found.tsx`.
 
 Both files are imported eagerly, like layouts: a placeholder fetched by chunk
 would wait for a chunk to announce a chunk, and a boundary that has not loaded

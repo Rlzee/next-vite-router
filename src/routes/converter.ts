@@ -1,5 +1,6 @@
 import React from "react";
 import {
+  Outlet,
   useParams as useReactRouterParams,
   type RouteObject,
 } from "react-router-dom";
@@ -13,8 +14,59 @@ import {
   type LazyComponentCache,
 } from '../utils/index.utils';
 import { CatchAllParamProvider } from '../router/params-context';
-import { wrapSegmentBoundaries } from '../router/boundary';
-import { hasSegmentBoundaries } from '../router/boundary-registry';
+import { SegmentBoundary } from '../router/boundary';
+
+/**
+ * The `loading.tsx` / `error.tsx` boundary element of `node` when it declares
+ * either file, rendered as the element of a pathless route between the folder
+ * (and its layout, when the folder has one) and every route the folder emits
+ * at its own URL. Undefined when the folder declares neither, so callers pass
+ * their children array through untouched.
+ *
+ * Placing the boundary on a pathless route that renders `<Outlet/>` - rather
+ * than wrapping each direct child's element in the walk - makes the boundary
+ * reach the folder's whole subtree. A page two levels below (`dx/error.tsx`
+ * guarding `dx/y/z/page.tsx`, with no `layout.tsx` between them) renders
+ * inside this folder's boundary, the Next.js contract; a per-child wrap
+ * would leave the deeper page to be caught by the nearest enclosing
+ * boundary, which is not this folder's.
+ *
+ * The same shape also handles a route group: the group's own pathless route
+ * carries the element, so every page beneath `(grp)/error.tsx` sits inside
+ * the boundary exactly like a URL-bearing folder's pages sit inside theirs.
+ *
+ * Because the boundary lives *inside* the folder's layout route (or inside
+ * the root layout for `/`), a folder's `error.tsx` never guards its own
+ * `layout.tsx` - a layout failure is caught by the parent folder's boundary,
+ * matching Next.js's `layout > error > loading > not-found > page` stack.
+ */
+function boundaryOutletElement(node: RouteNode): React.ReactElement | undefined {
+  if (!node.loading && !node.error) {
+    return undefined;
+  }
+  return React.createElement(SegmentBoundary, {
+    loading: node.loading,
+    error: node.error,
+    children: React.createElement(Outlet),
+  });
+}
+
+/**
+ * Wrap a folder's own children array inside a pathless boundary route when
+ * the folder declares `loading.tsx` or `error.tsx`; return it untouched
+ * otherwise, so an app without either file emits exactly the route shape it
+ * had before these conventions existed, byte for byte.
+ */
+function withBoundaryChildren(
+  node: RouteNode,
+  children: RouteObject[],
+): RouteObject[] {
+  const element = boundaryOutletElement(node);
+  if (!element) {
+    return children;
+  }
+  return [{ element, children }];
+}
 
 function isOptionalCatchAll(segment: string): boolean {
   const parsed = parseRouteSegments(segment)[0];
@@ -363,31 +415,6 @@ function BaseNotFound(): React.ReactNode {
 }
 
 /**
- * Routes a required catch-all page folder contributes to its parent: a guard
- * index that answers the base URL (`/blog`) plus the splat route carrying the
- * page for everything below it.
- *
- * React Router's `*` consumes zero or more segments and its static parents
- * partial-match, so no pattern lifts that floor to one segment: a splat branch
- * always claims `/blog`, which used to paint the layout with an empty outlet
- * (or the page with an empty catch-all). Placing a guard on an index route one
- * level up makes the base a real leaf match, so Next.js's one-or-more contract
- * holds: `/blog` answers with the nearest `not-found`, and only `/blog/...`
- * renders the page.
- */
-function createRequiredCatchAllRoutes(
-  node: RouteNode,
-  nodePath: string,
-  cache: LazyComponentCache,
-  notFoundFallback: RouteModuleLoader | undefined,
-): RouteObject[] {
-  return [
-    createCatchAllBaseRoute(node, cache, notFoundFallback),
-    createPageRoute(node, nodePath, cache),
-  ];
-}
-
-/**
  * Children of a folder that renders nothing itself: the page index (when the
  * folder has a page), the walked children, the folder's `not-found` splat
  * (suppressed when a child owns the splat region), and the base guard
@@ -456,28 +483,52 @@ function createPageRoutes(
 ): NodeConversion {
   if (isOptionalCatchAll(node.segment)) {
     const catchAllChildren = [...descendants, ...notFound];
+    const pageElement = createPageRoute(node, nodePath, cache).element;
+    const element = boundaryOutletElement(node);
+    // A required folder-level boundary turns the splat route into a wrapper
+    // whose children carry the page through the boundary's Outlet; without
+    // one, keep the compact leaf `{ path, element: page }` unchanged.
+    const splatChildren: RouteObject[] = catchAllChildren.length > 0
+      ? catchAllChildren
+      : [{ index: true, element: pageElement }];
     return {
       // The base index renders the page, so it answers the enclosing folder's
       // URL; the splat below it is optional and claims nothing.
       claims: { emitsIndex: true, claimsSplats: false },
       routes: [
-        createIndexRoute(node, currentPath, cache),
+        element
+          ? { index: true, element: React.createElement(SegmentBoundary, {
+              loading: node.loading,
+              error: node.error,
+              children: pageElement,
+            }) }
+          : { index: true, element: pageElement },
         {
           path: nodeSegment,
-          element: createPageRoute(node, nodePath, cache).element,
-          children: catchAllChildren.length > 0 ? catchAllChildren : undefined,
+          ...(element ? {} : { element: pageElement }),
+          children: element ? withBoundaryChildren(node, splatChildren) : (catchAllChildren.length > 0 ? catchAllChildren : undefined),
         },
       ],
     };
   }
 
   if (isRequiredCatchAll(node.segment)) {
+    const pageRoute = createPageRoute(node, nodePath, cache);
+    const element = boundaryOutletElement(node);
+    const splatChildren = [{ path: "*", element: pageRoute.element }];
     return {
       // The guard index answers the enclosing folder's base and the splat owns
       // everything below it.
       claims: { emitsIndex: true, claimsSplats: true },
       routes: [
-        ...createRequiredCatchAllRoutes(node, nodePath, cache, notFoundFallback),
+        createCatchAllBaseRoute(node, cache, notFoundFallback),
+        {
+          path: nodeSegment,
+          ...(element ? {} : { element: pageRoute.element }),
+          ...(element
+            ? { children: withBoundaryChildren(node, splatChildren) }
+            : {}),
+        },
         // A hand-built tree can still attach files under the catch-all folder;
         // file validation rejects them, but keep them reachable rather than
         // silently dropping them here.
@@ -492,12 +543,27 @@ function createPageRoutes(
       claims: NO_CLAIMS,
       routes: [{
         path: nodeSegment,
-        children: [
+        children: withBoundaryChildren(node, [
           createIndexRoute(node, nodePath, cache),
           ...descendants,
           ...notFound,
-        ],
+        ]),
       }],
+    };
+  }
+
+  // Leaf page: the compact `{ path, element: page }` shape is unchanged when
+  // the folder declares no boundary, so an app without either convention keeps
+  // the tree it had before these files existed. A boundary flips the leaf to
+  // the same nested shape every other folder uses, so a page rendered here
+  // sits inside its folder's error and loading just like a page several levels
+  // deeper does.
+  const leafRoute = createPageRoute(node, nodePath, cache);
+  const element = boundaryOutletElement(node);
+  if (!element) {
+    return {
+      claims: NO_CLAIMS,
+      routes: [{ path: nodeSegment, element: leafRoute.element }],
     };
   }
 
@@ -505,7 +571,7 @@ function createPageRoutes(
     claims: NO_CLAIMS,
     routes: [{
       path: nodeSegment,
-      element: createPageRoute(node, nodePath, cache).element,
+      children: [{ element, children: [{ index: true, element: leafRoute.element }] }],
     }],
   };
 }
@@ -525,6 +591,14 @@ function createPathlessNodeRoutes(
     ...notFound,
   ];
 
+  // A group is transparent for URL purposes, but it is still a folder: a
+  // `(grp)/loading.tsx` or `(grp)/error.tsx` belongs to the group and guards
+  // everything the group's subtree emits. Reusing the group's existing pathless
+  // route as the boundary carrier (rather than nesting a second pathless route
+  // inside it) keeps the emitted shape minimal while still letting the boundary
+  // reach every page at any depth under the group.
+  const element = boundaryOutletElement(node);
+
   return {
     // A group is transparent: whatever its subtree emits at its own level is
     // what the enclosing folder sees.
@@ -533,6 +607,7 @@ function createPathlessNodeRoutes(
       claimsSplats: childClaimsSplats,
     },
     routes: [{
+      ...(element ? { element } : {}),
       children: children.length > 0 ? children : undefined,
     }],
   };
@@ -556,14 +631,22 @@ function createRootRoutes(
   );
 
   if (hasLayout(node)) {
+    // The boundary sits inside the root layout, so a folder root's `error.tsx`
+    // renders in the layout - not above it - exactly as deeper levels do and
+    // as Next.js specifies.
     return [{
       path: "/",
       element: createLayoutElement(node, "/", cache),
-      children,
+      children: withBoundaryChildren(node, children),
     }];
   }
 
   if (node.page) {
+    const element = boundaryOutletElement(node);
+    if (element) {
+      return [{ path: "/", children: [{ element, children }] }];
+    }
+
     if (children.length > 1) {
       return [{ path: "/", children }];
     }
@@ -574,8 +657,10 @@ function createRootRoutes(
     }];
   }
 
-  if (node.notFound) {
-    return [{ path: "/", children }];
+  if (node.notFound || node.loading || node.error) {
+    // A root with only a boundary still nests the boundary the same way a
+    // URL-bearing folder does, so its descendants stay guarded at any depth.
+    return [{ path: "/", children: withBoundaryChildren(node, children) }];
   }
 
   return children;
@@ -615,9 +700,13 @@ function applyCaseSensitivity(
  * `caseSensitive` defaults to `true`, the Next.js contract: see
  * `applyCaseSensitivity` for why React Router's own default is not usable.
  *
- * `loading.tsx` / `error.tsx` are applied last, and only when the tree declares
- * one: an app without those files gets the route array it had before the
- * conventions existed - no extra path-less route, no changed element.
+ * `loading.tsx` / `error.tsx` are applied by the walk itself: a folder that
+ * declares either inserts a pathless boundary route between its layout (or its
+ * own path) and everything it emits at its URL, so the boundary reaches every
+ * descendant - a two-levels-below page under `dx/error.tsx` is guarded by `dx`,
+ * not by the nearest enclosing boundary. An app without either file gets the
+ * route array it had before the conventions existed - no extra path-less route,
+ * no changed element.
  */
 export function treeToRoutes(
   node: RouteNode,
@@ -629,9 +718,6 @@ export function treeToRoutes(
 ): RouteObject[] {
   const routes = convertNode(node, isRoot, currentPath, cache, notFoundFallback).routes;
   applyCaseSensitivity(routes, caseSensitive);
-  if (hasSegmentBoundaries(node)) {
-    wrapSegmentBoundaries(routes, node);
-  }
   return routes;
 }
 
@@ -669,6 +755,7 @@ function convertNode(
       // catch-all matched, and the not-found still renders inside this
       // folder's layout.
       const pageRoute = createPageRoute(node, nodePath, cache);
+      const splatChildren: RouteObject[] = [{ path: "*", element: pageRoute.element }];
       return {
         claims: { emitsIndex: true, claimsSplats: true },
         routes: [
@@ -676,7 +763,7 @@ function convertNode(
           {
             path: nodeSegment,
             element: createLayoutElement(node, nodePath, cache),
-            children: [{ path: "*", element: pageRoute.element }],
+            children: withBoundaryChildren(node, splatChildren),
           },
         ],
       };
@@ -698,7 +785,7 @@ function convertNode(
       routes: [createLayoutRoute(
         isPathless ? "" : nodeSegment,
         createLayoutElement(node, nodePath, cache),
-        layoutChildren,
+        withBoundaryChildren(node, layoutChildren),
       )],
     };
   }
@@ -724,7 +811,7 @@ function convertNode(
     );
   }
 
-  if (node.page || node.notFound || !isPathless) {
+  if (node.page || node.notFound || node.loading || node.error || !isPathless) {
     // Same base guard as the layout branch: a folder with a URL, no page, and
     // no child index at its base renders the nearest `not-found` there instead
     // of leaving an empty outlet to the partial match.
@@ -756,20 +843,30 @@ function convertNode(
         : NO_CLAIMS,
       routes: [{
         path: nodeSegment,
-        children: [
+        children: withBoundaryChildren(node, [
           ...(node.page ? [createIndexRoute(node, nodePath, cache)] : []),
           ...descendants,
           ...ownNotFound,
           ...(addsBaseGuard
             ? [createEmptyFolderBaseRoute(node, cache, inheritedNotFound)]
             : []),
-        ],
+        ]),
       }],
     };
   }
 
-  // A pathless folder with nothing of its own: its children's routes stand on
-  // their own, and so do their claims.
+  // A pathless folder with a boundary but nothing of its own still guards its
+  // subtree: reuse the fallthrough walk with the group's boundary wrapped
+  // around it as one pathless route. Without a boundary the children stand on
+  // their own and their claims travel up unchanged.
+  const passThroughElement = boundaryOutletElement(node);
+  if (passThroughElement) {
+    return {
+      claims: { emitsIndex: childEmitsIndex, claimsSplats: childClaimsSplats },
+      routes: [{ element: passThroughElement, children: descendants }],
+    };
+  }
+
   return {
     claims: { emitsIndex: childEmitsIndex, claimsSplats: childClaimsSplats },
     routes: descendants,

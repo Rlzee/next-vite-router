@@ -132,6 +132,25 @@ section is kept until the batch is worth the major.
 
 ### Fixed
 
+- **`loading.tsx` / `error.tsx` reach every descendant, not just a folder's
+  direct children.** The first pass wrapped each child's `route.element` with
+  the enclosing folder's boundary, which meant a page two levels below
+  (`dx/y/z/page.tsx` under `dx/error.tsx`, with no `layout.tsx` at the
+  intermediate folders) never landed inside the boundary: an error there
+  bubbled past `dx/` to the nearest enclosing boundary, hiding the root layout
+  too. The converter now inserts a pathless boundary route between a folder
+  (and its layout, when it has one) and every route the folder emits at its
+  own URL, so boundaries nest naturally at any depth and a root-level
+  `error.tsx` renders inside the root layout instead of above it - the Next.js
+  contract.
+- **A route group's own `loading.tsx` / `error.tsx` now apply.** `(grp)/error.tsx`
+  and `(grp)/loading.tsx` used to be dropped: the group emitted a transparent
+  pathless route with no element, so the folder's boundary had nothing to guard.
+  A group is now a folder like any other for boundary purposes - its pathless
+  route carries the boundary element directly - so every page under the group
+  renders inside the placeholder and the error, exactly like a URL-bearing
+  folder's pages do. `(grp)/error.tsx` beside a root `error.tsx` still reports
+  the `Duplicate route "/"` collision, unchanged.
 - A folder with children but no `page.tsx` no longer paints every layout down to
   an empty outlet. React Router keeps a static parent as a valid *partial* match,
   so `/docs` rendered on its own from `docs/intro/page.tsx`; the converter now
@@ -188,6 +207,15 @@ section is kept until the batch is worth the major.
   it, the `RouteErrorBoundary` lifecycle (derive, reset-on-navigation, render),
   duplicate loading detection, and the refusal of a lazy or default-export-less
   boundary file. A no-boundaries tree is asserted byte-identical to before.
+- Boundary depth regressions: an error two levels below a folder's `error.tsx`
+  (`dx/error.tsx` guarding `dx/y/z/page.tsx`, no `layout.tsx` between) sits
+  inside the folder's boundary, a route group's own `loading.tsx` / `error.tsx`
+  guards every page beneath the group, a root `error.tsx` renders inside the
+  root layout instead of above it, a folder's placeholder still paints for a
+  page several levels below (`LOADING-DX` through `dx/y/z`), a nested
+  `loading.tsx` overrides its ancestor's (`LOADING-OWN` over `LOADING-PARENT`),
+  and a `not-found` renders inside the boundary without being treated as an
+  error.
 
 ### Documentation
 
@@ -199,6 +227,12 @@ section is kept until the batch is worth the major.
   the plugin and generator switches; and a `Loading and error boundaries` section
   covering the two conventions, the `layout > error > loading` order and what it
   does not catch, and the eager-import rationale.
+- README `Loading and error boundaries`: the boundary's scope is spelled out as
+  every descendant at any depth (not just the folder's direct children), with
+  the `dx/error.tsx` / `dx/y/z/page.tsx` example that motivated the fix, and
+  a new paragraph states that a route group carries its own `loading.tsx` /
+  `error.tsx` and still hits the `Duplicate route "/"` check beside a root
+  `error.tsx`.
 
 ## [3.0.0] - 2026-10-24
 
