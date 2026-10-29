@@ -5,8 +5,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter, Outlet, useRoutes } from "react-router-dom";
 import {
   buildRouteTree,
+  clearLazyCache,
   configureRouter,
   createLazyCache,
+  createLazyElement,
   resetRouterConfig,
   treeToRoutes,
 } from "../dist/index.js";
@@ -556,6 +558,122 @@ describe("RouteErrorBoundary lifecycle", () => {
     assert.equal(element.type, Fallback);
     assert.equal(element.props.error.message, "boom");
     assert.equal(typeof element.props.reset, "function");
+  });
+
+  test("reset() clears the boundary state so the subtree re-renders", () => {
+    const Fallback = component("err");
+    const boundary = makeBoundary(Fallback);
+    boundary.state = { error: new Error("boom") };
+    let applied = null;
+    boundary.setState = (partial) => { applied = partial; };
+
+    // Grab the `reset` callback handed to the user's `error.tsx`.
+    const element = boundary.render();
+    element.props.reset();
+    assert.deepEqual(applied, { error: null },
+      "reset only clears state - the subtree below is what React re-renders next");
+  });
+});
+
+describe("reset() scope: a failed dynamic import stays failed", () => {
+  // `reset()` retries the *render*, not the *fetch*. The boundary clears its
+  // error state and React walks the subtree again, but `createLazyElement`
+  // hands back the same `React.lazy` instance for a cache key, and `React.lazy`
+  // memoizes a rejected loader forever. These three tests pin the contract:
+  // the router cache is stable, `React.lazy` does not re-invoke a rejected
+  // loader, and `reset()` therefore cannot recover from a stale-deploy chunk
+  // without a document reload (or an explicit `clearLazyCache(cache)` paired
+  // with a remount).
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  test("the router cache memoizes one React.lazy per key", () => {
+    const cache = createLazyCache();
+    let calls = 0;
+    const loader = () => { calls += 1; return Promise.resolve({ default: component("ok") }); };
+
+    const first = createLazyElement(loader, "page:dx/y/z", cache);
+    const second = createLazyElement(loader, "page:dx/y/z", cache);
+
+    // Same `React.lazy` under the same key: whatever state the first render
+    // leaves on that instance is what every later render - including the one
+    // `reset()` triggers - reads. Neither call has run the loader yet; lazy
+    // defers the fetch to render time, but the identity is fixed after the
+    // first call.
+    assert.equal(first.props.children.type, second.props.children.type,
+      "one memoized lazy component per cache key");
+    assert.equal(calls, 0, "`lazy(fn)` does not invoke fn until the render reads it");
+  });
+
+  test("React.lazy caches a rejection, so reset cannot re-fetch a failed chunk", async () => {
+    let calls = 0;
+    const failingLoader = () => {
+      calls += 1;
+      return Promise.reject(new Error("chunk missing"));
+    };
+    const cache = createLazyCache();
+    // `createLazyElement` wraps the lazy in its own Suspense whose fallback
+    // reads the configured fallback, so name that one to make the pending
+    // state observable from the rendered HTML.
+    configureRouter({ loadingFallback: component("FALLBACK") });
+    const element = () => createLazyElement(failingLoader, "page:dx/y/z", cache);
+
+    // First read kicks the load. `renderToStaticMarkup` renders synchronously
+    // and paints the Suspense fallback while the promise is still pending; the
+    // rejection lands after the render returns and React stores it on the
+    // memoized `React.lazy` payload.
+    renderToStaticMarkup(element());
+    await flush();
+
+    // Second and third reads exercise the SAME memoized `React.lazy`. The
+    // payload is already in its rejected state, so React neither re-invokes
+    // the loader nor resolves the subtree - the fallback paints again.
+    const html2 = renderToStaticMarkup(element());
+    const html3 = renderToStaticMarkup(element());
+
+    assert.ok(html2.includes("FALLBACK"), `the retry paints the fallback again, got: ${html2}`);
+    assert.ok(html3.includes("FALLBACK"), `a third read still does not resolve, got: ${html3}`);
+    assert.equal(calls, 1,
+      "`React.lazy` calls its loader exactly once; `reset()` on the boundary "
+      + "cannot make it re-fire because it does not touch this memoization");
+  });
+
+  test("clearLazyCache(cache) evicts the rejection so a real retry becomes possible", async () => {
+    // The one lever `reset()` cannot reach on its own: dropping the memoized
+    // component from the router's cache. This is the escape hatch for an app
+    // that wants a true "hard retry" button above the router - `reset()`
+    // alone only clears the boundary's error state.
+    let calls = 0;
+    const failingThenPassing = () => {
+      calls += 1;
+      return calls === 1
+        ? Promise.reject(new Error("chunk missing"))
+        : Promise.resolve({ default: component("RECOVERED") });
+    };
+    const cache = createLazyCache();
+    configureRouter({ loadingFallback: component("FALLBACK") });
+    const render = () => renderToStaticMarkup(
+      createLazyElement(failingThenPassing, "page:x", cache),
+    );
+
+    // First pass kicks the load; the rejection lands on the lazy payload and
+    // every later read stays on the fallback because the loader is not asked
+    // again.
+    render();
+    await flush();
+    assert.ok(render().includes("FALLBACK"));
+    assert.ok(render().includes("FALLBACK"));
+    assert.equal(calls, 1, "one loader invocation until the cache is cleared");
+
+    // Dropping the memoized component forces the next `createLazyElement`
+    // call to build a fresh `React.lazy`, which then runs its loader again.
+    clearLazyCache(cache);
+    const kickedAgain = render();
+    await flush();
+    const recovered = render();
+
+    assert.equal(calls, 2, "the loader is re-invoked once the cache entry is gone");
+    assert.ok(!kickedAgain.includes("RECOVERED"), "the pass that re-fires the loader still paints the fallback");
+    assert.ok(recovered.includes("RECOVERED"), `the next pass paints the recovered page, got: ${recovered}`);
   });
 });
 

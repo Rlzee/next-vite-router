@@ -223,6 +223,14 @@ section is kept until the batch is worth the major.
   walking the whole emitted `RouteObject[]`) and the rendered HTML at `/dx/y/z`,
   `/sec/gpage`, `/home` and an unmatched URL, so a future regression that
   renders the boundary chain wrong cannot slip through a one-level test.
+- `reset()` scope: three tests pin the contract the docs describe - the
+  router's lazy cache memoizes one `React.lazy` per key, `React.lazy` runs its
+  loader exactly once even when the load fails (so `reset()` cannot re-fire a
+  rejected dynamic import), and `clearLazyCache(cache)` does drop the memoized
+  rejection so the next read re-invokes the loader and can render a recovered
+  page. A companion test on `RouteErrorBoundary` shows `reset()` still clears
+  the boundary's own state, so a synchronous failure whose cause is fixed does
+  recover without the cache being touched.
 
 ### Documentation
 
@@ -240,6 +248,13 @@ section is kept until the batch is worth the major.
   a new paragraph states that a route group carries its own `loading.tsx` /
   `error.tsx` and still hits the `Duplicate route "/"` check beside a root
   `error.tsx`.
+- README `reset()` contract: the earlier line "`reset()` retries the render" is
+  qualified to say what it actually does - clears the boundary's error state so
+  React re-renders the subtree - and calls out that a rejected dynamic import
+  stays rejected. The stale-deploy paragraph names the mechanism (`React.lazy`
+  memoizes the rejection on its own component, and the router's lazy cache
+  keeps that instance) and the two escape hatches: a document reload, or
+  `clearLazyCache(cache)` on the cache the generator owns plus a remount.
 
 ## [3.0.0] - 2026-10-24
 

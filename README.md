@@ -531,9 +531,11 @@ while one is loading the placeholder paints in the layout's `Outlet` instead of
 the global `loadingFallback` — a nested `loading.tsx` overrides its parent's, and
 a folder that declares none keeps the configured fallback. `error.tsx` renders in
 place of the content when something below throws, and receives
-`{ error, reset }`; `reset()` retries the render. The boundary also clears itself
-when the URL changes, so navigating to another page of the same folder after a
-failure no longer shows the stale error.
+`{ error, reset }`; `reset()` clears the boundary's error state so React re-renders
+the subtree - enough to recover from a synchronous failure whose cause has been
+fixed, but not from a rejected dynamic import (see the stale-deploy note below).
+The boundary also clears itself when the URL changes, so navigating to another
+page of the same folder after a failure no longer shows the stale error.
 
 Next.js stacks these as `layout > error > loading > not-found > page`, and this
 package reproduces that order, which fixes two consequences:
@@ -558,8 +560,12 @@ the pages root alongside the root's own `error.tsx` still reports the
 Both files are imported eagerly, like layouts: a placeholder fetched by chunk
 would wait for a chunk to announce a chunk, and a boundary that has not loaded
 cannot report the failure it exists for. A chunk that fails outright (a stale
-deploy) surfaces through `error.tsx`, but React caches the rejection, so `reset()`
-fails again — reload the document (`window.location.reload()`) in that case.
+deploy) surfaces through `error.tsx`, but `React.lazy` memoizes the rejection on
+its own component and the router keeps that instance in its lazy cache, so
+`reset()` re-renders against the same rejection and cannot re-fire the loader.
+Reload the document (`window.location.reload()`) in that case, or evict the
+router's cache explicitly with `clearLazyCache(cache)` on the same cache
+instance the generator owns and re-mount the route tree.
 
 A boundary only sees render errors: nothing thrown from an event handler or a
 bare `async` callback reaches it, and `loading.tsx` is meaningful for chunk
