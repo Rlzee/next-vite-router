@@ -167,7 +167,10 @@ Authorization belongs in the same place; see [Auth guards](#auth-guards).
 ### Route groups
 
 A `(name)` folder groups routes without adding a URL segment, which is how an
-auth guard is scoped to a subtree (see [Auth guards](#auth-guards)).
+auth guard is scoped to a subtree (see [Auth guards](#auth-guards)). A group is
+still a folder for [`loading.tsx` and `error.tsx`](#loading-and-error-boundaries):
+either file inside a group guards every page the group emits, at any depth
+beneath it.
 
 ### Catch-all routes
 

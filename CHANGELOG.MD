@@ -216,6 +216,13 @@ section is kept until the batch is worth the major.
   `loading.tsx` overrides its ancestor's (`LOADING-OWN` over `LOADING-PARENT`),
   and a `not-found` renders inside the boundary without being treated as an
   error.
+- A full-tree integration block builds one tree that combines every scenario
+  from the bug report - root layout + root `error.tsx`, `dx/error.tsx` guarding
+  a page two levels below, a route group carrying its own `loading.tsx` /
+  `error.tsx`, a root `not-found` - and asserts both the nested shape (once,
+  walking the whole emitted `RouteObject[]`) and the rendered HTML at `/dx/y/z`,
+  `/sec/gpage`, `/home` and an unmatched URL, so a future regression that
+  renders the boundary chain wrong cannot slip through a one-level test.
 
 ### Documentation
 

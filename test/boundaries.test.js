@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test, describe, beforeEach } from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { MemoryRouter, useRoutes } from "react-router-dom";
+import { MemoryRouter, Outlet, useRoutes } from "react-router-dom";
 import {
   buildRouteTree,
   configureRouter,
@@ -237,6 +237,135 @@ describe("converter: boundary placement", () => {
     assert.equal(boundary.element.props.error, RootError);
     const about = boundary.children.find((route) => route.path === "about");
     assert.ok(about, "every route below the root lives inside the root boundary");
+  });
+});
+
+describe("full tree: multi-level integration", () => {
+  /**
+   * One tree covering every scenario from the boundary-depth bug report:
+   * a root layout with a root `error.tsx`, `dx/error.tsx` guarding a page
+   * two levels below with no layout in between, a route group carrying its
+   * own `loading.tsx` + `error.tsx`, and a `not-found.tsx` that must render
+   * inside the boundaries. The shape assertions walk the whole nested tree
+   * in one shot; the render assertions below prove every pathless boundary
+   * route actually forwards through its Outlet.
+   */
+  const buildFullTree = () => {
+    // A real layout must render an `<Outlet/>` for its children to paint; the
+    // test keeps the shape compact so the render assertions below can see the
+    // boundary route forward through every level of the chain.
+    const RootLayout = () =>
+      React.createElement("div", null, "ROOT-LAYOUT[", React.createElement(Outlet), "]ROOT-LAYOUT");
+    const RootError = component("ROOT-ERROR");
+    const DxError = component("DX-ERROR");
+    const GrpLoading = component("GRP-LOADING");
+    const GrpError = component("GRP-ERROR");
+    const NotFound = component("ROOT-NOT-FOUND");
+    const { tree, routes } = generate({
+      pages: {
+        "home/page.tsx": loader(component("HOME")),
+        "dx/y/z/page.tsx": loader(component("DX-YZ")),
+        "sec/(grp)/gpage/page.tsx": loader(component("GRP-PAGE")),
+      },
+      layouts: { "layout.tsx": eager(RootLayout) },
+      errors: {
+        "error.tsx": eager(RootError),
+        "dx/error.tsx": eager(DxError),
+        "sec/(grp)/error.tsx": eager(GrpError),
+      },
+      loadings: { "sec/(grp)/loading.tsx": eager(GrpLoading) },
+      notFounds: { "not-found.tsx": loader(NotFound) },
+    });
+    return { tree, routes, RootLayout, RootError, DxError, GrpLoading, GrpError, NotFound };
+  };
+
+  /**
+   * Render `routes` at `url` through `useRoutes` inside a `MemoryRouter`.
+   * Pages arrive via `React.lazy`, so the first pass only kicks the loaders
+   * off and paints the fallback; after a microtask the second pass paints the
+   * resolved component, exactly as a browser repaints after a chunk arrives.
+   */
+  const renderAt = async (routes, url) => {
+    const App = () => useRoutes(routes);
+    const tree = React.createElement(
+      MemoryRouter,
+      { initialEntries: [url] },
+      React.createElement(App),
+    );
+    renderToStaticMarkup(tree);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return renderToStaticMarkup(tree);
+  };
+
+  test("the emitted tree nests every boundary the report describes", () => {
+    const {
+      routes, RootLayout, RootError, DxError, GrpLoading, GrpError,
+    } = buildFullTree();
+
+    // Root layout stays outside its own boundary, and the boundary wraps the
+    // whole subtree - the shape the old post-pass got wrong by hiding the
+    // root layout on a deep error.
+    const root = routes[0];
+    assert.equal(root.path, "/");
+    assert.ok(!isBoundary(root.element), "the root layout is not itself wrapped");
+    const rootBoundary = boundaryOf(root);
+    assert.equal(rootBoundary.element.props.error, RootError);
+
+    // The deep page case: `dx/error.tsx` must reach `dx/y/z/page.tsx` even
+    // when neither `dx/y` nor `dx/y/z` owns a `layout.tsx` or boundary file.
+    // The intermediate folders contribute no element of their own, so the
+    // only shape that gets this right is the boundary pathless route in
+    // front of every route `dx` emits.
+    const dx = rootBoundary.children.find((route) => route.path === "dx");
+    const dxBoundary = boundaryOf(dx);
+    assert.equal(dxBoundary.element.props.error, DxError);
+    const y = dxBoundary.children.find((route) => route.path === "y");
+    const z = y.children.find((route) => route.path === "z");
+    assert.ok(z, "z lives inside dx's boundary at two levels deep");
+
+    // The group case: `(grp)` carries its own loading + error on the group's
+    // existing pathless route, so `gpage` renders inside the boundary without
+    // the group needing a layout of its own.
+    const sec = rootBoundary.children.find((route) => route.path === "sec");
+    const grp = sec.children.find((route) => route.path === undefined);
+    assert.ok(isBoundary(grp.element), "the group's pathless route carries the boundary");
+    assert.equal(grp.element.props.loading, GrpLoading);
+    assert.equal(grp.element.props.error, GrpError);
+    const gpage = grp.children.find((route) => route.path === "gpage");
+    assert.ok(gpage, "the grouped page lives inside the group boundary");
+
+    // The root's `not-found` is a `*` route inside the root's boundary, so it
+    // paints inside the layout (Next.js contract), not beside or above it.
+    const notFound = rootBoundary.children.find((route) => route.path === "*");
+    assert.ok(notFound, "the not-found splat renders inside the root boundary");
+  });
+
+  test("/dx/y/z paints through every boundary in its chain", async () => {
+    const { routes } = buildFullTree();
+    const html = await renderAt(routes, "/dx/y/z");
+    assert.ok(html.includes("ROOT-LAYOUT"), "the root layout survives the whole chain");
+    assert.ok(html.includes("DX-YZ"), `the deep page paints inside dx's boundary, got: ${html}`);
+  });
+
+  test("/sec/gpage paints through the group's own boundary", async () => {
+    const { routes } = buildFullTree();
+    const html = await renderAt(routes, "/sec/gpage");
+    assert.ok(html.includes("ROOT-LAYOUT"));
+    assert.ok(html.includes("GRP-PAGE"), `the grouped page paints inside the group boundary, got: ${html}`);
+  });
+
+  test("/home paints inside the root boundary (sibling to the folders)", async () => {
+    const { routes } = buildFullTree();
+    const html = await renderAt(routes, "/home");
+    assert.ok(html.includes("ROOT-LAYOUT"));
+    assert.ok(html.includes("HOME"), `a top-level page still lives inside the root boundary, got: ${html}`);
+  });
+
+  test("/nowhere paints the not-found inside the root boundary", async () => {
+    const { routes } = buildFullTree();
+    const html = await renderAt(routes, "/nowhere");
+    assert.ok(html.includes("ROOT-LAYOUT"), "an unmatched URL keeps the layout");
+    assert.ok(html.includes("ROOT-NOT-FOUND"), `the splat answers with the not-found, got: ${html}`);
   });
 });
 

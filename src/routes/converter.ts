@@ -473,7 +473,6 @@ function createNodeChildren(
 
 function createPageRoutes(
   node: RouteNode,
-  currentPath: string,
   nodePath: string,
   nodeSegment: string,
   descendants: RouteObject[],
@@ -801,7 +800,6 @@ function convertNode(
   if (node.page && !isPathless) {
     return createPageRoutes(
       node,
-      currentPath,
       nodePath,
       nodeSegment,
       descendants,
