@@ -124,17 +124,24 @@ section is kept until the batch is worth the major.
   and the value is written into the generated module as it arrived, where
   `"false"` would have read as *on*. A value that does match keeps its own case
   (`/users/ABC` still fills `[id]` with `"ABC"`).
-- **Breaking:** a URL that resolves to no page now paints a 404 page instead of the
-  layouts around an empty content area. Both base guards - a required catch-all's
-  base (`/blog` when only `/blog/...` matches) and a folder that owns no `page.tsx`
-  at its own URL (`/docs` beside `docs/intro/page.tsx`) - used to render *nothing*
-  when the app declared no `not-found.tsx`, the one place the router diverged from
-  Next.js and showed a blank outlet. They now fall through to a built-in default -
-  a plain `404` / "This page could not be found.", rendered eagerly with no
-  stylesheet - so a claimed URL never paints an empty outlet. The default sits at
-  the bottom of the existing fallback chain (the folder's own `not-found`, else the
-  nearest ancestor's, else this), so a single `not-found.tsx` anywhere replaces it
-  outright and an app that already declares one sees no change. It is owned
+- **Breaking:** a URL that resolves to no page now paints a 404 page instead of
+  nothing. Two shapes were blank when the app declared no `not-found.tsx`, both
+  diverging from Next.js: a **base guard** - a folder a URL matches but that owns
+  no page (`/docs` beside `docs/intro/page.tsx`, and a required catch-all's base
+  `/blog` when only `/blog/...` matches), which rendered the layouts around an empty
+  outlet; and a **fully unmatched URL** (`/ddddddd`), which matched no route at all
+  so `useRoutes` rendered nothing. Both now fall through to a built-in default page,
+  rendered eagerly with no stylesheet. The base guards use the existing fallback
+  chain (the folder's own `not-found`, else the nearest ancestor's, else this
+  default); for the unmatched case the converter appends a root `*` route carrying
+  the default, *unless* a root `not-found.tsx` or a root-level catch-all already
+  owns that splat. A single `not-found.tsx` therefore replaces the built-in outright
+  and an app that already declares one sees no change.
+- **Breaking, for SSR servers:** because a root `*` now answers every otherwise
+  unmatched URL, `matchRoutes(routes, url)` no longer returns `null` for an unknown
+  path - it returns a match whose leaf is that splat. An SSR entry that sends an
+  HTTP 404 status on `null` must instead check the matched leaf (`route.path ===
+  "*"`). The signal still exists; only its shape changed. The default page is owned
   internally by the converter and is not exported from the package root: there is no
   API to render or configure it, only the `not-found.tsx` convention to override it.
 - Everything this package orders and emits is sorted by UTF-16 code unit instead of
@@ -185,6 +192,13 @@ section is kept until the batch is worth the major.
 
 ### Tests
 
+- `test/routes.test.js` and `test/route-invariants.test.js` were re-pinned for the
+  root built-in-404 splat: every root shape now carries the trailing `{ path: "*" }`
+  (and a home-only app moves from a single leaf to `{ path: "/", children: [index,
+  "*" ] }`), and the assertions that used `matchRoutes(...) === null` for a bogus URL
+  - `/admin/dashboard`, `/USERS`, `/Blog/a`, `/users/7/edit` - now assert the URL
+  lands on that splat instead, still proving it reaches no real page. A new test
+  compares the element type of both base guards to pin that they share one component.
 - The compatibility matrix now *renders* the fixture app for every React / Router /
   Vite combination instead of only bundling it (`test/compat-app`, streamed through
   `renderToPipeableStream`), and `test/test-compatibility.js` pins the matrix
@@ -257,9 +271,10 @@ section is kept until the batch is worth the major.
   does not catch, and the eager-import rationale.
 - README: the `Not-found routes` section now documents the built-in default 404 page
   (rendered eagerly, the bottom of the fallback chain, not exported, replaced by any
-  `not-found.tsx`), and the two spots that called the empty outlet a known limitation
-  - the required catch-all base and folders without a page - describe the fallback
-  instead.
+  `not-found.tsx`), that it also answers a fully unmatched URL through an appended
+  root `*`, the resulting `matchRoutes()`-no-longer-`null` note for SSR servers, and
+  the two spots that called the empty outlet a known limitation - the required
+  catch-all base and folders without a page - now describe the fallback instead.
 - README `Loading and error boundaries`: the boundary's scope is spelled out as
   every descendant at any depth (not just the folder's direct children), with
   the `dx/error.tsx` / `dx/y/z/page.tsx` example that motivated the fix, and

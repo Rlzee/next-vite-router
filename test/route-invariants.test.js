@@ -99,7 +99,9 @@ const MATRIX = [
     rows: { pages: [page(["(admin)/dashboard/page", "dashboard"])] },
     urls: [
       { url: "/dashboard", chain: ["dashboard"], params: {} },
-      { url: "/admin/dashboard", chain: null },
+      // The group is dropped, so `/admin/dashboard` matches no real route: it
+      // falls to the built-in 404 splat, never the dashboard page.
+      { url: "/admin/dashboard", chain: ["*"], params: { "*": "admin/dashboard" } },
       // No page answers the root - the group is not one - so the base guard is.
       { url: "/", chain: ["index"], params: {} },
     ],
@@ -378,7 +380,9 @@ const MATRIX = [
       { url: "/", chain: ["/", "index"], params: {} },
       { url: "/users", chain: ["/", "users", "index"], params: {} },
       { url: "/users/7", chain: ["/", "users", ":id"], params: { id: "7" } },
-      { url: "/users/7/edit", chain: null },
+      // No deeper route answers `/users/7/edit`: it falls through to the
+      // built-in 404 splat inside the root layout, not to the `:id` page.
+      { url: "/users/7/edit", chain: ["/", "*"], params: { "*": "users/7/edit" } },
     ],
     paints: [
       { url: "/", order: ["[root", "home", "/root]"] },

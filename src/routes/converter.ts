@@ -626,6 +626,17 @@ function createRootRoutes(
     true,
   );
 
+  // A URL that matches no route at all (an unknown path like `/ddddddd`) still
+  // paints the built-in 404 inside the root layout, exactly as Next.js does.
+  // When nothing already owns the root splat region - no root `not-found` (which
+  // `createNodeChildren` emits as a `*`), and no root-level catch-all whose `*`
+  // is a sibling here - append a `*` route rendering the eager `DefaultNotFound`.
+  // An app that declares its own `not-found.tsx` already fills this slot, so the
+  // `some` check leaves it untouched; only a fully unmatched URL reaches this one.
+  if (!children.some((route) => route.path === "*")) {
+    children.push({ path: "*", element: React.createElement(DefaultNotFound) });
+  }
+
   if (hasLayout(node)) {
     // The boundary sits inside the root layout, so a folder root's `error.tsx`
     // renders in the layout - not above it - exactly as deeper levels do and

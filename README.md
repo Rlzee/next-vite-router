@@ -221,13 +221,25 @@ give a section its own fallback. Beside a required catch-all folder it does not
 become a `*` route — the catch-all page already owns every URL below the base —
 so it is used as the fallback for that folder's base URL instead.
 
-With no `not-found.tsx` anywhere, the package supplies its own default 404 page:
-a plain `404` / "This page could not be found." rendered eagerly, with no
-stylesheet and nothing to load. It is the bottom of the fallback chain (the
-folder's own `not-found`, else the nearest ancestor's, else this default), so a
-single `not-found.tsx` replaces it outright. The package owns it internally; it
-is not exported, and there is no API to render or configure it — you replace it
-by adding a `not-found.tsx`, not by importing it.
+With no `not-found.tsx` anywhere, the package supplies its own default 404 page,
+rendered eagerly with no stylesheet and nothing to load. It answers two kinds of
+URL: a **base guard** — a folder that a URL matches but that owns no page (`/docs`
+beside `docs/intro/page.tsx`, or a required catch-all's base) — and **any URL that
+matches no route at all**, through a `*` route the converter appends at the root.
+So `http://localhost:5173/any-garbage` paints the default 404 inside your root
+layout, exactly as Next.js does, without you writing a file.
+
+It is the bottom of the fallback chain (the folder's own `not-found`, else the
+nearest ancestor's, else this default), so a single `not-found.tsx` replaces it
+outright: a root `not-found.tsx` becomes that root `*` route, and the built-in is
+not emitted beside it. The package owns it internally; it is not exported, and
+there is no API to render or configure it — you replace it by adding a
+`not-found.tsx`, not by importing it.
+
+One consequence to know: because every URL now matches a route, `matchRoutes()`
+never returns `null` for an unknown path — it returns the root `*` match. An SSR
+server that wants to send an HTTP 404 status should test whether the matched leaf
+is that splat (its `route.path === "*"`) rather than relying on a `null` result.
 
 ### Folders without a page are 404s
 

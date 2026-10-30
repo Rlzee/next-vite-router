@@ -1,40 +1,82 @@
 import React from "react";
 
-/**
- * The package's built-in 404 page: the answer for a URL the route tree owns no
- * content at, in an app that declares no `not-found.tsx` anywhere. Next.js
- * paints its own default page for that shape; until now this package painted
- * the layouts above an empty content area, which reads as a broken page rather
- * than as a 404.
- *
- * Deliberately minimal: no stylesheet, no theme, no link, nothing to load. The
- * text is the one Next.js uses, in an `h1`/`p` pair so a reader and a crawler
- * both get the status before the styling question comes up, and the sizes are
- * left to the browser defaults so a layout's own typography already applies. The
- * container is `minHeight: "100vh"`, not `height`, because the page renders
- * *inside* the app's layouts: a fixed height would overflow a viewport already
- * holding a header and a footer.
- *
- * It sits at the bottom of the fallback chain - the folder's own `not-found`,
- * else the nearest ancestor's, else this - so one `not-found.tsx` anywhere
- * replaces it outright; the chain in `converter.ts` is what applies that order.
- *
- * Not exported from the package root on purpose: it is a fallback the converter
- * owns, not an API an application imports.
- */
+const styles: Record<string, React.CSSProperties> = {
+  section: {
+    width: "100%",
+    padding: "64px 0",
+  },
+  container: {
+    maxWidth: "672px",
+    padding: "0 24px",
+    margin: "0 auto",
+  },
+  content: {
+    display: "flex",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "24px",
+    textAlign: "left",
+  },
+  code: {
+    fontSize: "30px",
+    fontWeight: 600,
+    letterSpacing: "-0.025em",
+    margin: 0,
+  },
+  separator: {
+    width: "1px",
+    height: "48px",
+    backgroundColor: "currentColor",
+    opacity: 0.2,
+  },
+  textContainer: {
+    display: "flex",
+    flexDirection: "column",
+  },
+  heading: {
+    fontSize: "18px",
+    fontWeight: 500,
+    margin: 0,
+  },
+  description: {
+    fontSize: "14px",
+    color: "#71717a",
+    marginTop: "4px",
+    marginBottom: 0,
+  },
+};
+
 export function DefaultNotFound(): React.ReactNode {
   return React.createElement(
-    "div",
-    { style: { minHeight: "100vh", display: "flex", alignItems: "center" } },
+    "section",
+    { style: styles.section },
     React.createElement(
-      "h1",
-      { style: { margin: 0, padding: "0 16px 0 0", borderRight: "1px solid currentColor" } },
-      "404",
-    ),
-    React.createElement(
-      "p",
-      { style: { margin: 0, padding: "0 0 0 16px" } },
-      "This page could not be found.",
+      "div",
+      { style: styles.container },
+      React.createElement(
+        "div",
+        { style: styles.content },
+        React.createElement("p", { style: styles.code }, "404"),
+        React.createElement("span", {
+          "aria-hidden": "true",
+          style: styles.separator,
+        }),
+        React.createElement(
+          "div",
+          { style: styles.textContainer },
+          React.createElement(
+            "h1",
+            { style: styles.heading },
+            "This page could not be found",
+          ),
+          React.createElement(
+            "p",
+            { style: styles.description },
+            "The link is broken or the page has been removed.",
+          ),
+        ),
+      ),
     ),
   );
 }
