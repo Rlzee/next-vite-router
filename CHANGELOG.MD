@@ -124,6 +124,19 @@ section is kept until the batch is worth the major.
   and the value is written into the generated module as it arrived, where
   `"false"` would have read as *on*. A value that does match keeps its own case
   (`/users/ABC` still fills `[id]` with `"ABC"`).
+- **Breaking:** a URL that resolves to no page now paints a 404 page instead of the
+  layouts around an empty content area. Both base guards - a required catch-all's
+  base (`/blog` when only `/blog/...` matches) and a folder that owns no `page.tsx`
+  at its own URL (`/docs` beside `docs/intro/page.tsx`) - used to render *nothing*
+  when the app declared no `not-found.tsx`, the one place the router diverged from
+  Next.js and showed a blank outlet. They now fall through to a built-in default -
+  a plain `404` / "This page could not be found.", rendered eagerly with no
+  stylesheet - so a claimed URL never paints an empty outlet. The default sits at
+  the bottom of the existing fallback chain (the folder's own `not-found`, else the
+  nearest ancestor's, else this), so a single `not-found.tsx` anywhere replaces it
+  outright and an app that already declares one sees no change. It is owned
+  internally by the converter and is not exported from the package root: there is no
+  API to render or configure it, only the `not-found.tsx` convention to override it.
 - Everything this package orders and emits is sorted by UTF-16 code unit instead of
   `String.prototype.localeCompare`: the `RoutePath` union, the route tree's
   children, and the file lists in conflict errors. The same folder tree now yields

@@ -15,6 +15,7 @@ import {
 } from '../utils/index.utils';
 import { CatchAllParamProvider } from '../router/params-context';
 import { SegmentBoundary } from '../router/boundary';
+import { DefaultNotFound } from './default-not-found';
 
 /**
  * The `loading.tsx` / `error.tsx` boundary element of `node` when it declares
@@ -79,10 +80,11 @@ function isRequiredCatchAll(segment: string): boolean {
 }
 
 /**
- * Lazily rendered `not-found` element for a base guard: the folder's own
- * `not-found` when it has one, else the nearest ancestor's. Without any
- * `not-found` the guard renders nothing, the same blank 404 Next.js paints for
- * an app without a `not-found.tsx`.
+ * Element rendered by a base guard: the folder's own `not-found` when it has
+ * one, else the nearest ancestor's, else the built-in `DefaultNotFound`. The
+ * first two are lazy (the app's own file, code-split like a page); the last is
+ * eager, so a claimed URL never paints an empty outlet - it paints a real 404,
+ * the page Next.js ships for an app without a `not-found.tsx`.
  *
  * One rule for both guards - the required catch-all's and a page-less
  * folder's - so a folder answers its base with the same `not-found` its `*`
@@ -94,10 +96,10 @@ function createNotFoundFallbackElement(
   cache: LazyComponentCache,
   inheritedFallback: RouteModuleLoader | undefined,
   cacheKey: string,
-): React.ReactElement | undefined {
+): React.ReactElement {
   const fallbackLoader = node.notFound ?? inheritedFallback;
   if (!fallbackLoader) {
-    return undefined;
+    return React.createElement(DefaultNotFound);
   }
 
   return createLazyElement(
@@ -115,8 +117,8 @@ function createNotFoundFallbackElement(
  * because the static parent matches it even when the splat child does not.
  * Next.js treats a required catch-all as one-or-more segments, so the base is
  * a 404. This guard lives on an index route at the base and reproduces that:
- * an empty splat renders the nearest ancestor `not-found` (nothing, when the
- * app declares none) instead of the page below.
+ * an empty splat renders the nearest ancestor `not-found`, or the built-in
+ * `DefaultNotFound` when the app declares none, instead of the page below.
  *
  * The index route makes the base a real leaf match, which also stops the
  * splat branch's static parent from swallowing the base before a `not-found`
@@ -356,8 +358,8 @@ function processChildren(
  * Index route holding the base guard of a required catch-all.
  *
  * The fallback is the folder's own `not-found` when it has one, else the
- * nearest ancestor's. Without any `not-found` the guard renders nothing, the
- * same blank 404 Next.js paints for an app without a `not-found.tsx`.
+ * nearest ancestor's, else the built-in `DefaultNotFound`. The base therefore
+ * always paints a 404 page, not an empty outlet, matching Next.js.
  */
 function createCatchAllBaseRoute(
   node: RouteNode,
@@ -387,8 +389,8 @@ function createCatchAllBaseRoute(
  * folder's static segment as a valid partial match, which used to paint the
  * layouts below the first page-less level with an empty outlet. A guard index
  * makes the base a real leaf match, so the chain stops there and the nearest
- * `not-found` renders inside the layouts above - nothing, when the app declares
- * none, the same blank 404 Next.js paints without a `not-found.tsx`.
+ * `not-found` renders inside the layouts above - the built-in `DefaultNotFound`
+ * when the app declares none, so the base paints a 404 page like Next.js.
  */
 function createEmptyFolderBaseRoute(
   node: RouteNode,
@@ -399,19 +401,15 @@ function createEmptyFolderBaseRoute(
     index: true,
     // A real element, not `null`: React Router warns and renders an empty
     // outlet for a leaf without one, which is the very shape this guard
-    // replaces. `undefined` renders nothing, the declared no-not-found case.
+    // replaces. With no `not-found` anywhere it falls through to the built-in
+    // `DefaultNotFound`, so the base always paints a 404 page.
     element: createNotFoundFallbackElement(
       node,
       cache,
       inheritedFallback,
       `notfound:${node.fullPath}:empty-base`,
-    ) ?? React.createElement(BaseNotFound),
+    ),
   };
-}
-
-/** Placeholder leaf for a page-less folder in an app without any `not-found`. */
-function BaseNotFound(): React.ReactNode {
-  return null;
 }
 
 /**
@@ -445,9 +443,8 @@ function createNodeChildren(
 
   // A folder with a URL, no page, and no child index at its base owns no
   // content there: a guard index makes that base a leaf match rendering the
-  // nearest `not-found`, the Next.js 404. With no `not-found` in the app the
-  // leaf renders nothing, the same blank 404 the required catch-all guard
-  // paints for an app without a `not-found.tsx`.
+  // nearest `not-found`, or the built-in `DefaultNotFound` when the app
+  // declares none - always a 404 page, never an empty outlet.
   const addsBaseGuard = hasUrl && !node.page && !childEmitsIndex && childCount > 0;
 
   const children: RouteObject[] = [];

@@ -186,9 +186,9 @@ renders the nearest `not-found.tsx` (`blog/not-found.tsx`, else the one further
 up) inside the layouts above: `/blog` shows that not-found, and only `/blog/...`
 reaches the page. `href("/blog/*", { slug: "" })` throws for the same reason —
 the two sides agree on what a required catch-all accepts. With no `not-found.tsx`
-anywhere the guard renders nothing, so you get the layouts with an empty outlet
-where Next.js would show its built-in 404 page. Use `[[...slug]]` when the base
-should render the page instead.
+anywhere the guard falls back to the package's built-in 404 page, the same one
+Next.js shows, so the base always paints a page instead of an empty outlet. Use
+`[[...slug]]` when the base should render the page instead.
 
 The folder name (`slug`) is what you use everywhere:
 
@@ -221,6 +221,14 @@ give a section its own fallback. Beside a required catch-all folder it does not
 become a `*` route — the catch-all page already owns every URL below the base —
 so it is used as the fallback for that folder's base URL instead.
 
+With no `not-found.tsx` anywhere, the package supplies its own default 404 page:
+a plain `404` / "This page could not be found." rendered eagerly, with no
+stylesheet and nothing to load. It is the bottom of the fallback chain (the
+folder's own `not-found`, else the nearest ancestor's, else this default), so a
+single `not-found.tsx` replaces it outright. The package owns it internally; it
+is not exported, and there is no API to render or configure it — you replace it
+by adding a `not-found.tsx`, not by importing it.
+
 ### Folders without a page are 404s
 
 A folder that holds children but no `page.tsx` has no content at its own URL,
@@ -238,9 +246,9 @@ layouts above it. A folder that has a `layout.tsx` and no page is guarded the
 same way, and route groups are not — they own no URL, so their guard belongs to
 the first URL-bearing folder around them.
 
-With no `not-found.tsx` anywhere the guard renders nothing, so you get the
-layouts with an empty content area where Next.js would show its built-in 404
-page. This is the same trade the required catch-all base makes.
+With no `not-found.tsx` anywhere the guard falls back to the built-in 404 page
+described above, so a page-less base paints that instead of an empty content
+area. This is the same fallback the required catch-all base uses.
 
 ### Custom file names and pages directory
 

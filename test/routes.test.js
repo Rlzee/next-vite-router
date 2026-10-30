@@ -517,9 +517,40 @@ describe("route generator", () => {
     assert.equal(pageRoute.children, undefined);
     // The folder's not-found is handed to the guard as its lazy fallback...
     assert.notEqual(guard.element.props.fallback, undefined);
-    // ...while a catch-all with no not-found anywhere guards to nothing.
+    // ...while a catch-all with no not-found anywhere falls back to the
+    // built-in 404, so the guard's fallback is a real element, not undefined.
     const bare = createRoutes({ pages: { "docs/[...slug]/page.tsx": loader("docs") } });
-    assert.equal(bare[0].children[0].element.props.fallback, undefined);
+    assert.notEqual(bare[0].children[0].element.props.fallback, undefined);
+    assert.match(
+      renderToStaticMarkup(bare[0].children[0].element.props.fallback),
+      /could not be found/i,
+    );
+  });
+
+  test("both base guards fall back to the same built-in 404", () => {
+    // The required catch-all's base guard and the page-less folder's base guard
+    // share one component when no `not-found.tsx` exists, so an unmatched base
+    // always paints the same 404 instead of an empty outlet. Compared by element
+    // type, not by name, so minification cannot break the check.
+    const catchAll = createRoutes({
+      pages: { "docs/[...slug]/page.tsx": loader("docs") },
+    });
+    // The catch-all base guard wraps its fallback in `CatchAllBaseGuard`, so the
+    // built-in 404 is that guard's `fallback` prop.
+    const catchAllFallback = catchAll
+      .find((route) => route.path === "docs")
+      .children[0].element.props.fallback;
+
+    const pageless = createRoutes({
+      pages: { "docs/intro/page.tsx": loader("intro") },
+    });
+    // The page-less base guard renders the element directly as its `element`.
+    const pagelessElement = pageless
+      .find((route) => route.path === "docs")
+      .children.find((child) => child.index === true).element;
+
+    assert.equal(catchAllFallback.type, pagelessElement.type);
+    assert.match(renderToStaticMarkup(catchAllFallback), /could not be found/i);
   });
 
   test("rejects not-found routes that conflict with catch-all pages", () => {
