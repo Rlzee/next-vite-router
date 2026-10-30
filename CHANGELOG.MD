@@ -255,6 +255,11 @@ section is kept until the batch is worth the major.
   the plugin and generator switches; and a `Loading and error boundaries` section
   covering the two conventions, the `layout > error > loading` order and what it
   does not catch, and the eager-import rationale.
+- README: the `Not-found routes` section now documents the built-in default 404 page
+  (rendered eagerly, the bottom of the fallback chain, not exported, replaced by any
+  `not-found.tsx`), and the two spots that called the empty outlet a known limitation
+  - the required catch-all base and folders without a page - describe the fallback
+  instead.
 - README `Loading and error boundaries`: the boundary's scope is spelled out as
   every descendant at any depth (not just the folder's direct children), with
   the `dx/error.tsx` / `dx/y/z/page.tsx` example that motivated the fix, and
