@@ -427,10 +427,13 @@ try {
   lazyLayoutPlugin.configResolved({ root: lazyLayoutRoot });
 
   const lazyLayoutModule = lazyLayoutPlugin.load("\0next-vite-router/routes");
-  // The layouts *below* the pages root are the lazy ones...
+  // The layouts *below* the pages root are the lazy ones, and the root is
+  // excluded from that glob: `**/layout.tsx` also matches the root `layout.tsx`,
+  // so without the negative pattern the lazy loader would win the spread,
+  // clobber the eager entry, and throw at the first render.
   assert.match(
     lazyLayoutModule,
-    /const layoutsGlob = \{ \.\.\.import\.meta\.glob\(["']\/src\/app\/layout\.tsx["'], \{ eager: true \}\), \.\.\.import\.meta\.glob\(["']\/src\/app\/\*\*\/layout\.tsx["']\) \};/,
+    /const layoutsGlob = \{ \.\.\.import\.meta\.glob\(["']\/src\/app\/layout\.tsx["'], \{ eager: true \}\), \.\.\.import\.meta\.glob\(\[["']\/src\/app\/\*\*\/layout\.tsx["'],["']!\/src\/app\/layout\.tsx["']\]\) \};/,
   );
   // ...and the root keeps an eager glob of its own, so the shell never suspends
   // outside every boundary. Nothing in the emitted globs may be a non-eager

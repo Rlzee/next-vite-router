@@ -684,15 +684,19 @@ export function nextViteRouter(
         // `lazyLayouts` never reaches the root layout, which gets its own glob -
         // the pages root plus the file name, no `**` - kept eager in both modes: a
         // lazy route has no ancestor boundary that could paint a placeholder for
-        // it, so a lazy shell would leave the whole application on an empty screen.
-        // The two globs are disjoint (`/**/` needs a folder between), so spreading
-        // them into one record adds the root without duplicating an entry - and
-        // `buildRouteTree` refuses a root loader from a hand-built record.
+        // it, so a lazy shell would leave the whole application on an empty screen
+        // (`buildRouteTree` refuses a root loader from a hand-built record).
+        //
+        // The two globs are NOT disjoint: `**/layout.tsx` also matches the root
+        // `layout.tsx` (the `**/` may consume zero folders), so a bare lazy glob
+        // would emit the root as a loader and its entry would win the spread -
+        // clobbering the eager root and throwing at the first render. The lazy
+        // glob therefore names the root as a negative pattern, leaving it to the
+        // eager glob alone.
         const rootLayoutGlobPath = `/${normalizedPagesDir}/${layoutFile}`;
         const layoutsGlobSource = lazyLayouts
-          ? `{ ...import.meta.glob(${JSON.stringify(
-            rootLayoutGlobPath,
-          )}, { eager: true }), ...import.meta.glob(${JSON.stringify(layoutsGlobPath)}) }`
+          ? `{ ...import.meta.glob(${JSON.stringify(rootLayoutGlobPath)}, { eager: true }), ` +
+            `...import.meta.glob(${JSON.stringify([layoutsGlobPath, `!${rootLayoutGlobPath}`])}) }`
           : `import.meta.glob(${JSON.stringify(layoutsGlobPath)}, { eager: true })`;
         // The file options now travel inside the records bag - the records-object
         // style has no separate slot for them - while `layoutShape` stays in the

@@ -52,3 +52,5 @@ virtual-next-vite-router.d.ts
 /test/compat-app/dist-ssr/
 # Temporary project dirs created by the route-types test
 test/route-types-*/
+# Temporary project dirs created by the lazyLayouts end-to-end test
+test/lazy-e2e-*/
