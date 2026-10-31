@@ -5,12 +5,8 @@ export { assertNoDuplicateRoutes } from './routes/tree';
 export { assertNoRouteConflicts } from './routes/tree';
 export { treeToRoutes } from './routes/converter';
 
-// Config
-export { configureRouter, resetRouterConfig } from './config/index.config';
-
 // Types
 export type {
-  RouterConfig,
   RouteNode,
   RouteFileRecords,
   RouteModuleLoader,

@@ -2,11 +2,10 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createRouteGenerator, configureRouter } from '../dist/index.js';
+import { createRouteGenerator } from '../dist/index.js';
 import { href, Link, createTypedLink, useCatchAll } from '../dist/plugin-runtime.js';
 
 console.log('✅ createRouteGenerator:', typeof createRouteGenerator);
-console.log('✅ configureRouter:', typeof configureRouter);
 console.log('✅ href:', typeof href);
 console.log('✅ Link:', typeof Link);
 
@@ -55,10 +54,14 @@ assert.equal(typeof href, 'function');
 assert.equal(typeof Link, 'function');
 assert.equal(typeof createTypedLink, 'function');
 assert.equal(typeof useCatchAll, 'function');
-// The public root entry exposes config and the route engine, not the helpers.
+// The public root entry exposes the route engine and the utils, not the
+// navigation helpers - and no configuration surface at all: `configureRouter`
+// and `resetRouterConfig` left the package with 4.0.0, `loading.tsx` is the one
+// placeholder an application can declare.
 const cjsIndex = require('../dist/index.cjs');
 assert.equal(typeof cjsIndex.createRouteGenerator, 'function');
-assert.equal(typeof cjsIndex.configureRouter, 'function');
+assert.equal(cjsIndex.configureRouter, undefined);
+assert.equal(cjsIndex.resetRouterConfig, undefined);
 const cjsInternal = require('../dist/plugin-runtime.cjs');
 assert.equal(typeof cjsInternal.href, 'function');
 assert.equal(typeof cjsInternal.Link, 'function');

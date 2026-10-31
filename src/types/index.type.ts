@@ -35,6 +35,10 @@ export type RouteNode = {
    * from `layout`, which always holds a ready component, because a component and a
    * module loader are both functions: only the glob's shape tells them apart,
    * so the choice has to be recorded instead of guessed.
+   *
+   * Never set on the root node by the Vite plugin: the root layout is always read
+   * eagerly, because a lazy route has no ancestor boundary that could paint a
+   * placeholder for it (see `buildRouteTree`).
    */
   lazyLayout?: RouteModuleLoader;
   notFound?: RouteModuleLoader;
@@ -52,11 +56,6 @@ export type RouteNode = {
    */
   error?: RouteErrorComponent;
   children: Map<string, RouteNode>;
-}
-
-export type RouterConfig = {
-  loadingFallback?: React.ComponentType;
-  enableLazyLoading?: boolean;
 }
 
 /**
@@ -90,7 +89,10 @@ export type RouteTreeOptions = {
    *   (`{ eager: true, import: "default" }`).
    * - `"loader"` - a function entry is `() => import("...")` and lands in
    *   `RouteNode.lazyLayout`; module entries are still read as eager components,
-   *   so a mixed record keeps working.
+   *   so a mixed record keeps working. An entry that claims the **root** is
+   *   refused here: the root layout cannot come from a non-eager glob, because it
+   *   would suspend outside every boundary (the plugin reads it with its own
+   *   eager glob beside the lazy one).
    *
    * A wrong declaration is the one thing this option cannot protect against:
    * passing loaders as `"component"` surfaces only in React ("Objects are not

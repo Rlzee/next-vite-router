@@ -38,6 +38,33 @@ section is kept until the batch is worth the major.
 - `guardEagerLayout`, which wrapped an eager layout to find out what it was.
   Calling or inspecting a value to tell a component from a loader is the guessing
   this release stops doing; see `layoutShape`.
+- **The whole router-configuration surface: `configureRouter`,
+  `resetRouterConfig`, and the `RouterConfig` type (`loadingFallback` and
+  `enableLazyLoading`), all exported from the package root.** Nothing was left to
+  configure once both options are gone, so the config module and its reset helper
+  are removed with it. This makes loading match Next.js, which has no global
+  fallback: a folder shows a placeholder by declaring a `loading.tsx`, and one
+  that does not renders nothing while its page loads.
+
+  ```diff
+  - import { configureRouter } from "next-vite-router";
+  -
+  - configureRouter({ loadingFallback: () => <div>Loading route...</div> });
+  + // src/app/loading.tsx
+  + export default function Loading() {
+  +   return <div>Loading route...</div>;
+  + }
+  ```
+
+  `enableLazyLoading: false` had no real effect (Vite's imports stay asynchronous
+  either way) and is simply dropped. Two behavior changes come with the removal:
+  the default placeholder now renders `null` instead of an empty `<div>`, so no
+  stray element is left in the DOM; and **the root layout is never lazy** - it is
+  read eagerly whatever `lazyLayouts` says, because a lazy root route suspends
+  outside every boundary and would leave the whole application on a blank screen.
+  The plugin emits a separate eager glob for `app/layout.tsx`; a hand-built
+  `{ layoutShape: "loader" }` record that hands over a root loader is refused at
+  build time.
 
 ### Added
 
@@ -73,8 +100,9 @@ section is kept until the batch is worth the major.
   project authored.
 - **`loading.tsx` and `error.tsx`** per folder, matching the Next.js conventions.
   `loading.tsx` is the folder's placeholder: pages arrive through `React.lazy`, so
-  while one loads the placeholder paints inside the layout's `Outlet` instead of
-  the global `loadingFallback`, and a nested `loading.tsx` overrides its parent's.
+  while one loads the placeholder paints inside the layout's `Outlet`, a nested
+  `loading.tsx` overrides its parent's, and a folder that declares none renders
+  nothing - there is no global fallback, as in Next.js.
   `error.tsx` renders from a boundary around the folder's content when a render
   below it throws, receiving `{ error, reset }`; `reset()` retries, and the
   boundary also clears itself when the URL changes so another page of the folder
@@ -230,8 +258,9 @@ section is kept until the batch is worth the major.
 - `loading.tsx` / `error.tsx`: the converter's boundary placement (folder index,
   a child page and a child layout guarded by the parent but not by their own,
   content inside a layout below it, route groups), a static render that proves
-  `loading.tsx` replaces the configured fallback while an undeclared folder keeps
-  it, the `RouteErrorBoundary` lifecycle (derive, reset-on-navigation, render),
+  `loading.tsx` overrides an ancestor's placeholder while a folder that declares
+  none paints nothing, the `RouteErrorBoundary` lifecycle (derive,
+  reset-on-navigation, render),
   duplicate loading detection, and the refusal of a lazy or default-export-less
   boundary file. A no-boundaries tree is asserted byte-identical to before.
 - Boundary depth regressions: an error two levels below a folder's `error.tsx`

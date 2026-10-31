@@ -26,7 +26,7 @@ Three entry points, each with one job. **This is the source of truth for imports
 | Import from | Provides | Use it for |
 | --- | --- | --- |
 | `next-vite-router/routes` | `Router`, `generateRoutes`, `useRoutes`, `href`, `Link`, `useParams`, `useCatchAll`, and the types `RoutePath` / `RouteParams` / `LinkProps` | application code (pages, layouts, components) |
-| `next-vite-router` | `configureRouter`, `createRouteGenerator`, `buildRouteTree`, `treeToRoutes`, and the path/lazy utils | configuration and advanced / manual routing |
+| `next-vite-router` | `createRouteGenerator`, `buildRouteTree`, `treeToRoutes`, and the path/lazy utils | advanced / manual routing |
 | `next-vite-router/plugin` | `nextViteRouter` | `vite.config.ts` only |
 
 The navigation helpers are generated per project (they are bound to your route
@@ -495,10 +495,19 @@ export default defineConfig({
 });
 ```
 
-Each layout then gets its own chunk, rendered behind a `Suspense` boundary that
-`loadingFallback` covers; its subtree renders through the layout's own `Outlet`,
-so a nested page is requested only after the layout chunk arrives. That trade is
-worth it for large or rarely visited shells, not for the root.
+Each nested layout then gets its own chunk, rendered behind a `Suspense` boundary;
+its subtree renders through the layout's own `Outlet`, so a nested page is
+requested only after the layout chunk arrives. While that chunk loads the folder's
+placeholder paints — the `loading.tsx` of the nearest **ancestor** folder (a
+layout is never covered by its own `loading.tsx`, which sits below it, exactly as
+in Next.js), and nothing when no ancestor declares one.
+
+The **root** layout is exempt: it is always loaded eagerly, whatever this option
+says. The root route has no parent, so a lazy shell would suspend outside every
+boundary and leave the whole application on an empty screen while its chunk
+arrives. The plugin reads it with its own eager glob beside the lazy one; a hand-
+built `{ layoutShape: "loader" }` record that hands over a root loader is refused
+at build time. Turn `lazyLayouts` on for large or rarely visited nested shells.
 
 ### Case sensitivity
 
@@ -547,9 +556,11 @@ src/app/shop/
 ```
 
 `loading.tsx` is the folder's placeholder. Pages arrive through `React.lazy`, so
-while one is loading the placeholder paints in the layout's `Outlet` instead of
-the global `loadingFallback` — a nested `loading.tsx` overrides its parent's, and
-a folder that declares none keeps the configured fallback. `error.tsx` renders in
+while one is loading the placeholder paints in the layout's `Outlet` — a nested
+`loading.tsx` overrides its parent's, and a folder that declares none shows
+**nothing** until its page arrives: there is no global fallback to configure, as
+in Next.js, so the placeholder is a file in a folder or there is none. `error.tsx`
+renders in
 place of the content when something below throws, and receives
 `{ error, reset }`; `reset()` clears the boundary's error state so React re-renders
 the subtree - enough to recover from a synchronous failure whose cause has been
@@ -600,23 +611,14 @@ takes the matching eager records as its trailing `loadings` / `errors` arguments
 nextViteRouter({ loadingFile: "skeleton.tsx", errorFile: "failure.tsx" });
 ```
 
-### Router configuration
+### No global loading fallback
 
-`configureRouter` (from the `next-vite-router` root) sets the lazy-loading
-fallback and toggles lazy loading:
-
-```tsx
-import { configureRouter } from "next-vite-router";
-
-configureRouter({
-  loadingFallback: () => <div>Loading route...</div>,
-});
-```
-
-The fallback is read when a route suspends during render, so the order of
-`configureRouter` relative to `generateRoutes()` does not matter.
-`enableLazyLoading: false` is available for compatibility and testing; it does
-not turn Vite's asynchronous imports into synchronous ones.
+There is no `configureRouter`, no `loadingFallback`, and no `enableLazyLoading`
+switch: nothing about loading is configured in code. To show a placeholder while a
+folder's page loads, put a `loading.tsx` in that folder (see [Loading and error
+boundaries](#loading-and-error-boundaries)). A folder without one renders nothing
+while its page is not ready, exactly like Next.js, and the root layout is always
+loaded eagerly so the shell never leaves the screen blank.
 
 ### Hot reload (HMR)
 

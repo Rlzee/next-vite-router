@@ -10,15 +10,13 @@
  * claim is about what a browser would paint, not only about the route shape.
  */
 import assert from "node:assert/strict";
-import { test, describe, beforeEach } from "node:test";
+import { test, describe } from "node:test";
 import React, { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter, Outlet, matchRoutes, useRoutes } from "react-router-dom";
 import {
   buildRouteTree,
-  configureRouter,
   createRouteGenerator,
-  resetRouterConfig,
   treeToRoutes,
 } from "../dist/index.js";
 import { useCatchAll, useParams } from "../dist/plugin-runtime.js";
@@ -67,7 +65,8 @@ function resolve(routes, url) {
 /**
  * Paint the routes as a real application at `url`, using React Router's
  * `useRoutes` inside a `MemoryRouter`. Pages are lazy, so the first pass only
- * starts their imports and paints the fallback; once those promises settle the
+ * starts their imports and paints whatever the folder's `loading.tsx` provides
+ * (nothing when the folder declares none); once those promises settle the
  * second pass renders the resolved components, exactly as a browser repaints
  * after a Suspense boundary's chunk arrives.
  */
@@ -83,10 +82,6 @@ function createRoutes({ pages = {}, layouts = {}, notFounds = {} }) {
   const tree = buildRouteTree(pages, layouts, notFounds);
   return treeToRoutes(tree, true);
 }
-
-beforeEach(() => {
-  resetRouterConfig();
-});
 
 // ---------------------------------------------------------------------------
 // The matrix. Each row combines route primitives and states the invariant the
@@ -473,18 +468,32 @@ describe("route invariant matrix (rendered application)", () => {
   }
 });
 
-describe("router configuration is read at render time", () => {
-  test("a configured fallback paints while a lazy page is loading", async () => {
-    configureRouter({
-      loadingFallback: () => h("p", null, "Loading…"),
+describe("loading placeholder", () => {
+  test("the folder's loading.tsx paints while its lazy page is loading", async () => {
+    const tree = buildRouteTree({
+      pages: files([page(["slow/page", "slow"])]),
+      loadings: { "slow/loading.tsx": { default: () => h("p", null, "LOADING-SLOW") } },
     });
+    const routes = treeToRoutes(tree, true);
+
+    // First paint only starts the import, so the placeholder is what a browser
+    // shows; after the chunk settles the page replaces it.
+    const App = () => useRoutes(routes);
+    const treeAt = (url) => h(MemoryRouter, { initialEntries: [url] }, h(App));
+    assert.match(renderToStaticMarkup(treeAt("/slow")), /LOADING-SLOW/);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.match(renderToStaticMarkup(treeAt("/slow")), /data-page="slow"/);
+  });
+
+  test("nothing paints while a page of a folder without loading.tsx is loading", async () => {
     const routes = createRoutes({ pages: files([page(["slow/page", "slow"])]) });
 
-    // First paint only starts the import, so the configured fallback is what a
-    // browser shows; after the chunk settles the page replaces it.
+    // No configured fallback exists any more, and no empty element stands in for
+    // one: a folder that declares no `loading.tsx` shows nothing until its page
+    // arrives, exactly like Next.js.
     const App = () => useRoutes(routes);
     const tree = h(MemoryRouter, { initialEntries: ["/slow"] }, h(App));
-    assert.match(renderToStaticMarkup(tree), /<p>Loading…<\/p>/);
+    assert.equal(renderToStaticMarkup(tree), "");
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.match(renderToStaticMarkup(tree), /data-page="slow"/);
   });

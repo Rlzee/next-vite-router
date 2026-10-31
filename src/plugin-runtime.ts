@@ -14,7 +14,7 @@ export { href, Link, createTypedLink } from "./router/navigation";
 // reachable only through this engine entry (which is not in the package
 // "exports" map) so the boundary tests can render and drive them directly.
 export { SegmentBoundary, RouteErrorBoundary } from "./router/boundary";
-export { RouteLoadingContext } from "./router/loading-context";
+export { RouteLoadingContext, RouteLoadingProvider } from "./router/loading-context";
 
 export type {
   RouteHrefParams,

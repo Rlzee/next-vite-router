@@ -1,8 +1,5 @@
 import React, { lazy, Suspense } from "react";
-import { getRouterConfig } from '../config/index.config';
 import { useRouteLoading } from '../router/loading-context';
-
-const DefaultLoadingFallback = () => React.createElement("div");
 
 /**
  * A cache of `React.lazy` components keyed by a route-derived string (see the
@@ -37,34 +34,21 @@ export function clearLazyCache(cache: LazyComponentCache): void {
  * generation time.
  *
  * `treeToRoutes` / `generateRoutes` build React elements eagerly, so reading
- * `getRouterConfig()` while creating them captures whatever configuration
- * existed at that moment. When `generateRoutes()` is called at module scope
- * (the "Use React Router directly" pattern, or `createRouteGenerator`), that
- * happens before `configureRouter(...)` runs during app setup, so a later
- * `loadingFallback` or `enableLazyLoading` change would be ignored. Rendering a
- * dedicated fallback component defers the read until the route is actually
- * painted, keeping the `Suspense` boundary stable while honoring the latest
- * configuration.
+ * the folder's placeholder while creating them would capture the tree as it
+ * stood at that moment; rendering a dedicated fallback component defers the read
+ * until the route is actually painted, keeping the `Suspense` boundary stable.
  *
- * A folder's `loading.tsx` takes precedence over the configured fallback: it
- * arrives through `RouteLoadingContext`, because this element renders inside
- * the page's own `Suspense`, which is deeper than any boundary the converter
- * could place around it. With no `loading.tsx` above, the context is empty and
- * the configured fallback answers exactly as before, so apps that declare no
- * `loading.tsx` cannot observe this change.
+ * The folder's `loading.tsx` is the only placeholder there is: it arrives
+ * through `RouteLoadingContext`, because this element renders inside the page's
+ * own `Suspense`, which is deeper than any boundary the converter could place
+ * around it. A folder that declares none renders *nothing* while its page is
+ * loading, exactly like Next.js, which has no global fallback to configure: the
+ * placeholder is a file in a folder, or there is none. Returning `null` rather
+ * than an empty element also keeps a stray `<div>` out of the DOM.
  */
 function RouteLoadingFallback() {
-  const config = getRouterConfig();
-
-  // The loader stays asynchronous even when lazy loading is disabled, so keep
-  // the Suspense boundary but render no configured fallback for it.
-  if (config.enableLazyLoading === false) {
-    return null;
-  }
-
   const FolderFallback = useRouteLoading();
-  const FallbackComponent = FolderFallback || config.loadingFallback || DefaultLoadingFallback;
-  return React.createElement(FallbackComponent);
+  return FolderFallback ? React.createElement(FolderFallback) : null;
 }
 
 /**

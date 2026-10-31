@@ -1,17 +1,15 @@
 import assert from "node:assert/strict";
-import { test, describe, beforeEach } from "node:test";
+import { test, describe } from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { matchRoutes, MemoryRouter } from "react-router-dom";
+import { matchRoutes, MemoryRouter, useRoutes } from "react-router-dom";
 import {
   buildRouteTree,
   assertNoDuplicateRoutes,
-  configureRouter,
   createLazyCache,
   createLazyElement,
   createRouteGenerator,
   clearLazyCache,
-  resetRouterConfig,
   treeToRoutes,
 } from "../dist/index.js";
 import { extractRoutePath, parseRouteSegments } from "../dist/index.js";
@@ -73,14 +71,6 @@ function instrumentChildrenReads(root) {
 
   return reads;
 }
-
-beforeEach(() => {
-  // Reset the module-level router configuration singleton so state cannot leak
-  // between tests. The lazy component cache no longer needs resetting: every
-  // treeToRoutes() call (and every generator) owns its own cache, so a shared
-  // route key can no longer reuse a stale React.lazy component.
-  resetRouterConfig();
-});
 
 describe("route generator", () => {
   test("generates the root page without a layout", () => {
@@ -954,30 +944,29 @@ describe("route generator", () => {
     });
     assert.equal(routes[0].element.type, React.Suspense);
     assert.equal(typeof routes[0].element.props.fallback.type, "function");
-    // Default fallback renders an empty div.
-    assert.equal(
-      renderToStaticMarkup(routes[0].element.props.fallback),
-      "<div></div>",
-    );
+    // With no `loading.tsx` in the folder the placeholder renders nothing, like
+    // Next.js: no fallback component, and no stray element left in the DOM.
+    assert.equal(renderToStaticMarkup(routes[0].element.props.fallback), "");
   });
 
-  test("reads configureRouter at render time, after routes are generated", () => {
-    // Reproduces the module-level `generateRoutes()` ordering: routes are built
-    // before the app calls `configureRouter`, yet the fallback must apply.
-    const routes = createRoutes({
-      pages: { "late/page.tsx": loader("late") },
+  test("paints the folder's loading.tsx as the only fallback", () => {
+    // The placeholder arrives through the folder's boundary, so it is read when
+    // the Suspense fallback renders rather than when the routes are built - the
+    // same order a module-level `generateRoutes()` gives the tree.
+    const tree = buildRouteTree({
+      pages: { "shop/page.tsx": loader("late") },
+      loadings: { "shop/loading.tsx": { default: component("SHOP-LOADING") } },
     });
+    const routes = treeToRoutes(tree, true);
 
-    configureRouter({
-      loadingFallback: () => React.createElement("p", null, "Loading…"),
-    });
-    assert.equal(
-      renderToStaticMarkup(routes[0].element.props.fallback),
-      "<p>Loading…</p>",
+    const html = renderToStaticMarkup(
+      React.createElement(
+        MemoryRouter,
+        { initialEntries: ["/shop"] },
+        React.createElement(() => useRoutes(routes)),
+      ),
     );
-
-    configureRouter({ enableLazyLoading: false });
-    assert.equal(renderToStaticMarkup(routes[0].element.props.fallback), "");
+    assert.ok(html.includes("SHOP-LOADING"), `expected the folder placeholder, got: ${html}`);
   });
 });
 
@@ -1103,6 +1092,38 @@ describe("lazy layouts", () => {
     return { tree, routes: treeToRoutes(tree, true) };
   }
 
+  /**
+   * The same record as the plugin writes it: glob keys are root-relative, so the
+   * pages directory is named and the root layout can be recognised as such.
+   * `loadings` carries the eager `loading.tsx` records of the folders that
+   * declare one - the only placeholder the router paints now.
+   */
+  function createGeneratedLazyLayoutRoutes({ pages, layouts, loadings = {} }) {
+    const prefix = (record) => Object.fromEntries(
+      Object.entries(record).map(([key, value]) => [`/src/app/${key}`, value]),
+    );
+    const tree = buildRouteTree(
+      {
+        pages: prefix(pages),
+        layouts: prefix(layouts),
+        notFounds: {},
+        loadings: prefix(loadings),
+        errors: {},
+        fileOptions: { pagesDir: "src/app" },
+      },
+      { layoutShape: "loader" },
+    );
+    return { tree, routes: treeToRoutes(tree, true) };
+  }
+
+  const paintAt = (routes, url) => renderToStaticMarkup(
+    React.createElement(
+      MemoryRouter,
+      { initialEntries: [url] },
+      React.createElement(() => useRoutes(routes)),
+    ),
+  );
+
   test("reads a layout function as a loader only when the record declares it", async () => {
     const Shell = component("shell");
     const layouts = { "dashboard/layout.tsx": async () => ({ default: Shell }) };
@@ -1124,43 +1145,52 @@ describe("lazy layouts", () => {
     });
   });
 
-  test("suspends a lazy layout and paints it once its chunk resolves", async () => {
-    const Shell = component("shell");
-    configureRouter({
-      loadingFallback: () => React.createElement("p", null, "Loading shell…"),
-    });
-    const { routes } = createLazyLayoutRoutes({
+  test("suspends a lazy layout, painting nothing until its chunk resolves", async () => {
+    const { routes } = createGeneratedLazyLayoutRoutes({
       pages: { "dashboard/page.tsx": componentLoader("dashboard") },
       layouts: { "dashboard/layout.tsx": componentLoader("shell") },
+      // The folder's own `loading.tsx` cannot cover its layout: the boundary
+      // sits below it (`layout > error > loading`), so the pending shell paints
+      // nothing - no configured fallback any more, and no empty element either.
+      loadings: { "dashboard/loading.tsx": { default: component("LOADING-DASHBOARD") } },
     });
 
-    assert.deepEqual(routeShape(routes), [
-      { path: "dashboard", children: [{ index: true, children: undefined }] },
-      // No root page: the guard index answers "/".
-      { index: true, children: undefined },
-      // The built-in 404 splat answers every other URL.
-      { path: "*", children: undefined },
-    ]);
+    // `dashboard` owns the only URL besides the root, so its layout route answers
+    // `/dashboard` and the page renders through the layout's Outlet.
+    assert.equal(routes[0].path, "dashboard");
     assert.equal(routes[0].element.type, React.Suspense);
-    // The first paint starts the import and shows the fallback; once the module
-    // promise settles, the boundary renders the layout itself, which proves the
-    // loader is wired to the lazy component instead of a stand-in.
-    assert.match(
-      renderToStaticMarkup(routes[0].element),
-      /<p>Loading shell…<\/p>/,
-    );
+    assert.equal(paintAt(routes, "/dashboard"), "");
+    // Once the module promise settles, the boundary renders the layout itself,
+    // which proves the loader is wired to the lazy component, not a stand-in.
     await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.match(renderToStaticMarkup(routes[0].element), /<div>shell<\/div>/);
+    assert.match(paintAt(routes, "/dashboard"), /<div>shell<\/div>/);
   });
 
-  test("suspends the root layout too", () => {
-    const { routes } = createLazyLayoutRoutes({
+  test("never suspends the root layout, even when the record declares loaders", () => {
+    // The root route has no parent, so a lazy shell would paint outside every
+    // boundary and leave the whole application on an empty screen. The plugin
+    // therefore reads the root with its own eager glob and the record arrives as
+    // a module, which the loader shape keeps as a component.
+    const Shell = component("shell");
+    const { tree, routes } = createGeneratedLazyLayoutRoutes({
       pages: { "page.tsx": componentLoader("home") },
-      layouts: { "layout.tsx": componentLoader("shell") },
+      layouts: { "layout.tsx": { default: Shell } },
     });
 
+    assert.equal(tree.lazyLayout, undefined);
+    assert.equal(tree.layout, Shell);
     assert.equal(routes[0].path, "/");
-    assert.equal(routes[0].element.type, React.Suspense);
+    assert.equal(routes[0].element.type, Shell);
+  });
+
+  test("refuses a loader record that claims the root layout", () => {
+    assert.throws(
+      () => createGeneratedLazyLayoutRoutes({
+        pages: { "page.tsx": componentLoader("home") },
+        layouts: { "layout.tsx": componentLoader("shell") },
+      }),
+      /claims the root, and the root layout cannot come from a non-eager glob/,
+    );
   });
 
   test("keeps the catch-all provider around a lazy layout", () => {

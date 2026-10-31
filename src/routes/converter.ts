@@ -228,9 +228,14 @@ function createPageRoute(
  * An eager layout renders its component directly, inside the entry chunk. A
  * layout coming from a non-eager glob (`lazyLayout`) goes through the shared
  * lazy cache, so one generation memoizes a single `React.lazy` component per
- * layout and suspends behind the configured fallback while Vite loads its
- * chunk. The subtree is rendered by the layout's own `Outlet`, so it waits for
- * the layout chunk instead of being requested alongside it.
+ * layout and suspends behind its folder's `loading.tsx` (nothing, when the
+ * folder declares none) while Vite loads its chunk. The subtree is rendered by
+ * the layout's own `Outlet`, so it waits for the layout chunk instead of being
+ * requested alongside it.
+ *
+ * The root layout never reaches this function as a lazy one: `buildRouteTree`
+ * refuses a loader entry for it, because a route with no parent has no boundary
+ * above it and would leave the whole application on an empty screen.
  *
  * The catch-all provider wraps the layout element itself, not only the page, so
  * a layout declared inside the catch-all folder can read the parameter.

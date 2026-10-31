@@ -1,20 +1,22 @@
 import assert from "node:assert/strict";
-import { test, describe, beforeEach } from "node:test";
+import { test, describe } from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter, Outlet, useRoutes } from "react-router-dom";
 import {
   buildRouteTree,
   clearLazyCache,
-  configureRouter,
   createLazyCache,
   createLazyElement,
-  resetRouterConfig,
   treeToRoutes,
 } from "../dist/index.js";
 // The boundary components are engine internals reached through the same build
 // entry the generated routes module resolves by path (never a package specifier).
-import { RouteErrorBoundary, SegmentBoundary } from "../dist/plugin-runtime.js";
+import {
+  RouteErrorBoundary,
+  RouteLoadingProvider,
+  SegmentBoundary,
+} from "../dist/plugin-runtime.js";
 
 const loader = (name) => async () => ({ default: name });
 // An eager `import.meta.glob` yields the module namespace, whose `default` is
@@ -40,10 +42,6 @@ function generate(records) {
   const tree = buildRouteTree(records);
   return { tree, routes: treeToRoutes(tree, true) };
 }
-
-beforeEach(() => {
-  resetRouterConfig();
-});
 
 describe("converter: boundary placement", () => {
   test("leaves the tree untouched when nothing declares loading or error", () => {
@@ -380,14 +378,13 @@ describe("rendering: loading placeholder", () => {
     return { default: React.lazy(() => promise) , resolve };
   };
 
-  test("loading.tsx replaces the configured fallback for that folder", () => {
+  test("loading.tsx is the folder's placeholder while its page is pending", () => {
     const ShopLoading = component("SHOP-LOADING");
     const suspending = pendingPage();
     const { routes } = generate({
       pages: { "shop/page.tsx": async () => suspending.default },
       loadings: { "shop/loading.tsx": eager(ShopLoading) },
     });
-    configureRouter({ loadingFallback: component("GLOBAL-CONFIG-FALLBACK") });
 
     const html = renderToStaticMarkup(
       React.createElement(
@@ -398,19 +395,16 @@ describe("rendering: loading placeholder", () => {
     );
 
     assert.ok(html.includes("SHOP-LOADING"), `expected the folder placeholder, got: ${html}`);
-    assert.ok(!html.includes("GLOBAL-CONFIG-FALLBACK"), "loading.tsx wins over the global fallback");
   });
 
-  test("the configured fallback still paints when a folder has no loading.tsx", () => {
-    const suspending = pendingPage();
+  test("a folder without loading.tsx paints nothing while its page is pending", () => {
     const { routes } = generate({
       pages: {
-        "shop/page.tsx": async () => suspending.default,
+        "shop/page.tsx": async () => pendingPage().default,
         "about/page.tsx": async () => pendingPage().default,
       },
       loadings: { "shop/loading.tsx": eager(component("SHOP-LOADING")) },
     });
-    configureRouter({ loadingFallback: component("GLOBAL-CONFIG-FALLBACK") });
 
     const shopHtml = renderToStaticMarkup(
       React.createElement(MemoryRouter, { initialEntries: ["/shop"] },
@@ -422,8 +416,10 @@ describe("rendering: loading placeholder", () => {
     );
 
     assert.ok(shopHtml.includes("SHOP-LOADING"));
-    assert.ok(!aboutHtml.includes("SHOP-LOADING"));
-    assert.ok(aboutHtml.includes("GLOBAL-CONFIG-FALLBACK"), "a folder with no loading.tsx keeps the global fallback");
+    // `about` declared no placeholder and there is no configured fallback to
+    // answer for it, so the pending page renders nothing at all - no markup, and
+    // no empty element left in the DOM.
+    assert.equal(aboutHtml, "");
   });
 
   test("a folder's loading.tsx reaches a page several levels below", () => {
@@ -433,7 +429,6 @@ describe("rendering: loading placeholder", () => {
       pages: { "dx/y/z/page.tsx": async () => suspending.default },
       loadings: { "dx/loading.tsx": eager(DxLoading) },
     });
-    configureRouter({ loadingFallback: component("GLOBAL-CONFIG-FALLBACK") });
 
     // The bug this pins: `dx/loading.tsx` used to paint only for a page
     // directly under `dx/`. With the boundary as a pathless route in front of
@@ -445,7 +440,6 @@ describe("rendering: loading placeholder", () => {
         React.createElement(() => useRoutes(routes))),
     );
     assert.ok(html.includes("LOADING-DX"), `expected dx's placeholder for a two-levels-below page, got: ${html}`);
-    assert.ok(!html.includes("GLOBAL-CONFIG-FALLBACK"), "the folder placeholder still wins over the configured fallback");
   });
 
   test("a nested folder's loading.tsx overrides its parent's (LOADING-OWN)", () => {
@@ -478,14 +472,13 @@ describe("rendering: loading placeholder", () => {
     assert.ok(parentHtml.includes("LOADING-PARENT"), "the parent's loading still applies to its own base");
   });
 
-  test("a route group's loading.tsx guards every page beneath it", () => {
+  test("a route group's loading.tsx covers every page beneath it", () => {
     const GrpLoading = component("LOADING-GRP");
     const suspending = pendingPage();
     const { routes } = generate({
       pages: { "sec/(grp)/gpage/page.tsx": async () => suspending.default },
       loadings: { "sec/(grp)/loading.tsx": eager(GrpLoading) },
     });
-    configureRouter({ loadingFallback: component("GLOBAL-CONFIG-FALLBACK") });
 
     // The user reported that `(grp)/loading.tsx` had no effect - the group
     // route was transparent with no element. The group's pathless route now
@@ -496,7 +489,6 @@ describe("rendering: loading placeholder", () => {
         React.createElement(() => useRoutes(routes))),
     );
     assert.ok(html.includes("LOADING-GRP"), `expected the group placeholder, got: ${html}`);
-    assert.ok(!html.includes("GLOBAL-CONFIG-FALLBACK"), "the group's loading wins over the configured fallback");
   });
 
   test("a not-found renders inside the folder's boundary, not as an error", () => {
@@ -586,6 +578,17 @@ describe("reset() scope: a failed dynamic import stays failed", () => {
   // with a remount).
   const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+  /**
+   * Render a `createLazyElement` result under a folder placeholder. The element
+   * carries its own `Suspense`, and the placeholder it paints arrives through
+   * `RouteLoadingContext` - the folder's `loading.tsx`, and the only fallback
+   * there is - so the pending state is observable from the rendered HTML only
+   * when the element is wrapped in the provider a boundary would place above it.
+   */
+  const renderLazyWithLoading = (element, Loading) => renderToStaticMarkup(
+    React.createElement(RouteLoadingProvider, { loading: Loading }, element),
+  );
+
   test("the router cache memoizes one React.lazy per key", () => {
     const cache = createLazyCache();
     let calls = 0;
@@ -611,26 +614,23 @@ describe("reset() scope: a failed dynamic import stays failed", () => {
       return Promise.reject(new Error("chunk missing"));
     };
     const cache = createLazyCache();
-    // `createLazyElement` wraps the lazy in its own Suspense whose fallback
-    // reads the configured fallback, so name that one to make the pending
-    // state observable from the rendered HTML.
-    configureRouter({ loadingFallback: component("FALLBACK") });
+    const Pending = component("FALLBACK");
     const element = () => createLazyElement(failingLoader, "page:dx/y/z", cache);
 
     // First read kicks the load. `renderToStaticMarkup` renders synchronously
-    // and paints the Suspense fallback while the promise is still pending; the
-    // rejection lands after the render returns and React stores it on the
+    // and paints the folder's placeholder while the promise is still pending;
+    // the rejection lands after the render returns and React stores it on the
     // memoized `React.lazy` payload.
-    renderToStaticMarkup(element());
+    renderLazyWithLoading(element(), Pending);
     await flush();
 
     // Second and third reads exercise the SAME memoized `React.lazy`. The
     // payload is already in its rejected state, so React neither re-invokes
-    // the loader nor resolves the subtree - the fallback paints again.
-    const html2 = renderToStaticMarkup(element());
-    const html3 = renderToStaticMarkup(element());
+    // the loader nor resolves the subtree - the placeholder paints again.
+    const html2 = renderLazyWithLoading(element(), Pending);
+    const html3 = renderLazyWithLoading(element(), Pending);
 
-    assert.ok(html2.includes("FALLBACK"), `the retry paints the fallback again, got: ${html2}`);
+    assert.ok(html2.includes("FALLBACK"), `the retry paints the placeholder again, got: ${html2}`);
     assert.ok(html3.includes("FALLBACK"), `a third read still does not resolve, got: ${html3}`);
     assert.equal(calls, 1,
       "`React.lazy` calls its loader exactly once; `reset()` on the boundary "
@@ -650,13 +650,14 @@ describe("reset() scope: a failed dynamic import stays failed", () => {
         : Promise.resolve({ default: component("RECOVERED") });
     };
     const cache = createLazyCache();
-    configureRouter({ loadingFallback: component("FALLBACK") });
-    const render = () => renderToStaticMarkup(
+    const Pending = component("FALLBACK");
+    const render = () => renderLazyWithLoading(
       createLazyElement(failingThenPassing, "page:x", cache),
+      Pending,
     );
 
     // First pass kicks the load; the rejection lands on the lazy payload and
-    // every later read stays on the fallback because the loader is not asked
+    // every later read stays on the placeholder because the loader is not asked
     // again.
     render();
     await flush();

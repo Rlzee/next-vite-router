@@ -36,12 +36,19 @@ export type NextViteRouterPluginOptions = {
    */
   errorFile?: string;
   /**
-   * Import `layout.tsx` files with a non-eager glob so Vite emits a separate
-   * chunk per layout instead of keeping them in the entry chunk.
+   * Import the `layout.tsx` files *below* the pages root with a non-eager glob,
+   * so Vite emits a separate chunk per layout instead of keeping them in the
+   * entry chunk.
    *
    * Defaults to `false`: a layout wraps its whole subtree, so loading it eagerly
    * avoids a fallback flash and a chunk round-trip before the page can even be
    * requested. Turn it on for large, rarely visited shells.
+   *
+   * The **root** layout is never part of that glob, whatever this option says: it
+   * is read with its own eager glob, because a lazy route has no ancestor
+   * boundary that could paint a placeholder for it. Next.js keeps the root layout
+   * loaded for the same reason, and a folder's `loading.tsx` renders inside the
+   * layout it would have to cover.
    */
   lazyLayouts?: boolean;
   /**
@@ -673,8 +680,19 @@ export function nextViteRouter(
         // unchanged. `lazyLayouts` flips the glob AND declares the record shape it
         // just produced: a component and a loader are both functions, so the shape
         // travels with the record instead of being guessed by calling a value.
+        //
+        // `lazyLayouts` never reaches the root layout, which gets its own glob -
+        // the pages root plus the file name, no `**` - kept eager in both modes: a
+        // lazy route has no ancestor boundary that could paint a placeholder for
+        // it, so a lazy shell would leave the whole application on an empty screen.
+        // The two globs are disjoint (`/**/` needs a folder between), so spreading
+        // them into one record adds the root without duplicating an entry - and
+        // `buildRouteTree` refuses a root loader from a hand-built record.
+        const rootLayoutGlobPath = `/${normalizedPagesDir}/${layoutFile}`;
         const layoutsGlobSource = lazyLayouts
-          ? `import.meta.glob(${JSON.stringify(layoutsGlobPath)})`
+          ? `{ ...import.meta.glob(${JSON.stringify(
+            rootLayoutGlobPath,
+          )}, { eager: true }), ...import.meta.glob(${JSON.stringify(layoutsGlobPath)}) }`
           : `import.meta.glob(${JSON.stringify(layoutsGlobPath)}, { eager: true })`;
         // The file options now travel inside the records bag - the records-object
         // style has no separate slot for them - while `layoutShape` stays in the

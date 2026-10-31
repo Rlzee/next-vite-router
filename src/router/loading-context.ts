@@ -7,11 +7,11 @@ import type { ComponentType } from "react";
  * A page already suspends inside its own `Suspense` (see `createLazyElement`),
  * which is deeper than any boundary the converter could place around it, so the
  * placeholder cannot be handed over as that boundary's `fallback` - the inner one
- * would always paint `loadingFallback` first. The boundary therefore *names* the
- * component through this context and the inner fallback reads it, which keeps one
- * Suspense per page and gives each folder the placeholder it declared. A folder
- * that declares none leaves the context untouched, so the configured
- * `loadingFallback` still answers: the default behavior is unchanged.
+ * would always paint first. The boundary therefore *names* the component through
+ * this context and the inner fallback reads it, which keeps one Suspense per page
+ * and gives each folder the placeholder it declared. A folder that declares none
+ * leaves the context empty, and the placeholder renders nothing - the Next.js
+ * contract, which has no global fallback for a folder to fall back on.
  *
  * Read through the provider below rather than a bare `createContext(...)` call in
  * the converter, so the element the route carries stays small and inspectable.

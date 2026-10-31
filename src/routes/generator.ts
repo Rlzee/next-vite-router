@@ -54,6 +54,12 @@ import type { RouteTreeOptions } from '../types/index.type';
  *   { layoutShape: "loader" },
  * );
  *
+ * A loader-shaped record must not carry the root layout: that route has no parent,
+ * so nothing could paint a placeholder while its chunk arrives and the whole
+ * application would sit on an empty screen. Glob the root eagerly beside the rest
+ * (`import.meta.glob("pages/layout.tsx", { eager: true })`); a record that hands
+ * over a root loader is refused while the tree is built.
+ *
  * An eager glob that unwraps its entries (`{ eager: true, import: "default" }`)
  * yields bare components and is declared `{ layoutShape: "component" }`. Leaving a
  * bare function at the default shape is refused while the tree is built: a loader

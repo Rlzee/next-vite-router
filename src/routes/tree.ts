@@ -371,6 +371,21 @@ function checkedLoader(
   };
 }
 
+/**
+ * Whether a layouts record entry claims the root - the folder the pages
+ * directory itself is, not any segment below it.
+ *
+ * `extractRoutePath` is the same derivation `addFileToTree` uses, so a record
+ * keyed `src/app/layout.tsx` and one keyed `/src/app/layout.tsx` answer alike.
+ * A caller that hands over bare keys without file options (`layout.tsx`) does
+ * not name the pages directory, so the path keeps its file name and the entry
+ * lands on a `/layout` route - where it has always landed.
+ */
+function isRootLayoutPath(filePath: string, fileOptions: RouteFileOptions | undefined): boolean {
+  const routePath = extractRoutePath(filePath, fileOptions);
+  return routePath === "" || routePath === "/";
+}
+
 function addFileToTree(
   root: RouteNode,
   filePath: string,
@@ -434,6 +449,9 @@ export function buildRouteTree(
  * files, never a bare `pages`), so the two can only collide on an impossible
  * glob key. Checking that the value is an object too seals it: a positional
  * `pages` route is a loader or an eager module, and `pages` is not a route name.
+ *
+ * One record shape is refused rather than read: a **loader** entry that claims
+ * the root, because the root layout cannot suspend - see the layouts walk below.
  */
 export function buildRouteTree(
   first: RouteFileRecords | Record<string, () => Promise<any>>,
@@ -488,10 +506,32 @@ export function buildRouteTree(
 
   Object.entries(records.layouts ?? {}).forEach(([filePath, module]) => {
     const isFunction = typeof module === 'function';
+    // The root layout never suspends, whatever shape the record declares: a lazy
+    // route has no ancestor boundary that could paint a placeholder for it, so
+    // the shell would leave the whole application on an empty screen while its
+    // chunk arrives - there is not even a `loading.tsx` that could cover it,
+    // because the root boundary renders inside the layout it would have to
+    // replace. Next.js loads the root layout eagerly for the same reason.
+    const isRoot = isRootLayoutPath(filePath, fileOptions);
+
+    if (shape === 'loader' && isFunction && isRoot) {
+      // The root entry is a loader, which nothing can turn into a component
+      // while the tree is being built - the chunk is not here yet. Refusing it
+      // names the one record shape that cannot describe this folder, instead of
+      // emitting a shell that suspends outside every boundary.
+      throw new Error(
+        `Route layout "${filePath}" claims the root, and the root layout cannot come from a non-eager glob: ` +
+        `a lazy route suspends outside every boundary, so nothing could paint a placeholder while the shell loads.\n` +
+        'Read the root layout eagerly - the plugin emits a second glob for it, ' +
+        '`import.meta.glob("<pagesDir>/layout.tsx", { eager: true })` - and keep ' +
+        'the non-eager glob for the layouts below it.',
+      );
+    }
 
     if (shape === 'loader') {
       // A function is the loader the record just declared. Module entries stay
-      // eager components, which is what keeps a mixed record readable.
+      // eager components, which is what keeps a mixed record readable - and a
+      // root module entry is exactly how the plugin delivers the eager shell.
       addFileToTree(
         root,
         filePath,

@@ -159,7 +159,7 @@ try {
   fs.writeFileSync(invalidTypesPath, `
 import { href } from "next-vite-router/routes";
 import type { RouteParams, RoutePath } from "next-vite-router/routes";
-import type { RouterConfig } from "../../../dist/index.js";
+import type { NextViteRouterPluginOptions } from "../../../dist/plugin.js";
 
 // @ts-expect-error unknown route path
 const invalidPath: RoutePath = "/users/:missing";
@@ -167,8 +167,8 @@ const invalidPath: RoutePath = "/users/:missing";
 const missingParam: RouteParams<"/users/:id"> = {};
 // @ts-expect-error route parameters reject unknown keys
 const extraParam: RouteParams<"/users/:id"> = { id: "123", extra: "nope" };
-// @ts-expect-error pagesDir belongs to the plugin options, not RouterConfig
-const invalidConfig: RouterConfig = { pagesDir: "src/app" };
+// @ts-expect-error loadingFallback was the removed router option, not a plugin option
+const removedOption: NextViteRouterPluginOptions = { loadingFallback: null };
 // @ts-expect-error href requires the params of a pattern that has them
 href("/users/:id");
 // @ts-expect-error href rejects a parameter the pattern does not declare
@@ -188,7 +188,7 @@ href("/users/:id", { id: ["123"] });
 void invalidPath;
 void missingParam;
 void extraParam;
-void invalidConfig;
+void removedOption;
 `, "utf8");
   try {
     runTypeScript(invalidTypesPath, [declarationPath]);
@@ -427,11 +427,19 @@ try {
   lazyLayoutPlugin.configResolved({ root: lazyLayoutRoot });
 
   const lazyLayoutModule = lazyLayoutPlugin.load("\0next-vite-router/routes");
+  // The layouts *below* the pages root are the lazy ones...
   assert.match(
     lazyLayoutModule,
-    /const layoutsGlob = import\.meta\.glob\(["']\/src\/app\/\*\*\/layout\.tsx["']\);/,
+    /const layoutsGlob = \{ \.\.\.import\.meta\.glob\(["']\/src\/app\/layout\.tsx["'], \{ eager: true \}\), \.\.\.import\.meta\.glob\(["']\/src\/app\/\*\*\/layout\.tsx["']\) \};/,
   );
-  assert.doesNotMatch(lazyLayoutModule, /layout\.tsx["'], \{ eager: true \}/);
+  // ...and the root keeps an eager glob of its own, so the shell never suspends
+  // outside every boundary. Nothing in the emitted globs may be a non-eager
+  // pattern for the root file.
+  assert.match(
+    lazyLayoutModule,
+    /import\.meta\.glob\(["']\/src\/app\/layout\.tsx["'], \{ eager: true \}\)/,
+  );
+  assert.doesNotMatch(lazyLayoutModule, /["']\/src\/app\/layout\.tsx["']\)/);
   assert.match(
     lazyLayoutModule,
     /buildRouteTree\(\{ pages, layouts, notFounds, loadings, errors, fileOptions: \{[^}]*\} \}, \{ layoutShape: "loader" \}\)/,
@@ -441,7 +449,7 @@ try {
     lazyLayoutModule,
     /const pagesGlob = import\.meta\.glob\(["']\/src\/app\/\*\*\/page\.tsx["']\);/,
   );
-  console.log("✅ lazyLayouts pairs a non-eager layout glob with the runtime flag");
+  console.log("✅ lazyLayouts keeps the root layout eager and pairs the lazy glob with the runtime flag");
 } finally {
   fs.rmSync(lazyLayoutRoot, { recursive: true, force: true });
 }
