@@ -18,14 +18,18 @@ const packageJson = JSON.parse(
 // prompt cannot hang the suite, and stdout/stderr are captured instead of being
 // lost behind execFileSync's `[null, null, null]`.
 //
-// `input` answers the interactive prompts, and `cwd` decides where a relative
-// project name is created, so a `create` run can be driven from a temp directory.
-function runCli(args, { input, cwd } = {}) {
+// `input` answers the interactive prompts, `cwd` decides where a relative
+// project name is created, and `env` can pin the package manager the detection
+// reports - so a `create` run can be driven from a temp directory and a generated
+// README can be asserted against one known manager instead of whichever the host
+// happens to have.
+function runCli(args, { input, cwd, env } = {}) {
   const command = {
     encoding: "utf8",
     stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     ...(input === undefined ? {} : { input }),
     ...(cwd === undefined ? {} : { cwd }),
+    ...(env === undefined ? {} : { env: { ...process.env, ...env } }),
   };
 
   try {
@@ -279,6 +283,127 @@ test("configure --no-src moves the generated structure to the project root", () 
     assert.equal(fs.existsSync(path.join(project, "src", "app")), false);
     // src/ itself survives: a project may still import from it.
     assert.match(read(path.join(project, "src", "App.tsx")), /the app's own component/);
+
+    // The generated README describes the layout it just wrote, and names the
+    // declaration where this layout puts it - at the root, not under src/.
+    const readme = read(path.join(project, "README.md"));
+    assert.match(readme, /Pages live in `app\/`\./);
+    assert.match(readme, /`routes\.d\.ts` is rewritten/);
+    assert.doesNotMatch(readme, /src\/app/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// What the scaffold hands the project: a README a stranger can run the app from,
+// a starter that reads correctly on a dark theme, and the promise that none of it
+// replaces a document or a page the project already wrote.
+// ---------------------------------------------------------------------------
+
+test("configure writes a README the project can be run from", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nvr-cli-readme-"));
+  const project = makeViteProject(path.join(root, "project"));
+  try {
+    // Pin the manager to npm whatever ran the suite, because the README is
+    // supposed to name the detected one in that manager's own spelling.
+    const { code, stdout } = runCli(["configure", "--yes", "--dir", project], {
+      env: { PREFERRED_PM: "npm", npm_config_user_agent: "" },
+    });
+    assert.equal(code, 0, `configure exited with ${code}:\n${stdout}`);
+
+    const readme = read(path.join(project, "README.md"));
+    assert.match(readme, /`npm run dev`/);
+    assert.match(readme, /`npm run build`/);
+    assert.match(readme, /`npm run preview`/);
+
+    for (const convention of [
+      "page.tsx",
+      "layout.tsx",
+      "loading.tsx",
+      "error.tsx",
+      "not-found.tsx",
+      "[id]",
+      "[...slug]",
+      "(marketing)",
+    ]) {
+      assert.ok(
+        readme.includes(convention),
+        `the conventions table never mentions ${convention}`,
+      );
+    }
+
+    // The declaration is documented as what it is: generated, ignored, and not
+    // yours to edit.
+    assert.match(readme, /`src\/routes\.d\.ts` is rewritten/);
+    assert.match(readme, /already listed in `.gitignore`/);
+    assert.match(readme, /github\.com\/Rlzee\/next-vite-router/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the starter reads in a dark theme and loads no file from disk", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nvr-cli-starter-"));
+  const project = makeViteProject(path.join(root, "project"));
+  try {
+    const { code, stdout } = runCli(["configure", "--yes", "--dir", project]);
+    assert.equal(code, 0, `configure exited with ${code}:\n${stdout}`);
+
+    const starter = [
+      read(path.join(project, "src", "app", "layout.tsx")),
+      read(path.join(project, "src", "app", "page.tsx")),
+      read(path.join(project, "src", "app", "example", "page.tsx")),
+    ].join("\n");
+
+    // The mark is drawn inline. A scaffold deletes the template's `assets/`
+    // folder, so an imported image would be an import of a file that is gone.
+    assert.match(starter, /<svg/);
+    assert.doesNotMatch(starter, /\.(svg|png|jpe?g|gif|webp)\b/);
+    assert.doesNotMatch(starter, /assets\//);
+
+    const css = read(path.join(project, "src", "globals.css"));
+    assert.match(css, /color-scheme: light dark/);
+    assert.match(css, /@media \(prefers-color-scheme: dark\)/);
+    // The starter styles itself with plain classes from this file, so it reads the
+    // same with and without Tailwind: only the import above it differs.
+    assert.match(css, /--background: #ffffff/);
+    assert.match(starter, /className="card"/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("configure does not replace a README, a stylesheet, or a page that exists", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nvr-cli-keep-"));
+  const project = makeViteProject(path.join(root, "project"));
+  const readme = "# My project\n\nWritten by hand.\n";
+  const css = "/* my own stylesheet */\nbody { color: teal; }\n";
+  const home = "export default function Page() {\n  return <h1>mine</h1>;\n}\n";
+  try {
+    fs.writeFileSync(path.join(project, "README.md"), readme, "utf8");
+    fs.writeFileSync(path.join(project, "src", "globals.css"), css, "utf8");
+    fs.mkdirSync(path.join(project, "src", "app"), { recursive: true });
+    fs.writeFileSync(path.join(project, "src", "app", "page.tsx"), home, "utf8");
+
+    const { code, stdout } = runCli(["configure", "--yes", "--dir", project]);
+    assert.equal(code, 0, `configure exited with ${code}:\n${stdout}`);
+
+    assert.equal(read(path.join(project, "README.md")), readme);
+    assert.equal(read(path.join(project, "src", "globals.css")), css);
+    assert.equal(read(path.join(project, "src", "app", "page.tsx")), home);
+
+    // Kept files are named, so a reader is never left guessing which documents
+    // the run wrote and which it did not touch.
+    assert.match(
+      stdout,
+      /left exactly as it was: src\/globals\.css, src\/app\/page\.tsx, README\.md\./,
+    );
+
+    // And the routes that were missing still arrive, so one existing page does not
+    // cost the project its starter layout.
+    assert.match(read(path.join(project, "src", "app", "layout.tsx")), /<Outlet \/>/);
+    assert.match(read(path.join(project, "src", "app", "example", "page.tsx")), /ExamplePage/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

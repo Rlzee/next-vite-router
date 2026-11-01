@@ -125,7 +125,17 @@ export const create = new Command()
       projectDir: `./${projectName}`,
       src: useSrc,
       tailwindcss: useTailwind,
+      // The manager that scaffolded the project, so the generated README and the
+      // two lines below quote the commands that actually work here.
+      packageManager: pm,
     });
 
-    logger.success(`\nProject "${projectName}" is ready!\n`);
+    logger.success(`\nProject "${projectName}" is ready!`);
+    // The two lines that start the work, spelled the way this package manager
+    // wants them. Everything else the reader needs is in the README the scaffold
+    // just wrote.
+    logger.log("");
+    logger.log(`  cd ${projectName}`);
+    logger.log(`  ${pm.scriptCommand("dev")}`);
+    logger.log("");
   });

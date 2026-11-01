@@ -57,6 +57,12 @@ export interface PackageManager {
   addDevDepsCommand: (deps: string[]) => string;
   // recommended bootstrap / install command to run (no package names) after project creation
   installCommand: string;
+  /**
+   * Command that runs one of the project's own scripts, as it should be typed in
+   * that project's terminal. Both the generated README and the closing `create`
+   * message quote real commands, and `npm run dev` is not what pnpm says.
+   */
+  scriptCommand: (script: string) => string;
 }
 
 /**
@@ -107,6 +113,7 @@ export function detectPackageManager(): PackageManager {
         addDepsCommand: (deps) => `pnpm add ${deps.join(" ")}`,
         addDevDepsCommand: (deps) => `pnpm add -D ${deps.join(" ")}`,
         installCommand: "pnpm install",
+        scriptCommand: (script) => `pnpm ${script}`,
       };
 
     case "bun":
@@ -117,6 +124,7 @@ export function detectPackageManager(): PackageManager {
         addDepsCommand: (deps) => `bun add ${deps.join(" ")}`,
         addDevDepsCommand: (deps) => `bun add -d ${deps.join(" ")}`,
         installCommand: "bun install",
+        scriptCommand: (script) => `bun run ${script}`,
       };
 
     case "yarn":
@@ -127,6 +135,7 @@ export function detectPackageManager(): PackageManager {
         addDepsCommand: (deps) => `yarn add ${deps.join(" ")}`,
         addDevDepsCommand: (deps) => `yarn add -D ${deps.join(" ")}`,
         installCommand: "yarn install",
+        scriptCommand: (script) => `yarn ${script}`,
       };
 
     case "npm":
@@ -138,6 +147,7 @@ export function detectPackageManager(): PackageManager {
         addDepsCommand: (deps) => `npm install ${deps.join(" ")}`,
         addDevDepsCommand: (deps) => `npm install -D ${deps.join(" ")}`,
         installCommand: "npm install",
+        scriptCommand: (script) => `npm run ${script}`,
       };
   }
 }

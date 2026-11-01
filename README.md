@@ -656,6 +656,19 @@ npx next-vite-router create
 
 The CLI creates a Vite React project, installs the package and
 `react-router-dom@^7.0.0`, configures the plugin, and adds an example route tree.
+That starter is deliberately self-contained: its pages are styled by plain CSS
+from `globals.css`, so they read the same with and without Tailwind, its colors
+follow the reader's `prefers-color-scheme` preference, and its mark is inline SVG
+rather than a file the scaffold would have to keep. It also writes the project's
+own `README.md` — the commands of the package manager it detected, the file
+conventions, and what `routes.d.ts` is — and ends on the two lines that start the
+work:
+
+```bash
+cd my-app
+pnpm dev
+```
+
 It is published as part of `next-vite-router`; `create-next-vite-router` is its
 executable name, not a separate npm package.
 
@@ -669,8 +682,8 @@ npx next-vite-router configure --dir ../my-app --no-src --yes
 `configure` adds the plugin and the `@` alias to `vite.config.ts`, writes the
 `@` paths and `include` into `tsconfig.json` / `tsconfig.app.json`, points
 `index.html` at the generated entry, and creates `main.tsx`, `globals.css`, the
-`app/` example tree, and the placeholder route declaration. It takes no input
-from a terminal, so it runs in CI:
+`app/` example tree, the placeholder route declaration, and a `README.md` when the
+project has none. It takes no input from a terminal, so it runs in CI:
 
 | Option | Effect |
 | --- | --- |
@@ -681,11 +694,12 @@ from a terminal, so it runs in CI:
 
 What it promises: it never deletes anything (template files it leaves behind are
 listed so you can remove them yourself), it refuses a directory without a Vite
-config, it refuses to replace an existing `main.tsx` without `--yes`, and it is
-idempotent — a second run reports that `vite.config` already calls
-`nextViteRouter` instead of adding a duplicate. Because those options are yours
-to keep, switching between `src/app` and a root-level `app/` after the first run
-means editing `pagesDir` by hand.
+config, it refuses to replace an existing `main.tsx` without `--yes`, it never
+replaces a `README.md`, a `globals.css`, or a page the project already has and
+names what it kept, and it is idempotent — a second run reports that
+`vite.config` already calls `nextViteRouter` instead of adding a duplicate.
+Because those options are yours to keep, switching between `src/app` and a
+root-level `app/` after the first run means editing `pagesDir` by hand.
 
 ## Advanced API
 

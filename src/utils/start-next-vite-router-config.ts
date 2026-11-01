@@ -10,17 +10,25 @@ import { createRoutesDeclaration } from "./create-routes-dts";
 import { createMainTSX } from "./create-main-tsx";
 import { createGlobalsCss } from "./create-globals-css";
 import { createExampleStructure } from "./create-example-structure";
+import { createReadme } from "./create-readme";
 import path from "path";
 import fs from "fs";
 import { addTailwindToViteConfig } from "./config-tailwind";
 import { execSync } from "child_process";
-import { detectPackageManager } from "./packageManager";
+import { detectPackageManager, type PackageManager } from "./packageManager";
 import { logger } from "./logger";
 
 type Props = {
   projectDir?: string;
   src: boolean;
   tailwindcss: boolean;
+  /**
+   * Package manager the commands shown to the user are written with. `create`
+   * already detected one to run the scaffold, and passes it down so the README it
+   * generates cannot name a manager the project was not built with. Detected here
+   * otherwise.
+   */
+  packageManager?: PackageManager;
   /**
    * Delete the Vite template files that the generated structure replaces.
    *
@@ -44,16 +52,30 @@ export const TEMPLATE_ENTRIES = [
   "assets",
 ];
 
+/**
+ * Template entries beside the project root. The Vite template writes a README of
+ * its own, and a scaffold replaces it; it is a list apart because `configure`
+ * must never delete, and therefore never mention, a project's own README.
+ */
+const ROOT_TEMPLATE_ENTRIES = ["README.md"];
+
 export function startNextViteRouterConfig({
   projectDir = process.cwd(),
   src,
   tailwindcss,
+  packageManager = detectPackageManager(),
   removeTemplateFiles = true,
-}: Props): { pluginAdded: boolean } {
+}: Props): { pluginAdded: boolean; keptFiles: string[] } {
   const pluginAdded = startViteConfig(projectDir, src);
 
   const srcPath = path.join(projectDir, "src");
   if (removeTemplateFiles) {
+    for (const entry of ROOT_TEMPLATE_ENTRIES) {
+      const entryPath = path.join(projectDir, entry);
+      if (fs.existsSync(entryPath)) {
+        fs.rmSync(entryPath, { recursive: true, force: true });
+      }
+    }
     if (src) {
       for (const entry of TEMPLATE_ENTRIES) {
         const entryPath = path.join(srcPath, entry);
@@ -73,18 +95,30 @@ export function startNextViteRouterConfig({
   updateIndexHtml(projectDir, src);
   if (tailwindcss) {
     logger.info("Setting up Tailwind CSS...");
-    const pm = detectPackageManager();
-    const addDevDepsCmd = pm.addDevDepsCommand([
+    const addDevDepsCmd = packageManager.addDevDepsCommand([
       "tailwindcss",
       "@tailwindcss/vite",
     ]);
     execSync(addDevDepsCmd, { stdio: "inherit", cwd: projectDir });
     addTailwindToViteConfig(projectDir);
   }
-  createGlobalsCss({ projectDir, src, tailwind: tailwindcss });
-  createExampleStructure(projectDir, src, tailwindcss);
 
-  return { pluginAdded };
+  // The stylesheet, the starter pages, and the README are the files an existing
+  // project may already own, so each is written only where nothing is. What was
+  // kept is collected so `configure` can name it instead of leaving the reader to
+  // guess whether their README survived.
+  const keptFiles = [
+    ...createGlobalsCss({ projectDir, src, tailwind: tailwindcss }),
+    ...createExampleStructure(projectDir, src, tailwindcss),
+    ...createReadme({
+      projectDir,
+      src,
+      tailwind: tailwindcss,
+      packageManager,
+    }),
+  ];
+
+  return { pluginAdded, keptFiles };
 }
 
 /**

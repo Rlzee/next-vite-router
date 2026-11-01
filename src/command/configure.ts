@@ -62,7 +62,7 @@ export const configure = new Command()
     }
 
     logger.info(`Configuring next-vite-router in "${projectDir}"...`);
-    const { pluginAdded } = startNextViteRouterConfig({
+    const { pluginAdded, keptFiles } = startNextViteRouterConfig({
       projectDir,
       src: options.src,
       // Only requested explicitly, because it is the one step that installs.
@@ -85,6 +85,15 @@ export const configure = new Command()
     if (leftovers.length > 0) {
       logger.info(
         `Nothing was deleted. These template files are no longer imported and can be removed: ${leftovers.join(", ")}.`,
+      );
+    }
+
+    // A README, a stylesheet, or a page the project already had was written by
+    // somebody else, so it was kept whole: naming them is the difference between
+    // "nothing happened" and "your work is still there".
+    if (keptFiles.length > 0) {
+      logger.info(
+        `Already there, so left exactly as it was: ${keptFiles.join(", ")}.`,
       );
     }
 
