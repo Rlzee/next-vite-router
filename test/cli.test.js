@@ -408,3 +408,95 @@ test("configure does not replace a README, a stylesheet, or a page that exists",
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+// ---------------------------------------------------------------------------
+// The tsconfig half of `configure` parses JSON that carries comments, and a
+// comment marker inside a string is not a comment. `"@/*"` followed later by
+// `"src/**/*.ts"` used to read as one block comment whose body was the project's
+// own settings, and a `"$schema"` URL ended its line - so the parse died on
+// documents most real projects contain, and the project's config was destroyed on
+// the way out.
+// ---------------------------------------------------------------------------
+
+/** A tsconfig of the kind a template ships: comments, an alias, globs, `$schema`. */
+const COMMENTED_TS_CONFIG = `{
+  // Comment above the first property.
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@components/*": ["./src/components/*"],
+    },
+    "types": ["vite/client"] /* a comment after a value */
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["node_modules"],
+}
+`;
+
+function makeCommentedTsConfigs(project) {
+  fs.writeFileSync(path.join(project, "tsconfig.json"), COMMENTED_TS_CONFIG, "utf8");
+  fs.writeFileSync(path.join(project, "tsconfig.app.json"), COMMENTED_TS_CONFIG, "utf8");
+  return project;
+}
+
+test("configure reads a tsconfig whose strings look like comments", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nvr-cli-tsconfig-"));
+  const project = makeCommentedTsConfigs(makeViteProject(path.join(root, "project")));
+  try {
+    const { code, stdout } = runCli(["configure", "--yes", "--dir", project]);
+    assert.equal(code, 0, `configure exited with ${code}:\n${stdout}`);
+
+    // The alias and the glob coexist, so the document survives the round trip.
+    const tsConfig = JSON.parse(read(path.join(project, "tsconfig.json")));
+    assert.equal(tsConfig.$schema, "https://json.schemastore.org/tsconfig");
+    assert.deepEqual(tsConfig.compilerOptions.paths, { "@/*": ["./src/*"] });
+    assert.deepEqual(tsConfig.compilerOptions.types, ["vite/client"]);
+    assert.deepEqual(tsConfig.exclude, ["node_modules"]);
+
+    // The app config is merged instead of replaced, so the aliases the project
+    // wrote by hand are still there beside the one the router needs.
+    const appConfig = JSON.parse(read(path.join(project, "tsconfig.app.json")));
+    assert.equal(appConfig.$schema, "https://json.schemastore.org/tsconfig");
+    assert.equal(appConfig.compilerOptions.jsx, "react-jsx");
+    assert.deepEqual(appConfig.compilerOptions.paths["@/*"], ["./src/*"]);
+    assert.deepEqual(appConfig.compilerOptions.paths["@components/*"], [
+      "./src/components/*",
+    ]);
+    assert.deepEqual(appConfig.include, ["src"]);
+
+    // The settings nobody asked about survive the rewrite: only the alias block
+    // and the include list are the router's to decide.
+    assert.match(read(path.join(project, "tsconfig.json")), /"jsx": "react-jsx"/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("configure can run again on the config it wrote for a root-level app folder", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nvr-cli-rerun-"));
+  const project = makeViteProject(path.join(root, "project"));
+  try {
+    const first = runCli(["configure", "--no-src", "--yes", "--dir", project]);
+    assert.equal(first.code, 0, `the first run exited with ${first.code}:\n${first.stdout}`);
+
+    const appPath = path.join(project, "tsconfig.app.json");
+    const afterFirst = JSON.parse(read(appPath));
+    // The shape that used to be unreadable: an alias in front of a glob.
+    assert.deepEqual(afterFirst.compilerOptions.paths["@/*"], ["./*"]);
+    assert.ok(afterFirst.include.includes("./**/*.ts"), `${read(appPath)}`);
+
+    // A project configured by `create` is re-run with `configure`, and the file
+    // being read is the one the previous run wrote.
+    const second = runCli(["configure", "--no-src", "--yes", "--dir", project]);
+    assert.equal(
+      second.code,
+      0,
+      `the second run died on the config the first one wrote:\n${second.stdout}`,
+    );
+    assert.deepEqual(JSON.parse(read(appPath)), afterFirst);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
