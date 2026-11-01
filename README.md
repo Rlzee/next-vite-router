@@ -672,6 +672,10 @@ pnpm dev
 It is published as part of `next-vite-router`; `create-next-vite-router` is its
 executable name, not a separate npm package.
 
+The questions need a terminal. Piped input cannot answer a template menu, so
+without one `create` stops before that menu, says so, and points at `configure`
+below rather than ending on an exit code nobody explains.
+
 To wire up a project that already exists:
 
 ```bash
@@ -700,6 +704,13 @@ names what it kept, and it is idempotent — a second run reports that
 `vite.config` already calls `nextViteRouter` instead of adding a duplicate.
 Because those options are yours to keep, switching between `src/app` and a
 root-level `app/` after the first run means editing `pagesDir` by hand.
+
+On the two tsconfig files, it merges instead of assigning: the project's own `paths`
+entries survive beside the `@/*` alias, and `include` keeps every entry it did not
+write - only the other layout's are dropped, since `src` and `./**/*.ts` already
+cover each other. What does not survive is the decoration. Both files are read as
+JSON and written back as JSON, so their comments, blank lines, and indentation
+become two-space formatting.
 
 ## Advanced API
 

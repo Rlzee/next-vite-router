@@ -119,6 +119,31 @@ test("create refuses an existing directory and leaves its files alone", () => {
   }
 });
 
+// The two guards above answer the name prompt, which a pipe can carry. The menu
+// after them is a different matter: a `select` never resolves once stdin is not a
+// terminal, so a piped `create` used to end at Node's "unsettled top-level await" -
+// exit code 13, and not one sentence about the menu it could not show.
+test("create stops before the template menu when it has no terminal to answer it", () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "nvr-cli-tty-"));
+  try {
+    // A valid name that does not exist yet, so both pre-flight guards pass and the
+    // run reaches the point a pipe cannot get past.
+    const { code, stdout } = runCli(["create"], { cwd, input: "piped-app\n" });
+
+    assert.equal(
+      code,
+      1,
+      `a run with no terminal should say so instead of dying quietly:\n${stdout}`,
+    );
+    assert.match(stdout, /needs an interactive terminal/);
+    assert.match(stdout, /configure --dir piped-app --yes/);
+    // It stopped before any package manager ran, so nothing was created.
+    assert.deepEqual(fs.readdirSync(cwd), []);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // `configure`: the file-rewriting half of the CLI, reachable without create-vite,
 // an install, or a TTY. The project below stands in for what
@@ -451,7 +476,12 @@ test("configure reads a tsconfig whose strings look like comments", () => {
     // The alias and the glob coexist, so the document survives the round trip.
     const tsConfig = JSON.parse(read(path.join(project, "tsconfig.json")));
     assert.equal(tsConfig.$schema, "https://json.schemastore.org/tsconfig");
-    assert.deepEqual(tsConfig.compilerOptions.paths, { "@/*": ["./src/*"] });
+    // Both files merge, and the root config is no longer the one that loses the
+    // aliases it was written with.
+    assert.deepEqual(tsConfig.compilerOptions.paths, {
+      "@/*": ["./src/*"],
+      "@components/*": ["./src/components/*"],
+    });
     assert.deepEqual(tsConfig.compilerOptions.types, ["vite/client"]);
     assert.deepEqual(tsConfig.exclude, ["node_modules"]);
 
@@ -464,7 +494,10 @@ test("configure reads a tsconfig whose strings look like comments", () => {
     assert.deepEqual(appConfig.compilerOptions.paths["@components/*"], [
       "./src/components/*",
     ]);
-    assert.deepEqual(appConfig.include, ["src"]);
+    // The project's own globs are not vocabulary this package writes, so they stay
+    // beside the entry the layout needs - redundant, and none of the router's
+    // business to prune.
+    assert.deepEqual(appConfig.include, ["src", "src/**/*.ts", "src/**/*.tsx"]);
 
     // The settings nobody asked about survive the rewrite: only the alias block
     // and the include list are the router's to decide.
@@ -496,6 +529,131 @@ test("configure can run again on the config it wrote for a root-level app folder
       `the second run died on the config the first one wrote:\n${second.stdout}`,
     );
     assert.deepEqual(JSON.parse(read(appPath)), afterFirst);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// What `configure` may decide about the compiler settings of a project that was
+// configured for other reasons first. Both writers merge here, because an
+// assignment deletes the aliases the application imports and the folders it already
+// compiled - and neither shows up in the CLI's output, only in the editor and in
+// the build.
+// ---------------------------------------------------------------------------
+
+function writeAppTsConfig(project, config) {
+  fs.writeFileSync(
+    path.join(project, "tsconfig.app.json"),
+    JSON.stringify(config, null, 2),
+    "utf8",
+  );
+  return path.join(project, "tsconfig.app.json");
+}
+
+test("configure keeps the aliases and the include entries the project wrote", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nvr-cli-merge-"));
+  const project = makeViteProject(path.join(root, "project"));
+  const appPath = writeAppTsConfig(project, {
+    compilerOptions: {
+      jsx: "react-jsx",
+      paths: { "@lib/*": ["./src/lib/*"], "@config": ["./src/config.ts"] },
+    },
+    include: ["src", "shared/**/*.ts", "types/**/*.d.ts"],
+    exclude: ["node_modules", "dist"],
+  });
+  try {
+    const { code, stdout } = runCli(["configure", "--yes", "--dir", project]);
+    assert.equal(code, 0, `configure exited with ${code}:\n${stdout}`);
+
+    const config = JSON.parse(read(appPath));
+    // The project's map, then the one alias the router needs.
+    assert.deepEqual(config.compilerOptions.paths, {
+      "@lib/*": ["./src/lib/*"],
+      "@config": ["./src/config.ts"],
+      "@/*": ["./src/*"],
+    });
+    // Its own entries lead the list and the rest keeps its order.
+    assert.deepEqual(config.include, ["src", "shared/**/*.ts", "types/**/*.d.ts"]);
+    assert.deepEqual(config.exclude, ["node_modules", "dist"]);
+    assert.equal(config.compilerOptions.jsx, "react-jsx");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("switching layout drops the other layout's entries instead of stacking them", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nvr-cli-switch-"));
+  const project = makeViteProject(path.join(root, "project"));
+  const appPath = writeAppTsConfig(project, {
+    compilerOptions: { paths: {} },
+    include: ["src", "shared/**/*.ts"],
+  });
+  try {
+    const noSrc = runCli(["configure", "--no-src", "--yes", "--dir", project]);
+    assert.equal(noSrc.code, 0, `--no-src exited with ${noSrc.code}:\n${noSrc.stdout}`);
+    // The `src` entry is the other layout's, and the root-level globs already
+    // reach that folder, so it is replaced rather than kept beside them.
+    assert.deepEqual(JSON.parse(read(appPath)).include, [
+      "./**/*.ts",
+      "./**/*.tsx",
+      "routes.d.ts",
+      "shared/**/*.ts",
+    ]);
+
+    const withSrc = runCli(["configure", "--yes", "--dir", project]);
+    assert.equal(withSrc.code, 0, `the second layout exited with ${withSrc.code}:\n${withSrc.stdout}`);
+
+    const config = JSON.parse(read(appPath));
+    // Back the other way, and nothing of the first run is left to accumulate.
+    assert.deepEqual(config.include, ["src", "shared/**/*.ts"]);
+    assert.deepEqual(config.compilerOptions.paths["@/*"], ["./src/*"]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a run with nothing left to add does not rewrite the tsconfig it read", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nvr-cli-untouched-"));
+  const project = makeViteProject(path.join(root, "project"));
+  runCli(["configure", "--yes", "--dir", project]);
+  const appPath = path.join(project, "tsconfig.app.json");
+  try {
+    // A timestamp from the past, so any rewrite at all shows up in the stat.
+    const past = new Date(Date.UTC(2020, 0, 1));
+    fs.utimesSync(appPath, past, past);
+
+    const { code, stdout } = runCli(["configure", "--yes", "--dir", project]);
+    assert.equal(code, 0, `configure exited with ${code}:\n${stdout}`);
+
+    assert.equal(
+      fs.statSync(appPath).mtime.toISOString(),
+      past.toISOString(),
+      "the second run rewrote a file whose merge changed nothing",
+    );
+    assert.deepEqual(JSON.parse(read(appPath)).include, ["src"]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a config whose include is not a list is replaced, not merged", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nvr-cli-shapes-"));
+  const project = makeViteProject(path.join(root, "project"));
+  const appPath = writeAppTsConfig(project, {
+    compilerOptions: { paths: ["@lib/*"] },
+    include: "src",
+  });
+  try {
+    const { code, stdout } = runCli(["configure", "--yes", "--dir", project]);
+    assert.equal(code, 0, `configure exited with ${code}:\n${stdout}`);
+
+    // Neither shape is something TypeScript itself accepts, so there is no project
+    // intent to preserve in it: the router's own shape wins, and the run still
+    // leaves a file the project can read.
+    const config = JSON.parse(read(appPath));
+    assert.deepEqual(config.include, ["src"]);
+    assert.deepEqual(config.compilerOptions.paths, { "@/*": ["./src/*"] });
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

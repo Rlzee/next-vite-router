@@ -46,6 +46,21 @@ export const create = new Command()
       return;
     }
 
+    // A pipe can carry a typed answer, which is why the name and the directory
+    // above are checkable without a terminal. A template menu cannot: a `select`
+    // prompt never resolves once stdin is not a terminal, so the process would end
+    // at Node's "unsettled top-level await" - exit code 13, and not one word of
+    // explanation. Said here instead, with the command that needs no terminal.
+    if (!process.stdin.isTTY) {
+      logger.error(
+        "Selecting a template needs an interactive terminal, and this input is not one.\n" +
+        `Scaffold the project yourself and wire it without prompts: "next-vite-router configure --dir ${projectName} --yes".\n` +
+        "Or run this command again from a terminal.",
+      );
+      process.exitCode = 1;
+      return;
+    }
+
     const variantResponse = await prompts(
       {
         type: "select",
@@ -125,15 +140,10 @@ export const create = new Command()
       projectDir: `./${projectName}`,
       src: useSrc,
       tailwindcss: useTailwind,
-      // The manager that scaffolded the project, so the generated README and the
-      // two lines below quote the commands that actually work here.
       packageManager: pm,
     });
 
     logger.success(`\nProject "${projectName}" is ready!`);
-    // The two lines that start the work, spelled the way this package manager
-    // wants them. Everything else the reader needs is in the README the scaffold
-    // just wrote.
     logger.log("");
     logger.log(`  cd ${projectName}`);
     logger.log(`  ${pm.scriptCommand("dev")}`);

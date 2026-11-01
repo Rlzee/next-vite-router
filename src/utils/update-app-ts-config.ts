@@ -1,7 +1,11 @@
 import path from "path";
 import fs from "fs";
 import { stripJsonComments } from "./strip-json-comments";
-import { ROUTE_DECLARATION_FILE_NAME } from "./route-declaration";
+import {
+  withRouterAlias,
+  withRouterInclude,
+  type TsConfigDocument,
+} from "./tsconfig-merge";
 
 /**
  * Update tsconfig.app.json
@@ -12,31 +16,17 @@ export function updateAppTsConfig(projectDir: string, src: boolean) {
 
   const content = fs.readFileSync(tsConfigAppPath, "utf-8");
   const cleanedContent = stripJsonComments(content);
-  const tsConfigApp = JSON.parse(cleanedContent);
+  const tsConfigApp = JSON.parse(cleanedContent) as TsConfigDocument;
 
-  // Ensure compilerOptions contains the path aliases
-  const aliasPath = src ? "./src/*" : "./*";
-  tsConfigApp.compilerOptions = {
-    ...tsConfigApp.compilerOptions,
-    paths: {
-      ...tsConfigApp.compilerOptions?.paths,
-      "@/*": [aliasPath],
-    },
-  };
+  // Two merges rather than two assignments: this file belongs to an application
+  // that may already compile other folders and resolve other aliases, and the
+  // router's job is to add what it needs, not to decide what the project reads.
+  withRouterAlias(tsConfigApp, src);
+  withRouterInclude(tsConfigApp, src);
 
-  if (!src) {
-    tsConfigApp.include = [
-      "./**/*.ts",
-      "./**/*.tsx",
-      ROUTE_DECLARATION_FILE_NAME,
-    ];
-  } else {
-    tsConfigApp.include = ["src"];
-  }
+  // A run that changed nothing leaves the file untouched, timestamp included.
+  const next = JSON.stringify(tsConfigApp, null, 2);
+  if (next === content) return;
 
-  fs.writeFileSync(
-    tsConfigAppPath,
-    JSON.stringify(tsConfigApp, null, 2),
-    "utf-8"
-  );
+  fs.writeFileSync(tsConfigAppPath, next, "utf-8");
 }
