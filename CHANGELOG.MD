@@ -2,12 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
-## [Unreleased]
+## [4.0.0] - 2026-11-02
 
-Breaking, and therefore slated for **4.0.0** rather than a 3.x patch: the removed
-exports below were all published, the generated declaration changes file name, and
-URL matching changes its default case. Nothing here is released yet, so the
-section is kept until the batch is worth the major.
+Breaking, and therefore a major rather than a 3.x patch: the removed exports
+below were all published, the generated declaration changes file name, and URL
+matching changes its default case.
 
 ### Removed (breaking)
 
