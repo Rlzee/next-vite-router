@@ -33,16 +33,16 @@ type Props = {
    * Delete the Vite template files that the generated structure replaces.
    *
    * Defaults to `true`, which is what a scaffold wants: the template files are
-   * about to be replaced by equivalent ones. `configure` runs against a project
-   * that may hold real work, so it turns the deletion off and reports what is
-   * left instead of removing it.
+   * about to be replaced by equivalent ones. A caller wiring up a project that
+   * may hold real work turns the deletion off and reports what is left instead of
+   * removing it.
    */
   removeTemplateFiles?: boolean;
 };
 
 /**
  * The Vite React template entries the generated structure supersedes. Kept in
- * one place because `configure` has to name them when it leaves them behind.
+ * one place because a caller that leaves them behind has to name them.
  */
 export const TEMPLATE_ENTRIES = [
   "App.tsx",
@@ -54,8 +54,9 @@ export const TEMPLATE_ENTRIES = [
 
 /**
  * Template entries beside the project root. The Vite template writes a README of
- * its own, and a scaffold replaces it; it is a list apart because `configure`
- * must never delete, and therefore never mention, a project's own README.
+ * its own, and a scaffold replaces it; it is a list apart because a document the
+ * project may have authored is not something a caller that never deletes should
+ * ever mention.
  */
 const ROOT_TEMPLATE_ENTRIES = ["README.md"];
 
@@ -105,7 +106,7 @@ export function startNextViteRouterConfig({
 
   // The stylesheet, the starter pages, and the README are the files an existing
   // project may already own, so each is written only where nothing is. What was
-  // kept is collected so `configure` can name it instead of leaving the reader to
+  // kept is collected so the caller can name it instead of leaving the reader to
   // guess whether their README survived.
   const keptFiles = [
     ...createGlobalsCss({ projectDir, src, tailwind: tailwindcss }),
@@ -126,7 +127,7 @@ export function startNextViteRouterConfig({
  *
  * Every change is applied only when it is missing, so running this on a project
  * that is already wired leaves one plugin call instead of appending a second
- * one. Returns whether this call added the plugin, which is what `configure`
+ * one. Returns whether this call added the plugin, which is what the caller
  * reports back.
  */
 export function startViteConfig(projectDir: string, src: boolean): boolean {
@@ -182,7 +183,7 @@ export function startViteConfig(projectDir: string, src: boolean): boolean {
   // import statement, and a hand-written config may already call the plugin with
   // its own options. Those options are the user's, so they are left alone rather
   // than overwritten - which also means switching between the src and the
-  // no-src layout has to be done by hand, and `configure` says so.
+  // no-src layout has to be done by hand, and the caller says so.
   const alreadyWired = /nextViteRouter\s*\(/.test(viteConfigContent);
 
   if (!alreadyWired) {

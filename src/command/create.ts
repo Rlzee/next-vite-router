@@ -50,12 +50,11 @@ export const create = new Command()
     // above are checkable without a terminal. A template menu cannot: a `select`
     // prompt never resolves once stdin is not a terminal, so the process would end
     // at Node's "unsettled top-level await" - exit code 13, and not one word of
-    // explanation. Said here instead, with the command that needs no terminal.
+    // explanation. Said here instead, before that prompt is ever reached.
     if (!process.stdin.isTTY) {
       logger.error(
         "Selecting a template needs an interactive terminal, and this input is not one.\n" +
-        `Scaffold the project yourself and wire it without prompts: "next-vite-router configure --dir ${projectName} --yes".\n` +
-        "Or run this command again from a terminal.",
+        "Run this command again from a terminal, or wire the plugin into a project you scaffolded yourself - the setup steps are in the README.",
       );
       process.exitCode = 1;
       return;

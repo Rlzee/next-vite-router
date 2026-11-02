@@ -16,7 +16,7 @@ export function updateTsConfigJson(projectDir: string, src: boolean) {
   const tsConfig = JSON.parse(cleanedContent) as TsConfigDocument;
 
   // The project's own aliases stay. This file exists for reasons that are not the
-  // router's, and `configure` is a guest in it.
+  // router's, and the router is a guest in it.
   withRouterAlias(tsConfig, src);
 
   // Written again only when the merge changed something, so a second run leaves

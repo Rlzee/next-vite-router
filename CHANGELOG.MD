@@ -92,12 +92,6 @@ section is kept until the batch is worth the major.
   with both fixes instead of rewritten. `react-router` `>=6 <8` joins the peers,
   and both router peers are `optional` in `peerDependenciesMeta` because npm has no
   way to declare an either/or peer.
-- **`next-vite-router configure`** wires the package into a Vite project that
-  already exists: `--dir <path>`, `--no-src` for a root-level `app/` folder,
-  `--tailwind`, and `--yes` to accept that an existing `main.tsx` is replaced. It
-  rewrites `vite.config.ts`, the tsconfigs and `index.html` in place, is safe to
-  run twice, and reports leftover template files instead of deleting anything the
-  project authored.
 - **`loading.tsx` and `error.tsx`** per folder, matching the Next.js conventions.
   `loading.tsx` is the folder's placeholder: pages arrive through `React.lazy`, so
   while one loads the placeholder paints inside the layout's `Outlet`, a nested
@@ -245,7 +239,7 @@ section is kept until the batch is worth the major.
 - Declaration authorship: a marked legacy copy is removed, a foreign one survives,
   and an application-owned `routes.d.ts` is refused with exactly one warning.
 - The catch-all base fallback, the guard index route shape, the new collision rule,
-  the `configure` command, and the `create` guards.
+  and the `create` guards.
 - Case variants of every emitted route: the `caseSensitive: true` stamp on each
   path-bearing route and its absence on index routes, mixed-case misses against an
   exact-case match, `caseSensitive: false` restoring React Router's behavior at
@@ -291,13 +285,13 @@ section is kept until the batch is worth the major.
 ### Documentation
 
 - README: the two supported router installs and what happens on a shim-free one;
-  the `layoutShape` table with the misdeclaration nothing can catch;
-  `next-vite-router configure` and its flags; where `routes.d.ts` is written, why it
-  stays ignored, and the authorship marker; how catch-all folders and `not-found`
-  answer a base path; folders that hold no page; a `Case sensitivity` section with
-  the plugin and generator switches; and a `Loading and error boundaries` section
-  covering the two conventions, the `layout > error > loading` order and what it
-  does not catch, and the eager-import rationale.
+  the `layoutShape` table with the misdeclaration nothing can catch; where
+  `routes.d.ts` is written, why it stays ignored, and the authorship marker; how
+  catch-all folders and `not-found` answer a base path; folders that hold no page;
+  a `Case sensitivity` section with the plugin and generator switches; and a
+  `Loading and error boundaries` section covering the two conventions, the
+  `layout > error > loading` order and what it does not catch, and the
+  eager-import rationale.
 - README: the `Not-found routes` section now documents the built-in default 404 page
   (rendered eagerly, the bottom of the fallback chain, not exported, replaced by any
   `not-found.tsx`), that it also answers a fully unmatched URL through an appended

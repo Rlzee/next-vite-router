@@ -49,8 +49,9 @@ function readmeContent({
       "name works in a page. The starter pages use plain CSS classes from the same\n" +
       "file, so they keep their look even if that import moves."
     : "The starter stylesheet is plain CSS, and its colors follow the reader's\n" +
-      "`prefers-color-scheme` preference. To add Tailwind later:\n" +
-      "`npx next-vite-router configure --tailwind`.";
+      "`prefers-color-scheme` preference. To add Tailwind later, install\n" +
+      "`@tailwindcss/vite`, add it to the plugins in `vite.config.ts`, and import\n" +
+      "`tailwindcss` at the top of the stylesheet.";
 
   return `# ${projectName}
 
@@ -108,8 +109,8 @@ Plugin options, the full convention list, and the API: [${docsUrl}](${docsUrl}).
  *
  * Returns the path when the project already had one and it was left alone. The
  * Vite template ships a README of its own, so `create` deletes that template file
- * first (see `startNextViteRouterConfig`) and this writes into the free slot,
- * while `configure` on a real project keeps whatever the project wrote.
+ * first (see `startNextViteRouterConfig`) and this writes into the free slot; on a
+ * project that already has a README, whatever its author wrote is kept.
  */
 export function createReadme({
   projectDir,

@@ -127,7 +127,7 @@ const examplePageContent = (pages: string) => `export default function ExamplePa
  * Create the example route tree.
  *
  * Returns the project-relative paths it found already written and left alone: a
- * project `configure` touches may already have its own `app/page.tsx`, and that is
+ * project that already has its own `app/page.tsx` keeps it, because that page is
  * its work, not a placeholder to replace.
  */
 export function createExampleStructure(

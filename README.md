@@ -673,44 +673,16 @@ It is published as part of `next-vite-router`; `create-next-vite-router` is its
 executable name, not a separate npm package.
 
 The questions need a terminal. Piped input cannot answer a template menu, so
-without one `create` stops before that menu, says so, and points at `configure`
-below rather than ending on an exit code nobody explains.
+without one `create` stops before that menu and says so, rather than ending on an
+exit code nobody explains. To wire the plugin into a project that already exists,
+set it up by hand instead: [Quick start](#quick-start) is the whole setup.
 
-To wire up a project that already exists:
-
-```bash
-npx next-vite-router configure            # in the project directory
-npx next-vite-router configure --dir ../my-app --no-src --yes
-```
-
-`configure` adds the plugin and the `@` alias to `vite.config.ts`, writes the
-`@` paths and `include` into `tsconfig.json` / `tsconfig.app.json`, points
-`index.html` at the generated entry, and creates `main.tsx`, `globals.css`, the
-`app/` example tree, the placeholder route declaration, and a `README.md` when the
-project has none. It takes no input from a terminal, so it runs in CI:
-
-| Option | Effect |
-| --- | --- |
-| `--dir <path>` | Project directory to configure (default: the current directory) |
-| `--no-src` | Pages live in a root-level `app/` folder; implies `pagesDir: "app"` |
-| `--tailwind` | Installs and wires `@tailwindcss/vite` — the only step that runs your package manager |
-| `--yes` | Accepts that an existing `main.tsx` is replaced |
-
-What it promises: it never deletes anything (template files it leaves behind are
-listed so you can remove them yourself), it refuses a directory without a Vite
-config, it refuses to replace an existing `main.tsx` without `--yes`, it never
-replaces a `README.md`, a `globals.css`, or a page the project already has and
-names what it kept, and it is idempotent — a second run reports that
-`vite.config` already calls `nextViteRouter` instead of adding a duplicate.
-Because those options are yours to keep, switching between `src/app` and a
-root-level `app/` after the first run means editing `pagesDir` by hand.
-
-On the two tsconfig files, it merges instead of assigning: the project's own `paths`
-entries survive beside the `@/*` alias, and `include` keeps every entry it did not
-write - only the other layout's are dropped, since `src` and `./**/*.ts` already
-cover each other. What does not survive is the decoration. Both files are read as
-JSON and written back as JSON, so their comments, blank lines, and indentation
-become two-space formatting.
+On the two tsconfig files, `create` merges instead of assigning: the project's
+own `paths` entries survive beside the `@/*` alias, and `include` keeps every
+entry it did not write - only the other layout's are dropped, since `src` and
+`./**/*.ts` already cover each other. What does not survive is the decoration.
+Both files are read as JSON and written back as JSON, so their comments, blank
+lines, and indentation become two-space formatting.
 
 ## Advanced API
 

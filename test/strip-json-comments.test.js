@@ -62,8 +62,9 @@ function parse(strippedOf) {
 }
 
 describe("stripJsonComments: strings that look like comments", () => {
-  // The shape `configure --no-src` leaves behind, and the one a hand-written
-  // alias carries: the `/*` of an alias and the `*/` of a glob are not a pair.
+  // The shape a root-level `app/` layout leaves behind, and the one a
+  // hand-written alias carries: the `/*` of an alias and the `*/` of a glob are
+  // not a pair.
   test("keeps an alias whose slash-star is followed by a glob's star-slash", () => {
     const document = `{
   "compilerOptions": {
@@ -173,7 +174,7 @@ describe("stripJsonComments: real comments and trailing commas", () => {
 
   test("parses the tsconfig of a project that has all of it at once", () => {
     // `$schema`, a real comment, an alias, a glob, and a trailing comma in the
-    // same document - the file `configure` is expected to read without dying.
+    // same document - the file the CLI setup is expected to read without dying.
     const document = `{
   "$schema": "https://json.schemastore.org/tsconfig",
   // Built by the framework, edited by nobody.

@@ -5,7 +5,7 @@ import path from "path";
  * Write a generated file only where the project does not already own one.
  *
  * `create` scaffolds a directory it just made, so every path is free and this
- * always writes. `configure` runs inside a project that may hold real work, and a
+ * always writes. Run it inside a project that may hold real work, though, and a
  * document it replaces is work lost - the README, the starter pages, and the
  * stylesheet therefore go in only where nothing exists yet. Returns `false` when
  * an existing file was left untouched, which is what the caller reports.
