@@ -56,8 +56,10 @@
     "test:cli": "node --test test/cli.test.js",
     "test:compatibility": "node test/test-compatibility.js",
     "test:browser": "node test/browser/prepare-cli.js && playwright test",
+    "test:bench": "node --expose-gc test/test-benchmarks.js",
+    "test:modules": "node test/test-modules.js",
     "preview": "pnpm pack --dry-run",
-    "prepublishOnly": "pnpm run build && pnpm run test",
+    "prepublishOnly": "pnpm run build && pnpm run test && pnpm run test:modules",
     "cli": "cd test && node ../dist/cli.cjs"
   },
   "keywords": [

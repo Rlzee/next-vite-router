@@ -41,6 +41,18 @@ jobs:
       - name: Run unit tests
         run: pnpm run test
 
+      # Scaling and packaging are different claims from behaviour, so they are not
+      # folded into `pnpm run test`, and they run on one Node leg rather than three:
+      # a benchmark on every runtime is three chances for a loaded runner to make a
+      # ratio look like a regression.
+      - name: Run route-generator benchmarks
+        if: matrix.node == '22'
+        run: pnpm run test:bench
+
+      - name: Check the installed ESM and CommonJS entry points
+        if: matrix.node == '22'
+        run: pnpm run test:modules
+
   vite-react-router:
     name: React ${{ matrix.react }} / Router ${{ matrix.router }} / Vite ${{ matrix.vite }} / ${{ matrix.package_type }}
     runs-on: ubuntu-latest
@@ -264,6 +276,14 @@ jobs:
         # are the platforms that job cannot cover.
         if: matrix.os != 'ubuntu-latest'
         run: pnpm run test
+
+      # The exports map, the `.js`/`.cjs` condition split and the peer lookup are
+      # answered from the file system, so this one runs on every platform: it is also
+      # the only step that links a peer per OS, which is where a Windows junction and
+      # a POSIX symlink stop behaving the same. Under 0.5 s, so the Linux leg pays it
+      # even though its unit tests were skipped above.
+      - name: Check the installed ESM and CommonJS entry points
+        run: pnpm run test:modules
 
       # `--with-deps` installs system libraries and is accepted on Linux only; the
       # other two platforms ship a self-contained browser build.

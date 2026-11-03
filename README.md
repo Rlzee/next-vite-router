@@ -876,6 +876,8 @@ pnpm run build
 pnpm run test            # full suite
 pnpm run test:compatibility
 pnpm run test:browser    # needs a browser: see below
+pnpm run test:bench      # scaling, declaration timing, rebuild memory
+pnpm run test:modules    # ESM and CommonJS as an installed app resolves them
 ```
 
 The route matrix lives in [`test/routes.test.js`](./test/routes.test.js) and
@@ -885,6 +887,24 @@ groups, nested `not-found.tsx` fallbacks, and catch-all pages under layouts.
 updates, and `test/test-compatibility.js` checks the supported dependency ranges,
 the generated production bootstrap, and that the compatibility matrix pins
 versions inside those ranges and really renders them.
+
+`pnpm run test:bench` times the generator against 100, 500 and 1 000-page trees, the
+declaration writer against the same sizes as a real pages directory, and the
+dev-server rebuild loop as heap growth over 120 cycles. It gates on **ratios, not
+budgets**: what one page costs at 1 000 pages must stay within four times what it
+costs at 100, because a superlinear walk shows up as a ratio while an absolute
+millisecond budget is a coin toss on shared hardware. The timings are printed either
+way. The nesting axis is measured exactly instead of statistically — a folder's
+children must be enumerated once, which is the contract a `2^depth` traversal
+regression broke — and `--expose-gc` makes the memory number a post-collection
+measurement rather than a guess.
+
+`pnpm run test:modules` installs the published `files` set into a throwaway project
+and runs two consumers inside it, so the conditional `exports` map, the `.js`/`.cjs`
+condition split, the `.d.cts` twins, the `bin` path, and the private engine entry are
+judged the way Node judges them — through `node_modules`, not by importing a path. A
+`files` list that stopped matching `exports` fails here rather than in somebody's
+install, which is why it also runs in `prepublishOnly`.
 
 Any matrix combination can be reproduced locally by building the fixture app the
 workflow uses against a packed tarball of this package:
