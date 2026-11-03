@@ -52,14 +52,17 @@ jobs:
         # so a blocking check on every dev-side advisory would be red by design and
         # train everyone to ignore it. The numbers stay in the log, and the two
         # blocking gates above cover what an install actually inherits.
+        #
+        # `|| true` rather than `continue-on-error`: `pnpm audit` exits 1 whenever it
+        # finds anything, so letting that status reach the runner would paint an error
+        # annotation on a job that passed - and an annotation people have learned to
+        # dismiss is worse than no annotation at all.
         if: always()
-        continue-on-error: true
-        run: pnpm audit
+        run: pnpm audit || true
 
-      - name: Lockfile is the one an install would honour
-        # A resolution dry run: no download, no link, about 0.2 s. It answers whether
-        # the committed lockfile still matches the manifests - which is what makes the
-        # audit above a statement about a real install rather than about
-        # `package.json`. The unit and operating-system jobs then install with
-        # `--frozen-lockfile`, so a mismatch cannot reach a green run either way.
-        run: pnpm install --frozen-lockfile --lockfile-only --dry-run
+      # No lockfile-consistency step here: a fresh `pnpm audit` run on a clean runner
+      # is only ever as honest as the lockfile it reads, and that is already the first
+      # thing `pnpm install --frozen-lockfile` proves in `unit-tests` (three Node
+      # legs) and in `operating-systems` (Windows, macOS). Re-checking it with a
+      # resolution-only dry run would add a step whose flag combination no other job
+      # uses - and which failed on CI while passing on every local machine.
