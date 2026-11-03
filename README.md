@@ -237,9 +237,9 @@ there is no API to render or configure it — you replace it by adding a
 `not-found.tsx`, not by importing it.
 
 One consequence to know: because every URL now matches a route, `matchRoutes()`
-never returns `null` for an unknown path — it returns the root `*` match. An SSR
-server that wants to send an HTTP 404 status should test whether the matched leaf
-is that splat (its `route.path === "*"`) rather than relying on a `null` result.
+never returns `null` for an unknown path. An SSR server that picks its status
+from that `null` has to change — see
+[HTTP status for an unmatched URL](#http-status-for-an-unmatched-url-ssr-servers).
 
 ### Folders without a page are 404s
 
@@ -261,6 +261,68 @@ the first URL-bearing folder around them.
 With no `not-found.tsx` anywhere the guard falls back to the built-in 404 page
 described above, so a page-less base paints that instead of an empty content
 area. This is the same fallback the required catch-all base uses.
+
+### HTTP status for an unmatched URL (SSR servers)
+
+Because a root `*` route now answers every URL that reaches no page,
+`matchRoutes()` no longer returns `null` for an unknown path. An SSR entry that
+chose its status code from that `null` now serves `200` for a URL it used to
+answer `404`:
+
+```ts
+// Written for 3.x: since 4.0.0 `matches` is never `null`, so this branch is dead
+// code and the request falls through with a 200.
+const matches = matchRoutes(routes, url);
+if (!matches) return new Response("Not Found", { status: 404 });
+```
+
+Read the signal from the matched leaf. The catch is that `path: "*"` is not
+reserved for not-founds: a `[...slug]` page lives on a `*` route of its own, one
+level below its folder, so the test has to ask whether the splat is **the root's**
+— the one the converter appends — and not a folder's:
+
+```ts
+import { matchRoutes, type RouteObject } from "react-router-dom";
+// On a v7 app with no `react-router-dom` installed, both come from `react-router`.
+
+/**
+ * `true` when the URL is answered by the root's 404 route instead of by a page.
+ * A `[...slug]` folder's page also sits on a `*`, but under that folder, and
+ * must keep its 200.
+ */
+function isUnmatched(routes: RouteObject[], url: string): boolean {
+  const matches = matchRoutes(routes, url);
+  if (!matches) return true;
+  if (matches.at(-1)?.route.path !== "*") return false;
+
+  const parent = matches.at(-2);
+  // The appended splat is a top-level route, a child of the root layout route
+  // (`"/"`), or behind a pathless boundary or group — never below a folder.
+  return parent === undefined || parent.route.path === "/" || parent.route.path === undefined;
+}
+
+const status = isUnmatched(routes, url) ? 404 : 200;
+```
+
+`routes` is `generateRoutes()` from `next-vite-router/routes`, or the array your
+own `treeToRoutes()` call returns. Case sensitivity is part of the answer: with
+the default on, `/USERS` reaches no `users/` folder, so it is an unmatched URL and
+404s — which is also what Next.js does.
+
+Two shapes still answer `200`, exactly as they did before 4.0.0 — the `null`
+test never caught them either:
+
+- **A folder's own `not-found.tsx`.** `users/not-found.tsx` makes `/users/nope`
+  match a splat *below* `users`, and by shape alone that splat is not
+  distinguishable from a `[...slug]` page's.
+- **A base with no page.** `/docs` beside `docs/intro/page.tsx` renders the
+  not-found through a guard **index** route, and an index leaf is what every
+  folder holding a real `page.tsx` produces too — `route.index` is not a 404
+  signal.
+
+The emitted route array carries no documented marker that separates a not-found
+route from a page route, so a server that must report `404` for those two shapes
+has to bring its own knowledge of the tree — the bases it declares no page for.
 
 ### Custom file names and pages directory
 
@@ -474,6 +536,11 @@ There is no file convention that produces React Router route `loader` or `action
 functions, and those data APIs run only under a data router (`createBrowserRouter`
 + `RouterProvider`), not under `BrowserRouter` with `useRoutes`. Fetch data
 inside your page components instead.
+
+This is also the array an SSR server would hand to `matchRoutes()`, and since
+4.0.0 that call answers every URL; picking the status code out of the result has
+its own rules — see
+[HTTP status for an unmatched URL](#http-status-for-an-unmatched-url-ssr-servers).
 
 ## Features
 

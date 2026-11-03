@@ -558,6 +558,65 @@ describe("route generator", () => {
     assert.match(renderToStaticMarkup(catchAllFallback), /could not be found/i);
   });
 
+  test("the appended root splat is the only leaf an SSR server reads as unmatched", () => {
+    // Pins the rule the README's `HTTP status for an unmatched URL` section
+    // teaches. Since 4.0.0 `matchRoutes()` answers every URL, so a server decides
+    // the status from the matched leaf - and a leaf `path === "*"` alone is not
+    // enough, because a `[...slug]` page lives on a `*` of its own and would be
+    // 404ed. Only the splat the root appends means "no page answers this URL".
+    const routes = createRoutes({
+      pages: {
+        "page.tsx": loader("home"),
+        "blog/[...slug]/page.tsx": loader("blog"),
+        "users/page.tsx": loader("list"),
+        "docs/intro/page.tsx": loader("intro"),
+      },
+      notFounds: { "users/not-found.tsx": loader("users-not-found") },
+    });
+
+    const isUnmatched = (url) => {
+      const matches = matchRoutes(routes, url);
+      if (!matches) return true;
+      if (matches.at(-1)?.route.path !== "*") return false;
+      const parent = matches.at(-2);
+      return (
+        parent === undefined
+        || parent.route.path === "/"
+        || parent.route.path === undefined
+      );
+    };
+
+    // The 4.0.0 case itself: nothing but the appended splat answers this URL, and
+    // the `!matches` branch a 3.x server relied on is gone.
+    assert.notEqual(matchRoutes(routes, "/ddddddd"), null);
+    assert.ok(isUnmatched("/ddddddd"));
+
+    // A catch-all page is a real page even though its leaf is a splat: the splat
+    // sits below `blog`, so the 200 is kept.
+    const catchAllPage = matchRoutes(routes, "/blog/guide/api");
+    assert.equal(catchAllPage.at(-1).route.path, "*");
+    assert.equal(catchAllPage.at(-2).route.path, "blog");
+    assert.ok(!isUnmatched("/blog/guide/api"));
+
+    // A folder's own `not-found.tsx` is the documented 200 the rule gives up: the
+    // splat is one level below the root and indistinguishable from a page's.
+    const folderNotFound = matchRoutes(routes, "/users/nope");
+    assert.equal(folderNotFound.at(-1).route.path, "*");
+    assert.equal(folderNotFound.at(-2).route.path, "users");
+    assert.ok(!isUnmatched("/users/nope"));
+
+    // A page-less base renders the not-found through a guard index, and an index
+    // leaf is exactly what a real page at its own base produces too, so
+    // `route.index` cannot serve as the 404 signal.
+    assert.equal(matchRoutes(routes, "/docs").at(-1).route.index, true);
+    assert.equal(matchRoutes(routes, "/users").at(-1).route.index, true);
+    assert.ok(!isUnmatched("/docs"));
+    assert.ok(!isUnmatched("/users"));
+
+    // The root page answers 200: its leaf is the folder's own index, not a splat.
+    assert.ok(!isUnmatched("/"));
+  });
+
   test("rejects not-found routes that conflict with catch-all pages", () => {
     assert.throws(
       () => buildRouteTree(
