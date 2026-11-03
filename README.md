@@ -840,6 +840,11 @@ and the generated `href`/`Link` — not merely compile. One further job runs the
 same app with `react-router` v7 and **no** `react-router-dom` at all, so the
 substitution is proven by a render instead of by this table.
 
+The unit and [browser](#browser-suite) suites also run on Ubuntu, Windows and
+macOS on Node 22. That job exists for the parts a Linux machine cannot judge:
+path separators, what `path.resolve` returns, the commands the CLI hands to a
+shell, and where the plugin writes the files it generates.
+
 ## Examples
 
 The repository includes a runnable showcase in [`examples/`](./examples/):
@@ -915,9 +920,9 @@ pnpm run test:browser
 ```
 
 The suite is deliberately **not** part of `pnpm run test`: the unit matrix runs on
-several Node versions in containers with no browser installed. CI keeps it as its
-own `Browser tests (Chromium)` job, and `pnpm run test:browser` refreshes the
-fixture bundle and the HMR copy before Playwright starts, so a bare
+several Node versions in containers with no browser installed. CI runs it in the
+`operating-systems` job, on Ubuntu, Windows and macOS, and `pnpm run test:browser`
+refreshes the fixture bundle and the HMR copy before Playwright starts, so a bare
 `pnpm exec playwright test` also works from a clean checkout.
 
 ## License

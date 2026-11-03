@@ -213,16 +213,27 @@ jobs:
           echo "rendering with $entry"
           node "$entry"
 
-  # The unit suites mount nothing: `react-dom/server` does not run a class error
-  # boundary's catch, does not code-split a layout, and has no history, no address
-  # bar and no file watcher. This job runs the Playwright suite in
-  # `test/browser` against the fixture app in `test/browser-app`, both in `vite dev`
-  # and from its production build, for the behaviors that only exist after a real
-  # mount. It is deliberately not part of `pnpm run test`, which runs on every unit
-  # matrix leg where no browser is installed.
-  browser-tests:
-    name: Browser tests (Chromium)
-    runs-on: ubuntu-latest
+  # Two things no job above can prove.
+  #
+  # One is the mount itself: the unit suites render through `react-dom/server`,
+  # which never runs a class error boundary's catch, never code-splits a layout,
+  # and has no history, no address bar and no file watcher. The Playwright suite in
+  # `test/browser` covers those against the fixture app in `test/browser-app`.
+  #
+  # The other is the platform. Path separators, what `path.resolve` hands back, the
+  # command strings the CLI hands to `execSync`, and every file the plugin writes
+  # (`routes.d.ts`, the generated module, the scaffolded project) have behaved
+  # differently on Windows before - and a Linux-only workflow cannot see either the
+  # regression or the fix. Node stays at 22 because the version question belongs to
+  # `unit-tests`; the platform question belongs here.
+  operating-systems:
+    name: Tests on ${{ matrix.os }} (Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: ["22"]
     steps:
       - uses: actions/checkout@v4
 
@@ -232,7 +243,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node }}
           cache: pnpm
 
       - name: Install package dependencies
@@ -241,11 +252,22 @@ jobs:
       - name: Build package
         run: pnpm run build
 
-      # The browser build has to match the `@playwright/test` version in the
-      # lockfile, so the CLI of the installed package decides what to download;
-      # `--with-deps` adds the system libraries Chromium needs on the runner.
-      - name: Install Chromium
+      - name: Run unit tests
+        # Ubuntu runs the whole suite across the Node matrix in `unit-tests`, so
+        # this leg would repeat a minute of work it already did. Windows and macOS
+        # are the platforms that job cannot cover.
+        if: matrix.os != 'ubuntu-latest'
+        run: pnpm run test
+
+      # `--with-deps` installs system libraries and is accepted on Linux only; the
+      # other two platforms ship a self-contained browser build.
+      - name: Install Chromium with system dependencies
+        if: runner.os == 'Linux'
         run: pnpm exec playwright install --with-deps chromium
+
+      - name: Install Chromium
+        if: runner.os != 'Linux'
+        run: pnpm exec playwright install chromium
 
       - name: Run browser tests
         run: pnpm run test:browser
