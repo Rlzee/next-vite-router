@@ -13,6 +13,25 @@ type BoundaryProps = {
 };
 
 /**
+ * What the boundary tracks for itself: whether a value was captured, and that
+ * value. The two are separate fields because a thrown value can be *any*
+ * JavaScript value - `throw null` is legal - and a boundary that read the error
+ * itself as "no failure" would render the failing subtree again instead of the
+ * folder's `error.tsx`, sending the value to the next boundary up. Nothing here
+ * is ever compared to decide the branch.
+ */
+type BoundaryState = {
+  hasError: boolean;
+  error: unknown;
+};
+
+/**
+ * The healthy state. A function rather than one shared object, so the reference
+ * handed to `setState` is always a fresh one React is free to merge.
+ */
+const healthyState = (): BoundaryState => ({ hasError: false, error: undefined });
+
+/**
  * Render the failure of a subtree in place of the subtree.
  *
  * Written as a class because that is the only way React exposes a boundary, and
@@ -32,26 +51,26 @@ export class RouteErrorBoundary extends React.Component<
     resetKey: string;
     children: React.ReactNode;
   },
-  { error: unknown }
+  BoundaryState
 > {
-  state: { error: unknown } = { error: null };
+  state: BoundaryState = healthyState();
 
-  static getDerivedStateFromError(error: unknown): { error: unknown } {
-    return { error };
+  static getDerivedStateFromError(error: unknown): BoundaryState {
+    return { hasError: true, error };
   }
 
   componentDidUpdate(previous: { resetKey: string }): void {
-    if (this.state.error !== null && previous.resetKey !== this.props.resetKey) {
-      this.setState({ error: null });
+    if (this.state.hasError && previous.resetKey !== this.props.resetKey) {
+      this.setState(healthyState());
     }
   }
 
   private reset = (): void => {
-    this.setState({ error: null });
+    this.setState(healthyState());
   };
 
   render(): React.ReactNode {
-    if (this.state.error === null) {
+    if (!this.state.hasError) {
       return this.props.children;
     }
 

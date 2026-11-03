@@ -627,13 +627,15 @@ while one is loading the placeholder paints in the layout's `Outlet` — a neste
 `loading.tsx` overrides its parent's, and a folder that declares none shows
 **nothing** until its page arrives: there is no global fallback to configure, as
 in Next.js, so the placeholder is a file in a folder or there is none. `error.tsx`
-renders in
-place of the content when something below throws, and receives
-`{ error, reset }`; `reset()` clears the boundary's error state so React re-renders
-the subtree - enough to recover from a synchronous failure whose cause has been
-fixed, but not from a rejected dynamic import (see the stale-deploy note below).
-The boundary also clears itself when the URL changes, so navigating to another
-page of the same folder after a failure no longer shows the stale error.
+renders in place of the content when something below throws, and receives
+`{ error, reset }` — `error` is the thrown value exactly as React reported it, and
+a `throw` is legal with any value (`throw null`, `throw "text"`), so an `error.tsx`
+must not assume an `Error` instance. `reset()` clears the boundary's error state
+so React re-renders the subtree - enough to recover from a synchronous failure
+whose cause has been fixed, but not from a rejected dynamic import (see the
+stale-deploy note below). The boundary also clears itself when the URL changes, so
+navigating to another page of the same folder after a failure no longer shows the
+stale error.
 
 Next.js stacks these as `layout > error > loading > not-found > page`, and this
 package reproduces that order, which fixes two consequences:

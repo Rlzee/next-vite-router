@@ -515,19 +515,72 @@ describe("rendering: loading placeholder", () => {
 describe("RouteErrorBoundary lifecycle", () => {
   // React does not run the catch of a class boundary under a static render, so
   // the two behaviors it owns - deriving the fallback and resetting on
-  // navigation - are pinned directly on the lifecycle methods.
-  const makeBoundary = (error) =>
-    new RouteErrorBoundary({ error, resetKey: "/a", children: null });
+  // navigation - are pinned directly on the lifecycle methods. A thrown value is
+  // handed to `render()` as React would hand it to the state, and the element it
+  // returns is streamed, so `error.tsx` painting is proven and not assumed.
+  const makeBoundary = (error, state) => {
+    const boundary = new RouteErrorBoundary({ error, resetKey: "/a", children: null });
+    if (state) boundary.state = state;
+    return boundary;
+  };
 
   test("derives the thrown error into state", () => {
     const thrown = new Error("boom");
-    assert.deepEqual(RouteErrorBoundary.getDerivedStateFromError(thrown), { error: thrown });
+    assert.deepEqual(RouteErrorBoundary.getDerivedStateFromError(thrown), {
+      hasError: true,
+      error: thrown,
+    });
   });
+
+  // Every kind of value a component may legally throw. `null` is the one a
+  // boundary cannot express with a single field: the state used `{ error: null }`
+  // both for "nothing failed" and for `throw null`, so such a failure read as
+  // healthy, the subtree rendered again, and the folder's `error.tsx` never
+  // appeared. `hasError` is what decides, so the value itself never has to be
+  // truthy - and the falsy members of this list (`undefined`, `""`, `0`, `false`,
+  // `NaN`) are pinned beside it so no future check can shorten it with `!`.
+  const THROWN_VALUES = [
+    ["null", null],
+    ["undefined", undefined],
+    ["an empty string", ""],
+    ["zero", 0],
+    ["false", false],
+    ["NaN", NaN],
+    ["a string", "boom"],
+    ["an Error", new Error("boom")],
+  ];
+
+  for (const [label, thrown] of THROWN_VALUES) {
+    test(`catches a thrown ${label}`, () => {
+      const Fallback = component("SCREEN");
+      const child = React.createElement("i", null, "ok");
+      const boundary = new RouteErrorBoundary({
+        error: Fallback,
+        resetKey: "/a",
+        children: child,
+      });
+
+      // Healthy until something fails: the subtree renders untouched.
+      assert.equal(boundary.render(), child);
+
+      boundary.state = RouteErrorBoundary.getDerivedStateFromError(thrown);
+
+      const element = boundary.render();
+      assert.notEqual(element, child, `a thrown ${label} must not re-render the subtree`);
+      assert.equal(element.type, Fallback, `a thrown ${label} renders the folder's error.tsx`);
+      assert.ok(
+        Object.is(element.props.error, thrown),
+        `the thrown ${label} reaches error.tsx unchanged`,
+      );
+      assert.equal(typeof element.props.reset, "function");
+      // The fallback really paints instead of rendering nothing for a falsy value.
+      assert.match(renderToStaticMarkup(element), /SCREEN/);
+    });
+  }
 
   test("clears a caught error when the pathname changes", () => {
     const Fallback = component("err");
-    const boundary = makeBoundary(Fallback);
-    boundary.state = { error: new Error("boom") };
+    const boundary = makeBoundary(Fallback, { hasError: true, error: new Error("boom") });
     // A stub setState records the reset a real mount would apply.
     let reset = false;
     boundary.setState = () => { reset = true; };
@@ -538,14 +591,28 @@ describe("RouteErrorBoundary lifecycle", () => {
     assert.equal(reset, true, "a new pathname clears it, so another page of the folder is not stuck on the error");
   });
 
+  test("clears a captured null when the pathname changes", () => {
+    // The reset paths read the same `hasError` flag, so a `throw null` failure
+    // also stops covering the next page of the folder - the case the old
+    // `state.error !== null` comparison could never even reach, the two states
+    // having been one and the same value.
+    const boundary = makeBoundary(component("err"), { hasError: true, error: null });
+    let applied = null;
+    boundary.setState = (partial) => { applied = partial; };
+
+    boundary.componentDidUpdate({ resetKey: "/a" });
+    assert.equal(applied, null, "the same pathname keeps the captured value on screen");
+    boundary.componentDidUpdate({ resetKey: "/b" });
+    assert.deepEqual(applied, { hasError: false, error: undefined });
+  });
+
   test("renders children while healthy and the fallback once failed", () => {
     const Fallback = component("SCREEN");
     const child = React.createElement("i", null, "ok");
     const healthy = new RouteErrorBoundary({ error: Fallback, resetKey: "/a", children: child });
     assert.equal(healthy.render(), child, "a healthy boundary renders its subtree untouched");
 
-    const failed = makeBoundary(Fallback);
-    failed.state = { error: new Error("boom") };
+    const failed = makeBoundary(Fallback, { hasError: true, error: new Error("boom") });
     const element = failed.render();
     assert.equal(element.type, Fallback);
     assert.equal(element.props.error.message, "boom");
@@ -554,15 +621,14 @@ describe("RouteErrorBoundary lifecycle", () => {
 
   test("reset() clears the boundary state so the subtree re-renders", () => {
     const Fallback = component("err");
-    const boundary = makeBoundary(Fallback);
-    boundary.state = { error: new Error("boom") };
+    const boundary = makeBoundary(Fallback, { hasError: true, error: new Error("boom") });
     let applied = null;
     boundary.setState = (partial) => { applied = partial; };
 
     // Grab the `reset` callback handed to the user's `error.tsx`.
     const element = boundary.render();
     element.props.reset();
-    assert.deepEqual(applied, { error: null },
+    assert.deepEqual(applied, { hasError: false, error: undefined },
       "reset only clears state - the subtree below is what React re-renders next");
   });
 });
