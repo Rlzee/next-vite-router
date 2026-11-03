@@ -861,6 +861,7 @@ pnpm install
 pnpm run build
 pnpm run test            # full suite
 pnpm run test:compatibility
+pnpm run test:browser    # needs a browser: see below
 ```
 
 The route matrix lives in [`test/routes.test.js`](./test/routes.test.js) and
@@ -884,6 +885,40 @@ pnpm exec vite build                   # browser bundle
 pnpm exec vite build --ssr src/entry-server.tsx --outDir dist-ssr
 NODE_ENV=production node dist-ssr/entry-server.js
 ```
+
+### Browser suite
+
+Everything above renders through `react-dom/server`, which cannot show what only
+exists after a real mount: a class error boundary never runs its catch there, a
+layout is never code-split, and there is no history, no address bar and no file
+watcher. `pnpm run test:browser` runs the Playwright suite in
+[`test/browser`](./test/browser) against the fixture app in
+[`test/browser-app`](./test/browser-app) in three projects — `vite dev`
+(per-module requests), `vite preview` (the production bundle), and a private copy
+of the app on its own port for the route-file watching, because a structural change
+reloads every client of that server.
+
+| Scenario | What it pins |
+| --- | --- |
+| initial load, `Link` navigation, back / forward | the shell mounts once and navigation stays client-side |
+| a deep URL reloaded directly | the route and its parameters survive a fresh document |
+| an unknown URL | the built-in 404 paints inside the root layout, and the app still works after it |
+| catch-all routes | `useCatchAll()` segments, the optional base, and a `Link` filling the splat from an array |
+| `loading.tsx` | the folder's placeholder paints while its page module is held back |
+| `error.tsx` | the fallback replaces the failing page, `reset()` recovers once the cause is gone, and a `throw null` is caught like any other failure |
+| route files | a page created while the server runs joins the table, and deleting it takes the route back out |
+| `lazyLayouts` | a nested layout lives in a chunk of its own and still paints |
+
+```bash
+pnpm exec playwright install chromium   # once; the browser is not a package dependency
+pnpm run test:browser
+```
+
+The suite is deliberately **not** part of `pnpm run test`: the unit matrix runs on
+several Node versions in containers with no browser installed. CI keeps it as its
+own `Browser tests (Chromium)` job, and `pnpm run test:browser` refreshes the
+fixture bundle and the HMR copy before Playwright starts, so a bare
+`pnpm exec playwright test` also works from a clean checkout.
 
 ## License
 

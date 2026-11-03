@@ -55,6 +55,7 @@
     "test:params": "node --test test/params.test.js",
     "test:cli": "node --test test/cli.test.js",
     "test:compatibility": "node test/test-compatibility.js",
+    "test:browser": "node test/browser/prepare-cli.js && playwright test",
     "preview": "pnpm pack --dry-run",
     "prepublishOnly": "pnpm run build && pnpm run test",
     "cli": "cd test && node ../dist/cli.cjs"
@@ -91,6 +92,7 @@
     }
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@types/node": "^24.10.1",
     "@types/prompts": "^2.4.9",
     "@types/react": "^18.0.0",

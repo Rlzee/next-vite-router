@@ -212,3 +212,40 @@ jobs:
           entry=$(find dist-ssr -maxdepth 1 -name 'entry-server.*' -print -quit)
           echo "rendering with $entry"
           node "$entry"
+
+  # The unit suites mount nothing: `react-dom/server` does not run a class error
+  # boundary's catch, does not code-split a layout, and has no history, no address
+  # bar and no file watcher. This job runs the Playwright suite in
+  # `test/browser` against the fixture app in `test/browser-app`, both in `vite dev`
+  # and from its production build, for the behaviors that only exist after a real
+  # mount. It is deliberately not part of `pnpm run test`, which runs on every unit
+  # matrix leg where no browser is installed.
+  browser-tests:
+    name: Browser tests (Chromium)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install package dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build package
+        run: pnpm run build
+
+      # The browser build has to match the `@playwright/test` version in the
+      # lockfile, so the CLI of the installed package decides what to download;
+      # `--with-deps` adds the system libraries Chromium needs on the runner.
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run browser tests
+        run: pnpm run test:browser
