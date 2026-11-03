@@ -4,6 +4,12 @@ on:
   push:
   pull_request:
 
+# Every job here builds, tests and reports; none of them pushes, comments or writes
+# an artifact the token has to authorize, so the default write scope is narrowed to
+# read-only contents for the whole workflow.
+permissions:
+  contents: read
+
 jobs:
   unit-tests:
     name: Unit tests (Node ${{ matrix.node }})

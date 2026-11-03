@@ -845,6 +845,15 @@ macOS on Node 22. That job exists for the parts a Linux machine cannot judge:
 path separators, what `path.resolve` returns, the commands the CLI hands to a
 shell, and where the plugin writes the files it generates.
 
+A separate `Security` workflow audits the dependency graph on every push and pull
+request, and weekly, because an advisory is usually published long after the
+release that carries it. Two gates block: the graph an install actually pulls in
+(`pnpm audit --prod --audit-level=high`) and any critical anywhere in it. The full
+report stays informational — the suites deliberately install the declared floors
+of React, React Router and Vite to prove compatibility against them, and a check
+that is red by design trains everyone to ignore it. Dependabot opens grouped
+weekly updates for the pnpm workspace and for the workflow's own `uses:` pins.
+
 ## Examples
 
 The repository includes a runnable showcase in [`examples/`](./examples/):
