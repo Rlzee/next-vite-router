@@ -3,7 +3,7 @@ import { PassThrough } from "node:stream";
 import { createElement as h } from "react";
 import { renderToPipeableStream } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
-import { isUnmatched } from "next-vite-router";
+import { getRouteStatus } from "next-vite-router";
 import { Router, generateRoutes, useRoutes } from "next-vite-router/routes";
 
 /**
@@ -38,8 +38,8 @@ type RenderCase = {
   /** Which public mount style answers this URL. Defaults to `Router`. */
   via?: "router" | "routes";
   /**
-   * The status an SSR server should send for this URL, asserted against
-   * `isUnmatched()`. Defaults to 200, so a case only names it when the URL is
+   * The status an SSR server should send for this URL, asked of
+   * `getRouteStatus()`. Defaults to 200, so a case only names it when the URL is
    * answered by a not-found page.
    */
   status?: 200 | 404;
@@ -201,16 +201,21 @@ function assertRendered({ url, paints, skips, order }: RenderCase, html: string)
 }
 
 /**
- * The status an SSR server would send, decided by the package rather than by
- * reading the matched leaf. It has to survive bundling and minification, and the
- * router major this combination installs - which is why it is asserted here and
- * not only in the unit suite.
+ * The status an SSR server would send, asked of the package rather than decided
+ * here: this harness is exactly the kind of consumer whose logic would otherwise
+ * drift into "is this leaf a splat under something URL-neutral". It also has to
+ * survive bundling, minification and the router major this combination installs,
+ * which is why it is asserted here and not only in the unit suite.
  */
 function assertStatus({ url, status = 200 }: RenderCase): void {
+  const routes = generateRoutes();
+  assert.equal(getRouteStatus(routes, url), status, `"${url}" should be reported as ${status}`);
+  // The same request as an absolute target - what a proxy forwards, and what a
+  // server reading `req.url` naively may hand over - must decide identically.
   assert.equal(
-    isUnmatched(generateRoutes(), url) ? 404 : 200,
+    getRouteStatus(routes, `http://example.invalid${url}`),
     status,
-    `"${url}" should be reported as ${status}`,
+    `absolute "${url}" should be reported as ${status}`,
   );
 }
 

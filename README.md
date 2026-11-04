@@ -276,44 +276,81 @@ const matches = matchRoutes(routes, url);
 if (!matches) return new Response("Not Found", { status: 404 });
 ```
 
-The package answers it. `isUnmatched()` reads what the conversion recorded about each
-route that renders a not-found page, so it is exact where reading the shape of a
-match cannot be:
+The package answers it. `getRouteStatus()` returns the status for a request, so a
+server never has to know how a not-found is recognised:
 
 ```ts
-import { isUnmatched } from "next-vite-router";
+import { getRouteStatus } from "next-vite-router";
 import { generateRoutes } from "next-vite-router/routes";
 
 const routes = generateRoutes();
-const status = isUnmatched(routes, url) ? 404 : 200;
+const status = getRouteStatus(routes, request.url); // 200 | 404
+
+// Decide before the first byte: a streamed response cannot change its status once
+// headers are out, and by then a 404 is only a styling decision.
+return new Response(document(routes, request.url), { status });
 ```
 
-A URL is unmatched when the route answering it is a not-found page — the built-in
-root 404, a folder's own `not-found.tsx`, or the guard for a base that holds no page
+A URL is `404` when the route answering it is a not-found page — the built-in root
+404, a folder's own `not-found.tsx`, or the guard for a base that holds no page
 (`docs/` with only `docs/intro/page.tsx`, and a required catch-all's own base). That
 covers what no reading of the route shape could separate: a `[...slug]` page also
 lives on a `*` route and keeps its `200`, while a folder's not-found and a page-less
 base render 404 pages from leaves that look like any other splat and any other index.
 Case sensitivity comes with it — with the default on, `/USERS` answers no `users/`
-folder and is unmatched, as in Next.js.
+folder and is `404`, as in Next.js.
+
+**The URL argument is a request target, and it is normalised like a browser would
+normalise it.** All of these are the same request:
+
+```ts
+getRouteStatus(routes, "/users/123");
+getRouteStatus(routes, "/users/123?tab=profile");
+getRouteStatus(routes, "/users/123#details");
+getRouteStatus(routes, "https://example.com/users/123");   // origin dropped
+```
+
+The origin, query and fragment are removed and `.`/`..` segments resolved before
+matching, so a proxy that forwards an absolute `GET` target reaches the same route
+the browser would. A trailing slash is *kept*, because the browser keeps it and the
+client router sees it — dropping it would let the server decide on a different URL
+than the client renders.
 
 If you took the advice this section gave earlier, or the `route.path === "*"` line in
 the 4.0.0 notes, that check is wrong in both directions: it 404s catch-all pages and
-misses the two shapes above. `isUnmatched()` replaces it.
+misses the two shapes above. `getRouteStatus()` replaces it.
+
+### What this API deliberately does not do
+
+It answers one question — *is a page reached for this URL* — and leaves the HTTP
+lifecycle to the server, which owns the response, the headers and the stream:
+
+| Situation | This API | Your server |
+| --- | --- | --- |
+| a page answers the URL | `200` | stream it |
+| a not-found page answers it | `404` | stream the fallback with that status |
+| nothing matched at all | `404` | same path |
+| a page threw while rendering | `200` — the page *was* found | `500` |
+| a folder's `error.tsx` renders a fallback | `200` | `500`, not `404` |
+| a route redirects | `200` | `3xx` |
+
+A caught render error is the trap worth naming: `error.tsx` makes the failure look
+like a finished page, and `getRouteStatus()` reports the route, not the render. A
+server that wants `500` has to learn it from the render itself (React's error
+boundary, or its own `onShellError` / `renderToPipeableStream` handling) — a
+fallback page must not quietly turn server errors into not-found pages.
 
 Two things to know about the mechanism:
 
 - The marking lives in the route `handle` (`{ notFound: true }`), which the converter
-  stamps and this package owns for generated routes. `isNotFoundRoute(route)` exposes
-  the same test for a match you already hold. Both functions are exported from the
-  package root — the engine entry — beside `treeToRoutes()`; the navigation helpers
-  stay in `next-vite-router/routes`.
+  stamps and this package owns for generated routes. `isUnmatched(routes, url)` and
+  `isNotFoundRoute(route)` stay exported as the finer primitives for code that
+  already has the matches; `getRouteStatus()` is `isUnmatched()` spelled as a number.
+  All three come from the package root — the engine entry — beside `treeToRoutes()`;
+  the navigation helpers stay in `next-vite-router/routes`.
 - A route array that did not come from `treeToRoutes()` carries no marking, so
-  nothing reads as unmatched. Build the tree with the plugin, or hand the records to
+  nothing reads as not-found. Build the tree with the plugin, or hand the records to
   `treeToRoutes()` / `createRouteGenerator()`, and the marking is there.
-
-The decision is independent of rendering, so in an SSR entry it sits right next to
-the `renderTo…` call that produces the document, on the same array.
 
 ### Custom file names and pages directory
 

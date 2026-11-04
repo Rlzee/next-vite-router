@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createRouteGenerator, isNotFoundRoute, isUnmatched } from '../dist/index.js';
+import { createRouteGenerator, isNotFoundRoute, isUnmatched, getRouteStatus } from '../dist/index.js';
 import { href, Link, createTypedLink, useCatchAll } from '../dist/plugin-runtime.js';
 
 console.log('✅ createRouteGenerator:', typeof createRouteGenerator);
@@ -12,6 +12,11 @@ console.log('✅ Link:', typeof Link);
 // next to the array they read, and must never appear in the generated module.
 assert.equal(typeof isUnmatched, 'function');
 assert.equal(typeof isNotFoundRoute, 'function');
+assert.equal(typeof getRouteStatus, 'function');
+// The status API is the one a server is pointed at, so its shape is part of the
+// contract: only the two documented answers, and agreement with the boolean.
+assert.ok([200, 404].includes(getRouteStatus([], "/")), "no routes can only mean 404");
+assert.equal(getRouteStatus([], "/"), isUnmatched([], "/") ? 404 : 200);
 
 const packageJson = JSON.parse(
   fs.readFileSync(path.resolve('package.json'), 'utf8'),
@@ -66,6 +71,7 @@ const cjsIndex = require('../dist/index.cjs');
 assert.equal(typeof cjsIndex.createRouteGenerator, 'function');
 assert.equal(typeof cjsIndex.isUnmatched, 'function');
 assert.equal(typeof cjsIndex.isNotFoundRoute, 'function');
+assert.equal(typeof cjsIndex.getRouteStatus, 'function');
 // Both bundles must agree on the marking, or a server would read a tree the other
 // one produced and call every URL a page.
 assert.equal(

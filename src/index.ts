@@ -6,8 +6,14 @@ export { assertNoRouteConflicts } from './routes/tree';
 export { treeToRoutes } from './routes/converter';
 
 // Server-side status decision: reads the handle the conversion stamps on every
-// route that answers a URL with a not-found page.
-export { isUnmatched, isNotFoundRoute } from './router/not-found';
+// route that answers a URL with a not-found page. `getRouteStatus` is the call a
+// server makes; `isUnmatched` and `isNotFoundRoute` stay available as the finer
+// primitives for code that already has the matches.
+export {
+  getRouteStatus,
+  isUnmatched,
+  isNotFoundRoute,
+} from './router/not-found';
 
 // Types
 export type {

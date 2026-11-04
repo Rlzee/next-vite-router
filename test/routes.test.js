@@ -12,6 +12,7 @@ import {
   clearLazyCache,
   isNotFoundRoute,
   isUnmatched,
+  getRouteStatus,
   treeToRoutes,
 } from "../dist/index.js";
 import { extractRoutePath, parseRouteSegments } from "../dist/index.js";
@@ -599,6 +600,88 @@ describe("route generator", () => {
     // A trailing slash still carries a segment, so the splat page answers it - the
     // same reading `useCatchAll()` gives by dropping the empty segment.
     assert.ok(!isUnmatched(routes, "/shop/x/"), "but `/shop/x/` is a page, not the base");
+  });
+
+  test("getRouteStatus() answers the whole SSR status matrix", () => {
+    // Every row a server can hit, on one tree that carries the shapes the
+    // heuristic had to give up on: a route group, a nested `not-found.tsx`, a
+    // folder with children but no page, and a root layout wrapping it all.
+    const routes = createRoutes({
+      pages: {
+        "page.tsx": loader("home"),
+        "users/page.tsx": loader("list"),
+        "users/[id]/page.tsx": loader("user"),
+        "blog/[...slug]/page.tsx": loader("blog"),
+        "docs/[[...slug]]/page.tsx": loader("docs"),
+        "shop/[id]/page.tsx": loader("shop"),
+        "account/settings/page.tsx": loader("settings"),
+        "(marketing)/pricing/page.tsx": loader("pricing"),
+      },
+      notFounds: { "shop/not-found.tsx": loader("shop-not-found") },
+      rootLayout: component("ROOT-LAYOUT"),
+    });
+
+    const STATUS = {
+      // Pages, at every depth.
+      "/": 200,
+      "/users": 200,
+      "/users/123": 200,
+      "/blog/hello/world": 200,
+      "/docs": 200,
+      "/docs/hello": 200,
+      "/shop/7": 200,
+      "/account/settings": 200,
+      "/pricing": 200,
+      // Not-found pages, whatever shape they were reached through.
+      "/users/unknown/extra": 404,
+      "/blog": 404,
+      "/unknown": 404,
+      "/account": 404,
+      "/shop": 404,
+      "/shop/a/b": 404,
+    };
+
+    for (const [url, status] of Object.entries(STATUS)) {
+      assert.equal(getRouteStatus(routes, url), status, `"${url}" should be ${status}`);
+      // The boolean and the status must never disagree.
+      assert.equal(isUnmatched(routes, url), status === 404, `"${url}" boolean mismatch`);
+    }
+
+    // Request targets a server may actually receive: a query, a fragment, an
+    // absolute URL, a protocol-relative one, dot segments, and a missing leading
+    // slash. Each one names the same page as `/users/123`, because each one is
+    // that pathname as a browser would present it.
+    for (const form of [
+      "/users/123?tab=profile",
+      "/users/123#details",
+      "/users/123/?tab=profile",
+      "https://example.com/users/123",
+      "https://example.com/users/123?tab=profile",
+      "//example.com/users/123",
+      "/users/other/../123",
+      "users/123",
+    ]) {
+      assert.equal(getRouteStatus(routes, form), 200, `"${form}" should route to the user page`);
+    }
+    // An absolute URL no page answers is still a 404, not an accident of shape.
+    assert.equal(getRouteStatus(routes, "https://example.com/nope"), 404);
+
+    // Case sensitivity is the routes' own flag, read from the same array: with
+    // `caseSensitive: false` restored, the uppercase URL reaches the folder again.
+    assert.equal(getRouteStatus(routes, "/USERS"), 404);
+    assert.equal(getRouteStatus(routes, "/Blog/hello"), 404);
+    const insensitive = treeToRoutes(
+      buildRouteTree({
+        pages: { "users/page.tsx": loader("list"), "blog/[...slug]/page.tsx": loader("blog") },
+      }),
+      true,
+      "",
+      undefined,
+      undefined,
+      false,
+    );
+    assert.equal(getRouteStatus(insensitive, "/USERS"), 200);
+    assert.equal(getRouteStatus(insensitive, "/BLOG/a"), 200);
   });
 
   test("only the routes that render a not-found page carry the handle", () => {

@@ -69,6 +69,25 @@ security gate - that the next change to any of this will be caught by.
   the two 404 shapes that look like ordinary index and splat routes are now reported
   as the failures they are. A tree built by hand, without this conversion, carries no
   marking and reads as all pages.
+- **`getRouteStatus(routes, url)`, the status a server sends** - `200` when one of the
+  app's pages answers the URL, `404` when a not-found page does or when nothing
+  matches. It exists so that no consumer re-implements the detection: an entry that
+  wrote its own `isUnmatched(...) ? 404 : 200` would drift with it. `isUnmatched()`
+  and `isNotFoundRoute()` stay exported as the finer primitives. The API answers
+  *is a page reached* and stops there: it is a routing decision, so it must be taken
+  before the first byte is written, and a render failure caught by an `error.tsx` is
+  still `200` here - `500` and `3xx` belong to the server, which owns the response,
+  the headers and the stream.
+- **Request targets are normalised before matching.** `matchRoutes()` matches on a
+  pathname, so an absolute URL - what a proxy forwards, what a `new URL(req.url)`
+  readback gives - matched nothing and was silently reported as a 404, along with a
+  protocol-relative URL, a path missing its leading slash and one carrying `..`
+  segments. `isUnmatched()` and `getRouteStatus()` now reduce the argument the way a
+  browser would (origin, query and fragment dropped, dot segments resolved) and hand
+  React Router the same pathname the client would have routed. A query or fragment
+  already worked; a trailing slash is deliberately left alone, because the client
+  router sees it and normalising it away would let the server decide on a different
+  URL than the client renders.
 - **A browser suite in Chromium**, `pnpm run test:browser`: 23 tests over the fixture
   app in `test/browser-app`, run against `vite dev`, against its production build
   through `vite preview`, and against a private copy of the app on its own port for
