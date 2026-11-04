@@ -736,6 +736,16 @@ describe("route generator", () => {
       "//example.com/%FF": "//example.com/%FF",
       "//example.com/%zz": "//example.com/%zz",
       "//example.com/%2e%2e/x": "//x",
+      // The two slashes are a prefix, not a segment a dot chain may pop: however
+      // many `..` follow the host-shaped head, both of them stay.
+      "//example.com/../../x": "//x",
+      "//example.com/../../../x": "//x",
+      "//a/b/../../x": "//x",
+      "//example.com/..": "//",
+      // A single-slash path still floors at its root, which is the difference the
+      // prefix makes rather than the popping.
+      "/../../x": "/x",
+      "/a/../../x": "/x",
       // Malformed escapes are never routed through the parser (see below), and an
       // unparseable absolute URL is used as it came.
       "/%zz": "/%zz",
@@ -835,6 +845,7 @@ describe("route generator", () => {
       ["/a/%2e%2e/%2E./%FF", "/a/%2e%2e/%2E./%41", "/%FF"],
       // The same rule for a protocol-relative path, whose two slashes survive it.
       ["//example.com/%2e%2e/%FF", "//example.com/%2e%2e/%41", "//%FF"],
+      ["//example.com/../../%FF", "//example.com/../../%41", "//%FF"],
     ]) {
       assert.equal(
         normalizeRequestTarget(standIn),

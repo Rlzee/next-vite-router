@@ -81,6 +81,11 @@ const DOUBLE_DOT = /^(?:\.\.|%2e\.|\.%2e|%2e%2e)$/i;
  * leading slash completed, dot segments resolved, everything else - every empty
  * segment and every percent escape - kept byte for byte.
  *
+ * The leading one or two slashes are held outside the resolution stack, so a chain
+ * of dot segments cannot pop them: `//a/../../x` keeps both slashes, and `/../../x`
+ * floors at `/`. That is what makes a protocol-relative path safe to resolve here
+ * at all - popping into the prefix would turn a path into another authority.
+ *
  * Reached for a path the parser must not be run over: one carrying an escape it
  * could not decode, where it warns on stderr, and a protocol-relative target, where
  * parsing it would read `//host` as an authority and swap origin. Judging the whole
@@ -88,19 +93,28 @@ const DOUBLE_DOT = /^(?:\.\.|%2e\.|\.%2e|%2e%2e)$/i;
  * or the escape in `/%FF/x` would decide how `/a/../%FF` matches.
  */
 function resolveByHand(path: string): string {
-  const absolute = path.startsWith("/") ? path : `/${path}`;
-  const kept = [""];
-  for (const segment of absolute.split("/").slice(1)) {
+  // The leading slashes are a prefix, not a segment the resolution may pop: keeping
+  // them out of the stack is what makes `//a/../../x` keep both slashes however many
+  // dot segments follow it, and a root-less path floor at `/` rather than vanish.
+  const prefix = /^\/{1,2}/.exec(path)?.[0] ?? "";
+  const kept: string[] = [];
+  for (const segment of path.slice(prefix.length).split("/")) {
     if (SINGLE_DOT.test(segment)) continue;
+    // A dot segment pops a named segment only; with nothing left to pop the path
+    // floors at its own root, which is where `/../../x` and `//a/../../x` differ by
+    // exactly that prefix.
     if (DOUBLE_DOT.test(segment)) {
-      // An empty segment is part of the path (`/a//b` means two slashes), so a dot
-      // segment may only pop a named one, never the leading slash itself.
-      if (kept.length > 1) kept.pop();
+      if (kept.length > 0) kept.pop();
       continue;
     }
     kept.push(segment);
   }
-  return kept.join("/") || "/";
+  // `prefix` already carries the leading slash, so the body is appended to it as is;
+  // a path that had none is completed, and an emptied body still leaves an absolute
+  // path - a request target never resolves down to nothing.
+  const lead = prefix === "" ? "/" : prefix;
+  const body = kept.join("/");
+  return body === "" ? lead : `${lead}${body}`;
 }
 
 /** A leading `scheme:` - whatever it turns out to name, it is not an origin-form path. */

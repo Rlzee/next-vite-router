@@ -368,7 +368,9 @@ getRouteStatus(routes, "/users/a/b");           // 404 - a real third segment
 The same hand-resolved structure applies to a protocol-relative path — `//example.com/%2e%2e/x`
 keeps its two slashes and loses `example.com` to the dot segment — because the parser
 cannot be used there either: read as a URL, `//host` is an authority, and the request
-would be answered against a different origin than the one being served.
+would be answered against a different origin than the one being served. Those leading
+slashes sit outside the resolution stack, so no chain of dot segments can pop them:
+`//example.com/../../x` is `//x`, and `/../../x` still floors at `/`.
 
 `normalizeRequestTarget()` is exported if you want the same reading for logging.
 
