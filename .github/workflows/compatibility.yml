@@ -35,6 +35,15 @@ permissions:
   contents: read
 
 jobs:
+  # Two fan-outs, one workflow. Every job below keeps its full literal matrix, so
+  # `test-compatibility.js` can still read the pinned versions out of this file and
+  # object when a peer range narrows without the grid narrowing with it. What a pull
+  # request changes is which cells *run*, decided job by job: the trunk and a release
+  # tag take every cell, because the published promise is that the whole grid works,
+  # while a pull request spends its slots on the corners of that grid (both ends of
+  # every range at once) and on the platforms Linux cannot speak for. Roughly a third
+  # of the runner-minutes per commit, and the queue is the first thing this account
+  # runs out of.
   unit-tests:
     name: Unit tests (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
@@ -44,6 +53,9 @@ jobs:
       # declared floor (and the CLI that depends on it) is really exercised.
       matrix:
         node: ["20", "22", "24"]
+    # The floor and the newest runtime are settled on the trunk; a pull request is
+    # answered by the version people actually develop against.
+    if: github.event_name != 'pull_request' || matrix.node == '22'
     steps:
       - uses: actions/checkout@v4
 
@@ -92,6 +104,15 @@ jobs:
             router: "6.30.6"
             vite: "5.4.21"
             package_type: commonjs
+    # On a pull request, the two corners of the declared peer ranges: every floor at
+    # once, and every ceiling at once. A change that breaks the middle of the grid
+    # without breaking either corner is not a change this package can make on its own -
+    # it would have to move a version it declares it supports. The `include:` row is one
+    # of those corners (all floors, on a CommonJS app), so it is picked up with them.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (matrix.react == '18.3.1' && matrix.router == '6.30.6' && matrix.vite == '5.4.21') ||
+      (matrix.react == '19.2.0' && matrix.router == '7.18.4' && matrix.vite == '8.0.0')
 
     steps:
       - uses: actions/checkout@v4
@@ -188,6 +209,12 @@ jobs:
         react: ["18.3.1", "19.2.0"]
         router: ["7.18.4"]
         vite: ["5.4.21", "8.0.0"]
+    # Same corners as the grid above, because the alias this job proves is a property
+    # of the router package rather than of either neighbour.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (matrix.react == '18.3.1' && matrix.vite == '5.4.21') ||
+      (matrix.react == '19.2.0' && matrix.vite == '8.0.0')
 
     steps:
       - uses: actions/checkout@v4
@@ -276,6 +303,10 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         node: ["22"]
+    # The Ubuntu leg repeats what the Linux jobs above already cover in the same run,
+    # so on a pull request the two slots go to the platforms nothing else can speak
+    # for. The trunk takes all three, including Ubuntu's browser suite.
+    if: github.event_name != 'pull_request' || matrix.os != 'ubuntu-latest'
     steps:
       - uses: actions/checkout@v4
 
