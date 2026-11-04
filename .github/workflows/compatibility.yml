@@ -1,8 +1,23 @@
 name: Compatibility
 
+# A branch with an open pull request used to fan out on every commit twice - once for
+# the `push` event, once for the `pull_request` event - 54 jobs waiting on a pool whose
+# scarce member is macOS. `push` now covers only what no pull request will: the trunk
+# after the merge, and a release tag, which names the commit people actually install.
+# A branch is still checked, by its pull request.
 on:
   push:
+    branches: [main]
+    tags: ["v*"]
   pull_request:
+
+# A queued job left over from a superseded commit tests code that no longer exists,
+# and while it waits it holds the place of the commit that does - so branches cancel
+# their own backlog. The trunk is left to finish: a merge already on main is history
+# worth recording whole, not one cut short by the next merge.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # Every job here builds, tests and reports; none of them pushes, comments or writes
 # an artifact the token has to authorize, so the default write scope is narrowed to
@@ -284,6 +299,23 @@ jobs:
       # even though its unit tests were skipped above.
       - name: Check the installed ESM and CommonJS entry points
         run: pnpm run test:modules
+
+      # The Chromium build is the same bytes for every run of a given Playwright
+      # version, and fetching it is what made the macOS and Windows legs hold one of
+      # the shared runners for an extra minute - which is the queue every other run
+      # then waits behind. Keyed on the lockfile because an upgrade asks for a
+      # different build, and per platform because a Chromium for one is not a
+      # Chromium for another. `continue-on-error` because this is a speed-up only: the
+      # install below puts the browser on disk whether the cache hit or not.
+      - name: Cache Playwright browsers
+        continue-on-error: true
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/Library/Caches/ms-playwright
+            ~/AppData/Local/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
       # `--with-deps` installs system libraries and is accepted on Linux only; the
       # other two platforms ship a self-contained browser build.

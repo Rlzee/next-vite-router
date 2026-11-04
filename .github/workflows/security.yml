@@ -3,13 +3,23 @@ name: Security
 # Dependency advisories are published on the maintainer's schedule, not the repo's:
 # an advisory for a version that has been installed for months first appears in a
 # normal push weeks later. The schedule gives the same check a heartbeat between
-# changes, and `workflow_dispatch` lets it be run by hand while triaging.
+# changes, and `workflow_dispatch` lets it be run by hand while triaging. Branch
+# pushes arrive here through their pull request, so `push` names the trunk only.
 on:
   push:
+    branches: [main]
   pull_request:
   schedule:
     - cron: "17 3 * * 1"
   workflow_dispatch:
+
+# Same reasoning as the compatibility workflow next to it: a run still queued for a
+# commit that a later commit has superseded audits a manifest nobody is about to
+# merge, and it holds the slot of the run that would. The trunk is left to finish, so
+# the record of what was actually published stays complete.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # The audit reads tracked manifests and writes nothing back, and `GITHUB_TOKEN` is
 # scoped per job, so the narrowest grant that still lets it run is read-only
