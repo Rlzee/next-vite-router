@@ -345,21 +345,30 @@ read its own page list and match the URL against it — which settles all three 
 above, because a page either exists at that URL or it does not.
 
 ```ts
-// src/entry-server.ts — the same paths the plugin globs, keys only.
-const pageFiles = Object.keys(import.meta.glob("./app/**/page.tsx"));
+// src/entry-server.ts — one object, so the glob and the names it is matched with
+// cannot drift apart. A glob pattern has to be a static literal: Vite cannot read
+// it from a variable, which is why `pagesDir` and `pageFile` are written twice —
+// once inside the pattern, once beside it.
+const PAGES = {
+  files: Object.keys(import.meta.glob("./app/**/page.tsx")),
+  pagesDir: "./app",
+  pageFile: "page.tsx",
+};
 
-/** `true` when some `page.tsx` of this application answers `url`. */
-export function hasPage(
-  url: string,
-  { pagesDir = "./app", pageFile = "page.tsx", caseSensitive = true } = {},
-): boolean {
+/** `true` when some page of this application answers `url`. */
+export function hasPage(url: string, options = PAGES): boolean {
+  const { files, pagesDir, pageFile, caseSensitive = true } = options;
   const wanted = url.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
   const same = (a: string, b: string) =>
     caseSensitive ? a === b : a.toLowerCase() === b.toLowerCase();
+  const suffix = `/${pageFile}`;
 
-  return pageFiles.some((file) => {
-    const folder = file.slice(0, -(`/${pageFile}`.length));
-    if (!folder.startsWith(pagesDir)) return false;
+  return files.some((file) => {
+    if (!file.endsWith(suffix)) return false;
+    const folder = file.slice(0, -suffix.length);
+    // The pages root at a folder boundary or nothing at all: `./app` must not
+    // swallow `./application/page.tsx`, which the shorter prefix alone would.
+    if (folder !== pagesDir && !folder.startsWith(`${pagesDir}/`)) return false;
 
     const pattern = folder
       .slice(pagesDir.length)
@@ -395,6 +404,21 @@ export function hasPage(
 }
 
 const status = hasPage(url) ? 200 : 404;
+```
+
+`pagesDir` has to be spelled exactly the way `import.meta.glob` writes its keys —
+`"./app"` beside the pattern above, `"/src/app"` if the project globs from the Vite
+root the way the plugin's own module does — because the comparison is verbatim, not
+normalized. What it must agree with is the pattern next to it, not the plugin's
+option. A project that moves the routes changes both halves of `PAGES` together:
+
+```ts
+// nextViteRouter({ pagesDir: "src/pages", pageFile: "index.tsx" })
+const PAGES = {
+  files: Object.keys(import.meta.glob("./src/pages/**/index.tsx")),
+  pagesDir: "./src/pages",
+  pageFile: "index.tsx",
+};
 ```
 
 The four conventions that list restates are the whole contract: `(group)` contributes

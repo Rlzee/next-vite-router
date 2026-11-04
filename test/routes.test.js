@@ -684,25 +684,36 @@ describe("route generator", () => {
     // "is there a page here" is a question about files, not about route shape.
     // The table below is authored from the same list, and was checked against what
     // the router really renders.
-    const pageFiles = [
-      "./app/page.tsx",
-      "./app/(marketing)/pricing/page.tsx",
-      "./app/blog/[...slug]/page.tsx",
-      "./app/docs/[[...seg]]/page.tsx",
-      "./app/users/new/page.tsx",
-      "./app/users/[id]/page.tsx",
-      "./app/shop/[cat]/[item]/page.tsx",
-    ];
+    // Mirrors the README helper exactly - options object included, because a
+    // documented snippet nobody executes is a snippet that quietly stops matching
+    // the code it describes.
+    const PAGES = {
+      files: [
+        "./app/page.tsx",
+        "./app/(marketing)/pricing/page.tsx",
+        "./app/blog/[...slug]/page.tsx",
+        "./app/docs/[[...seg]]/page.tsx",
+        "./app/users/new/page.tsx",
+        "./app/users/[id]/page.tsx",
+        "./app/shop/[cat]/[item]/page.tsx",
+      ],
+      pagesDir: "./app",
+      pageFile: "page.tsx",
+    };
 
-    const hasPage = (url, { caseSensitive = true } = {}) => {
+    const hasPage = (url, { files, pagesDir, pageFile, caseSensitive = true }) => {
       const wanted = url.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
       const same = (a, b) => (caseSensitive ? a === b : a.toLowerCase() === b.toLowerCase());
+      const suffix = `/${pageFile}`;
 
-      return pageFiles.some((file) => {
-        const folder = file.slice(0, -"/page.tsx".length);
-        if (!folder.startsWith("./app")) return false;
+      return files.some((file) => {
+        if (!file.endsWith(suffix)) return false;
+        const folder = file.slice(0, -suffix.length);
+        // A folder boundary, not a bare prefix: `./app` must not claim
+        // `./application/page.tsx` as one of its own.
+        if (folder !== pagesDir && !folder.startsWith(`${pagesDir}/`)) return false;
         const pattern = folder
-          .slice("./app".length)
+          .slice(pagesDir.length)
           .split("/")
           .filter(Boolean)
           .filter((segment) => !/^\(.*\)$/.test(segment));
@@ -757,7 +768,7 @@ describe("route generator", () => {
 
     for (const [url, expectPage] of Object.entries(EXPECTED_PAGES)) {
       assert.equal(
-        hasPage(url),
+        hasPage(url, PAGES),
         expectPage,
         `hasPage("${url}") said ${expectPage ? "no page" : "a page"}`,
       );
@@ -767,10 +778,61 @@ describe("route generator", () => {
     // `caseSensitive` stamp. `/DOCS` is answered by `docs/[[...seg]]/page.tsx`
     // only once segments compare case-insensitively; `/USERS` answers nothing
     // either way, because both `users` pages need a second segment.
-    assert.equal(hasPage("/DOCS"), false);
-    assert.equal(hasPage("/DOCS", { caseSensitive: false }), true);
-    assert.equal(hasPage("/USERS"), false);
-    assert.equal(hasPage("/USERS", { caseSensitive: false }), false);
+    assert.equal(hasPage("/DOCS", PAGES), false);
+    assert.equal(hasPage("/DOCS", { ...PAGES, caseSensitive: false }), true);
+    assert.equal(hasPage("/USERS", PAGES), false);
+    assert.equal(hasPage("/USERS", { ...PAGES, caseSensitive: false }), false);
+
+    // Custom `pagesDir` / `pageFile` work only when the options say so: the glob
+    // and the two names are written together in `PAGES`, so a project that moves
+    // its routes has one object to change - and a helper that reads the wrong
+    // names finds no page at all rather than the wrong page.
+    const CUSTOM_PAGES = {
+      files: [
+        "./src/pages/index.tsx",
+        "./src/pages/(marketing)/pricing/index.tsx",
+        "./src/pages/users/[id]/index.tsx",
+        "./src/pages/notes/[...slug]/index.tsx",
+      ],
+      pagesDir: "./src/pages",
+      pageFile: "index.tsx",
+    };
+
+    assert.ok(hasPage("/", CUSTOM_PAGES), "a custom page file name still answers the root");
+    assert.ok(hasPage("/pricing", CUSTOM_PAGES), "a group adds no segment, custom dir or not");
+    assert.ok(hasPage("/users/7", CUSTOM_PAGES));
+    assert.ok(hasPage("/notes/a/b", CUSTOM_PAGES));
+    assert.ok(!hasPage("/notes", CUSTOM_PAGES), "a required catch-all base is still not a page");
+    // The default names find nothing in that list, which is the failure the
+    // README's second snippet exists to prevent.
+    assert.ok(!hasPage("/", { ...PAGES, files: CUSTOM_PAGES.files }));
+    assert.ok(!hasPage("/users/7", { ...PAGES, files: CUSTOM_PAGES.files }));
+    // ...and matching `pageFile` against the same list skips the files that are
+    // not pages at all.
+    assert.ok(!hasPage("/users/7", { ...CUSTOM_PAGES, pageFile: "page.tsx" }));
+
+    // Keys can also be root-absolute, the form `import.meta.glob("/src/app/**")`
+    // produces; the comparison is verbatim, so the option has to be spelled that
+    // way too.
+    const ABSOLUTE_PAGES = {
+      files: ["/src/app/users/[id]/page.tsx"],
+      pagesDir: "/src/app",
+      pageFile: "page.tsx",
+    };
+    assert.ok(hasPage("/users/7", ABSOLUTE_PAGES));
+    assert.ok(!hasPage("/users/7", { ...ABSOLUTE_PAGES, pagesDir: "./src/app" }));
+
+    // An ambiguous prefix is the bug the folder-boundary check removes: `./app`
+    // must not treat `./application/page.tsx` as its own root page, and must not
+    // turn the leftover letters into a route either.
+    const NEIGHBOUR_PAGES = {
+      files: ["./application/page.tsx", "./app-extra/page.tsx"],
+      pagesDir: "./app",
+      pageFile: "page.tsx",
+    };
+    assert.ok(!hasPage("/", NEIGHBOUR_PAGES), "a neighbouring folder is not the pages root");
+    assert.ok(!hasPage("/lication", NEIGHBOUR_PAGES), "the stripped remainder is not a route");
+    assert.ok(!hasPage("/-extra", NEIGHBOUR_PAGES));
 
     // The two tests agree wherever the chain can decide, and disagree only on the
     // documented shapes - which is why the README offers both.
@@ -796,7 +858,7 @@ describe("route generator", () => {
     for (const url of ["/", "/blog/a", "/users/7", "/ddddddd", "/USERS"]) {
       assert.equal(
         isUnmatched(url),
-        !hasPage(url, { caseSensitive: true }),
+        !hasPage(url, PAGES),
         `the chain test and the file test disagree on "${url}"`,
       );
     }
@@ -804,7 +866,7 @@ describe("route generator", () => {
     // index, so the chain test cannot see the 404, while the file test never claimed
     // the base was a page.
     assert.equal(isUnmatched("/blog"), false);
-    assert.equal(hasPage("/blog"), false);
+    assert.equal(hasPage("/blog", PAGES), false);
   });
 
   test("rejects not-found routes that conflict with catch-all pages", () => {
