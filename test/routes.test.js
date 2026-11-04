@@ -731,6 +731,11 @@ describe("route generator", () => {
       // server handed `GET //host/path` is asked about a path of two slashes.
       "//example.com/users/123": "//example.com/users/123",
       "//users/123": "//users/123",
+      // A protocol-relative target keeps its two slashes whatever the escapes hold,
+      // and its dot segments are resolved like any other path's.
+      "//example.com/%FF": "//example.com/%FF",
+      "//example.com/%zz": "//example.com/%zz",
+      "//example.com/%2e%2e/x": "//x",
       // Malformed escapes are never routed through the parser (see below), and an
       // unparseable absolute URL is used as it came.
       "/%zz": "/%zz",
@@ -796,7 +801,8 @@ describe("route generator", () => {
     };
     try {
       for (const url of ["/%zz", "/users/%zz", "/users/a%2", "/users/%FF",
-        "https://example.com/users/%FF", "/docs/%zz/x"]) {
+        "https://example.com/users/%FF", "/docs/%zz/x", "//example.com/%FF",
+        "//example.com/%zz", "/users/%2e%2e/%FF"]) {
         normalizeRequestTarget(url);
       }
     } finally {
@@ -820,10 +826,21 @@ describe("route generator", () => {
       ["/users//%FF", "/users//%41", "/users//%FF"],
       ["/users/%FF/", "/users/%41/", "/users/%FF/"],
       ["/docs/ok/%FF/ok", "/docs/ok/%41/ok", "/docs/ok/%FF/ok"],
+      // And the dot segments the URL spec recognises in their encoded forms - a
+      // double dot pops, a single one only disappears.
+      ["/users/%2e%2e/%FF", "/users/%2e%2e/%41", "/%FF"],
+      ["/users/.%2e/%FF", "/users/.%2e/%41", "/%FF"],
+      ["/users/%2E./%FF", "/users/%2E./%41", "/%FF"],
+      ["/users/%2e/%FF", "/users/%2e/%41", "/users/%FF"],
+      ["/a/%2e%2e/%2E./%FF", "/a/%2e%2e/%2E./%41", "/%FF"],
+      // The same rule for a protocol-relative path, whose two slashes survive it.
+      ["//example.com/%2e%2e/%FF", "//example.com/%2e%2e/%41", "//%FF"],
     ]) {
       assert.equal(
         normalizeRequestTarget(standIn),
-        shape.replace("%FF", "%41").replace("%zz", "%41"),
+        standIn.startsWith("//")
+          ? shape.replace("%FF", "%41")
+          : shape.replace("%FF", "%41").replace("%zz", "%41"),
         `the parser should read ${standIn} as ${shape}`,
       );
       assert.equal(normalizeRequestTarget(broken), shape, `${broken} should keep that shape`);
@@ -842,6 +859,10 @@ describe("route generator", () => {
     // And the structure around it survives: `/users/other/../%FF` is the browser's
     // `/users/%FF`, so it is the same page - not a 404 for an unmatched depth.
     assert.equal(getRouteStatus(routes, "/users/other/../%FF"), 200);
+    // A double slash in front of the host-shaped segments is still no page of the
+    // app's, escape or not - it is the route table that says so, not the parser.
+    assert.equal(getRouteStatus(routes, "//example.com/%FF"), 404);
+    assert.equal(getRouteStatus(routes, "//example.com/%zz"), 404);
     // An invalid sequence in the pathname is refused by the parser but not by the
     // route table; in the query it is React Router's to parse, and the page stands.
     assert.equal(getRouteStatus(routes, "/users/123?tag=%zz"), 200);
@@ -873,6 +894,9 @@ describe("route generator", () => {
       ["/users//123", 200],
       ["/%zz", 200],
       ["/users/%FF", 200],
+      // Protocol-relative *and* undecodable: the page still takes it.
+      ["//example.com/%FF", 200],
+      ["//example.com/%zz", 200],
     ]) {
       assert.equal(getRouteStatus(catchAll, url), expected, `catch-all only: "${url}"`);
       assert.equal(getRouteStatus(both, url), expected, `catch-all and fallback: "${url}"`);

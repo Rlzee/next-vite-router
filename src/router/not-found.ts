@@ -68,25 +68,33 @@ function isUndecodable(path: string): boolean {
 }
 
 /**
+ * What the URL spec calls a single-dot and a double-dot path segment. The encoded
+ * forms count too, ASCII case-insensitively, which is why `%2e%2e` and `.%2e` pop a
+ * segment just as `..` does - and why the test is on the raw segment: decoding the
+ * path to check it would be the very thing this branch avoids.
+ */
+const SINGLE_DOT = /^(?:\.|%2e)$/i;
+const DOUBLE_DOT = /^(?:\.\.|%2e\.|\.%2e|%2e%2e)$/i;
+
+/**
  * The structural half of `new URL().pathname`, without the parser: a missing
- * leading slash completed, `.` and `..` segments resolved, everything else - every
- * empty segment and every percent escape - kept byte for byte.
+ * leading slash completed, dot segments resolved, everything else - every empty
+ * segment and every percent escape - kept byte for byte.
  *
- * Only reached for a path that cannot be decoded, where the parser must not be run
- * at all because it warns on stderr. Judging the whole path for one broken escape
- * must not cost the *other* segments their structure, or the escape in `/%FF/x`
- * would decide how `/a/../%FF` matches.
+ * Reached for a path the parser must not be run over: one carrying an escape it
+ * could not decode, where it warns on stderr, and a protocol-relative target, where
+ * parsing it would read `//host` as an authority and swap origin. Judging the whole
+ * path for one broken escape must not cost the *other* segments their structure,
+ * or the escape in `/%FF/x` would decide how `/a/../%FF` matches.
  */
 function resolveByHand(path: string): string {
   const absolute = path.startsWith("/") ? path : `/${path}`;
-  if (!/(^|\/)\.{1,2}(\/|$)/.test(absolute)) return absolute;
-
   const kept = [""];
   for (const segment of absolute.split("/").slice(1)) {
-    if (segment === ".") continue;
-    // An empty segment is part of the path (`/a//b` means two slashes), so `..`
-    // may only pop a named one, never the leading slash itself.
-    if (segment === "..") {
+    if (SINGLE_DOT.test(segment)) continue;
+    if (DOUBLE_DOT.test(segment)) {
+      // An empty segment is part of the path (`/a//b` means two slashes), so a dot
+      // segment may only pop a named one, never the leading slash itself.
       if (kept.length > 1) kept.pop();
       continue;
     }
@@ -110,8 +118,8 @@ const SCHEME = /^[a-z][a-z0-9+.-]*:/i;
  *   `new URL(req.url)` readback gives - for `http` and `https` only.
  *
  * For those the authority (host, credentials, port), the query and the fragment are
- * dropped and `.`/`..` segments resolved, so the server reaches the same leaf the
- * browser would. Anything else is handed to React Router as it arrived, because
+ * dropped and dot segments resolved, so the server reaches the same leaf the browser
+ * would. Anything else is handed to React Router as it arrived, because
  * reading it as a path on *this* origin would invent a page no client can reach
  * under that name: `ftp://example.com/users/123`, `file:///C:/users/123`,
  * `mailto:` and `javascript:` are not requests, and a `//host/path` - an href
@@ -125,11 +133,13 @@ const SCHEME = /^[a-z][a-z0-9+.-]*:/i;
  * A pathname whose escapes are not valid UTF-8 (`/users/%FF`, an overlong
  * `%C0%AF`, a lone surrogate `%ED%A0%80`) goes through the same steps minus the
  * parser, because the parser reads every escape and warns on stderr for those it
- * cannot decode. Nothing about it is *rewritten*: the escapes stay as they are and
- * React Router hands them to the page verbatim, which is what the client's router
- * does. Matching such a path makes React Router warn while decoding the param, and
- * that warning is the router's, raised against a page that exists; hiding it by
- * answering 404 would be a wrong answer bought with a quiet log.
+ * cannot decode; the structure it would have given the path - leading slash, dot
+ * segments in their encoded forms as well as their literal ones - is settled by
+ * {@link resolveByHand} instead. Nothing about the path is *rewritten*: the escapes
+ * stay as they are and React Router hands them to the page verbatim, which is what
+ * the client's router does. Matching such a path makes React Router warn while
+ * decoding the param, and that warning is the router's, raised against a page that
+ * exists; hiding it by answering 404 would be a wrong answer bought with a quiet log.
  */
 export function normalizeRequestTarget(url: string): string {
   // A scheme that is not `http`/`https` names no request target on this origin, and
@@ -144,7 +154,9 @@ export function normalizeRequestTarget(url: string): string {
 
   // A protocol-relative href is an authority shortcut in a *document*, not in a
   // request target: these two slashes are the path, and must not be read as a host.
-  if (path.startsWith("//")) return path;
+  // Which also means the parser cannot touch it - resolving it as a URL would swap
+  // origin - so its structure is settled the same way an undecodable path's is.
+  if (path.startsWith("//")) return resolveByHand(path);
 
   if (isUndecodable(path)) return resolveByHand(path);
 

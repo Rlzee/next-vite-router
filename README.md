@@ -349,18 +349,26 @@ be a wrong answer bought with a quiet log. This package's own share of the log s
 empty: the URL parser is never handed a path it could not decode.
 
 Note the asymmetry that implies. The decodability check judges the **whole** path
-because that is what the parser would decode, while React Router decodes **segment by
-segment** — so the parser is skipped for the whole path, and the structural work it
-would have done (a missing leading slash, `.` and `..` segments) is done by hand on
-the raw segments instead. One broken escape therefore cannot change how the others
-match:
+because that is what the URL parser would decode, while React Router decodes **segment
+by segment** — so the parser is skipped for the whole path, and the structural work it
+would have done (a missing leading slash, dot segments) is done by hand on the raw
+segments instead, following the URL spec's own definition of a dot segment: `%2e%2e`,
+`.%2e` and `%2E.` pop like `..`, a lone `%2e` disappears like `.`, and nothing else in
+the path is decoded or rewritten. One broken escape therefore cannot change how the
+others match:
 
 ```ts
 normalizeRequestTarget("/users/other/../%FF");  // "/users/%FF" - same shape as "/users/other/../%41"
+normalizeRequestTarget("/users/%2e%2e/%FF");    // "/%FF"       - the encoded dot pops too
 normalizeRequestTarget("/users//%FF");          // two slashes preserved
 getRouteStatus(routes, "/users/a%2Fb");         // 200 - %2F stays inside one segment
 getRouteStatus(routes, "/users/a/b");           // 404 - a real third segment
 ```
+
+The same hand-resolved structure applies to a protocol-relative path — `//example.com/%2e%2e/x`
+keeps its two slashes and loses `example.com` to the dot segment — because the parser
+cannot be used there either: read as a URL, `//host` is an authority, and the request
+would be answered against a different origin than the one being served.
 
 `normalizeRequestTarget()` is exported if you want the same reading for logging.
 

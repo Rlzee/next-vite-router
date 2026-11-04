@@ -112,13 +112,17 @@ security gate - that the next change to any of this will be caught by.
 - **One broken escape cannot reach the segments around it.** Decodability is judged
   on the whole path - which is what the URL parser would decode - while React Router
   decodes segment by segment, so skipping the parser for the whole path had to leave
-  its *structural* work standing: a missing leading slash completed and `.`/`..`
-  segments resolved by hand, on the raw segments, with every escape and every empty
-  segment kept byte for byte. `/users/other/../%FF` therefore reads as the browser's
-  `/users/%FF` and reaches the same page as `/users/other/../%41` would, not a `404`
-  for an unmatched depth. Decodable escapes are untouched either way: `/users/a%2Fb`
-  stays one segment and answers `200` where `/users/a/b` answers `404`, since it is
-  React Router that turns `%2F` into a `/` inside the param value, not the path.
+  its *structural* work standing: a missing leading slash completed and dot segments
+  resolved by hand, on the raw segments, with every escape and every empty segment
+  kept byte for byte. The hand resolver follows the URL spec's own definition of a dot
+  segment, so `%2e%2e`, `.%2e` and `%2E.` pop as `..` does and a lone `%2e`
+  disappears as `.` does - so `/users/%2e%2e/%FF` reads as `/%FF`, the same shape the
+  parser gives `/users/%2e%2e/%41`, rather than keeping three segments. Without that,
+  one undecodable segment would change the matching depth of the whole path. A
+  protocol-relative target gets the same treatment, and for a different reason: the
+  parser cannot be run over `//host/path` at all, since it would read the host and
+  answer against another origin, so its dot segments are resolved by hand too while
+  its two leading slashes stay.
 - **`http://` is not read as the root page.** An absolute target with neither host nor
   path names no request; only a non-empty authority is stripped.
 - **A browser suite in Chromium**, `pnpm run test:browser`: 23 tests over the fixture
