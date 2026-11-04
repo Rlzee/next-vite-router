@@ -277,28 +277,40 @@ if (!matches) return new Response("Not Found", { status: 404 });
 ```
 
 Read the signal from the matched leaf. The catch is that `path: "*"` is not
-reserved for not-founds: a `[...slug]` page lives on a `*` route of its own, one
-level below its folder, so the test has to ask whether the splat is **the root's**
-— the one the converter appends — and not a folder's:
+reserved for not-founds: a `[...slug]` page lives on a `*` route of its own. So the
+test has to ask whether the splat is **the root's** — the one the converter
+appends — and not one some folder contributes, and that question is about the
+**whole ancestor chain**, not the immediate parent. A folder that declares
+`error.tsx` or `loading.tsx` gets a pathless boundary route in front of everything
+it renders, so the chain for `users/[...slug]/page.tsx` reads
+`"/" > "users" > pathless > "*"`: checking only the entry above the splat sees a
+pathless route and calls a working page a 404.
 
 ```ts
 import { matchRoutes, type RouteObject } from "react-router-dom";
 // On a v7 app with no `react-router-dom` installed, both come from `react-router`.
 
 /**
- * `true` when the URL is answered by the root's 404 route instead of by a page.
- * A `[...slug]` folder's page also sits on a `*`, but under that folder, and
- * must keep its 200.
+ * `true` when the URL is answered by the 404 route the converter appends at the
+ * root rather than by a page. A splat is the root's when every route above it is
+ * URL-neutral: the root itself (`"/"`), a pathless boundary or route group, or an
+ * index. `users/[...slug]/page.tsx` fails that test on its `users` segment and so
+ * keeps its 200, boundary route or not.
  */
 function isUnmatched(routes: RouteObject[], url: string): boolean {
   const matches = matchRoutes(routes, url);
   if (!matches) return true;
   if (matches.at(-1)?.route.path !== "*") return false;
 
-  const parent = matches.at(-2);
-  // The appended splat is a top-level route, a child of the root layout route
-  // (`"/"`), or behind a pathless boundary or group — never below a folder.
-  return parent === undefined || parent.route.path === "/" || parent.route.path === undefined;
+  return matches
+    .slice(0, -1)
+    .every(
+      ({ route }) =>
+        route.path === undefined
+        || route.path === ""
+        || route.path === "/"
+        || route.index === true,
+    );
 }
 
 const status = isUnmatched(routes, url) ? 404 : 200;
@@ -309,9 +321,14 @@ own `treeToRoutes()` call returns. Case sensitivity is part of the answer: with
 the default on, `/USERS` reaches no `users/` folder, so it is an unmatched URL and
 404s — which is also what Next.js does.
 
-Two shapes still answer `200`, exactly as they did before 4.0.0 — the `null`
-test never caught them either:
+Three shapes are outside what any chain test can decide:
 
+- **A catch-all that owns the root URL.** `[...slug]/page.tsx` sitting directly in
+  `pagesDir` — or inside a route group at that level, which is the same thing as
+  far as the URL is concerned — answers `/a/b` from a `*` whose ancestors are all
+  URL-neutral too, so the rule returns `404` for a real page. Skip the test for
+  that shape. Such an app has no root `page.tsx` either: the two would both claim
+  `/`, and the converter refuses the pair, so nearly every URL it serves is a page.
 - **A folder's own `not-found.tsx`.** `users/not-found.tsx` makes `/users/nope`
   match a splat *below* `users`, and by shape alone that splat is not
   distinguishable from a `[...slug]` page's.
@@ -320,9 +337,11 @@ test never caught them either:
   folder holding a real `page.tsx` produces too — `route.index` is not a 404
   signal.
 
-The emitted route array carries no documented marker that separates a not-found
-route from a page route, so a server that must report `404` for those two shapes
-has to bring its own knowledge of the tree — the bases it declares no page for.
+The last two answer `200`, as they did before 4.0.0 — the `null` test never caught
+them either. The emitted route array carries no documented marker separating a
+not-found route from a page route, so a server that must report `404` for those
+shapes has to bring its own knowledge of the tree — the bases it declares no page
+for.
 
 ### Custom file names and pages directory
 

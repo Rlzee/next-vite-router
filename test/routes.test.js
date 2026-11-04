@@ -563,7 +563,8 @@ describe("route generator", () => {
     // teaches. Since 4.0.0 `matchRoutes()` answers every URL, so a server decides
     // the status from the matched leaf - and a leaf `path === "*"` alone is not
     // enough, because a `[...slug]` page lives on a `*` of its own and would be
-    // 404ed. Only the splat the root appends means "no page answers this URL".
+    // 404ed. Only a splat with nothing but URL-neutral routes above it means "no
+    // page answers this URL".
     const routes = createRoutes({
       pages: {
         "page.tsx": loader("home"),
@@ -574,47 +575,106 @@ describe("route generator", () => {
       notFounds: { "users/not-found.tsx": loader("users-not-found") },
     });
 
-    const isUnmatched = (url) => {
-      const matches = matchRoutes(routes, url);
+    const isUnmatched = (tree, url) => {
+      const matches = matchRoutes(tree, url);
       if (!matches) return true;
       if (matches.at(-1)?.route.path !== "*") return false;
-      const parent = matches.at(-2);
-      return (
-        parent === undefined
-        || parent.route.path === "/"
-        || parent.route.path === undefined
+      return matches.slice(0, -1).every(({ route }) =>
+        route.path === undefined
+        || route.path === ""
+        || route.path === "/"
+        || route.index === true,
       );
     };
 
     // The 4.0.0 case itself: nothing but the appended splat answers this URL, and
     // the `!matches` branch a 3.x server relied on is gone.
     assert.notEqual(matchRoutes(routes, "/ddddddd"), null);
-    assert.ok(isUnmatched("/ddddddd"));
+    assert.ok(isUnmatched(routes, "/ddddddd"));
 
     // A catch-all page is a real page even though its leaf is a splat: the splat
     // sits below `blog`, so the 200 is kept.
     const catchAllPage = matchRoutes(routes, "/blog/guide/api");
     assert.equal(catchAllPage.at(-1).route.path, "*");
     assert.equal(catchAllPage.at(-2).route.path, "blog");
-    assert.ok(!isUnmatched("/blog/guide/api"));
+    assert.ok(!isUnmatched(routes, "/blog/guide/api"));
 
     // A folder's own `not-found.tsx` is the documented 200 the rule gives up: the
     // splat is one level below the root and indistinguishable from a page's.
     const folderNotFound = matchRoutes(routes, "/users/nope");
     assert.equal(folderNotFound.at(-1).route.path, "*");
     assert.equal(folderNotFound.at(-2).route.path, "users");
-    assert.ok(!isUnmatched("/users/nope"));
+    assert.ok(!isUnmatched(routes, "/users/nope"));
 
     // A page-less base renders the not-found through a guard index, and an index
     // leaf is exactly what a real page at its own base produces too, so
     // `route.index` cannot serve as the 404 signal.
     assert.equal(matchRoutes(routes, "/docs").at(-1).route.index, true);
     assert.equal(matchRoutes(routes, "/users").at(-1).route.index, true);
-    assert.ok(!isUnmatched("/docs"));
-    assert.ok(!isUnmatched("/users"));
+    assert.ok(!isUnmatched(routes, "/docs"));
+    assert.ok(!isUnmatched(routes, "/users"));
 
     // The root page answers 200: its leaf is the folder's own index, not a splat.
-    assert.ok(!isUnmatched("/"));
+    assert.ok(!isUnmatched(routes, "/"));
+  });
+
+  test("a folder's boundary route does not turn its catch-all page into a 404", () => {
+    // `loading.tsx` / `error.tsx` insert a pathless boundary route in front of
+    // everything a folder renders, so the chain reaching a nested catch-all page
+    // is `/ > users > pathless > *`. A server that inspects only the entry above
+    // the splat sees a pathless route, concludes "the root's splat", and answers
+    // 404 for a URL that renders a page. The ancestor scan the README publishes
+    // keeps the 200, because `users` is a segment of the URL.
+    const tree = buildRouteTree({
+      pages: {
+        "page.tsx": loader("home"),
+        "users/[...slug]/page.tsx": loader("users-catch"),
+      },
+      errors: { "users/error.tsx": { default: component("USER-ERROR") } },
+      loadings: { "users/loading.tsx": { default: component("USER-LOADING") } },
+    });
+    const routes = treeToRoutes(tree, true);
+
+    const matches = matchRoutes(routes, "/users/a/b");
+    assert.ok(matches, "/users/a/b must match");
+    assert.equal(matches.at(-1).route.path, "*");
+    // The trap: the immediate parent is the boundary, not the folder.
+    assert.equal(matches.at(-2).route.path, undefined);
+    assert.equal(matches.at(-3).route.path, "users");
+
+    const isUnmatched = (tree, url) => {
+      const found = matchRoutes(tree, url);
+      if (!found) return true;
+      if (found.at(-1)?.route.path !== "*") return false;
+      return found.slice(0, -1).every(({ route }) =>
+        route.path === undefined
+        || route.path === ""
+        || route.path === "/"
+        || route.index === true,
+      );
+    };
+
+    assert.equal(
+      isUnmatched(routes, "/users/a/b"),
+      false,
+      "a nested catch-all page must keep its 200 behind its folder's boundary",
+    );
+
+    // The same rule still reports the root's own splat correctly: the URL-neutral
+    // ancestors above it (`/` and the root boundary) are exactly what the
+    // pathless branch exists for.
+    const rootLayoutTree = buildRouteTree({
+      pages: { "page.tsx": loader("home") },
+      layouts: { "layout.tsx": { default: component("ROOT-LAYOUT") } },
+      errors: { "error.tsx": { default: component("ROOT-ERROR") } },
+    });
+    const rootRoutes = treeToRoutes(rootLayoutTree, true);
+    const unmatched = matchRoutes(rootRoutes, "/ddddddd");
+    assert.equal(unmatched.at(-1).route.path, "*");
+    assert.equal(unmatched.at(-2).route.path, undefined, "the root boundary sits above the splat");
+    assert.equal(unmatched.at(-3).route.path, "/");
+    assert.ok(isUnmatched(rootRoutes, "/ddddddd"));
+    assert.ok(!isUnmatched(rootRoutes, "/"));
   });
 
   test("rejects not-found routes that conflict with catch-all pages", () => {
