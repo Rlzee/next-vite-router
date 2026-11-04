@@ -310,11 +310,30 @@ getRouteStatus(routes, "/users/123#details");
 getRouteStatus(routes, "https://example.com/users/123");   // origin dropped
 ```
 
-The origin, query and fragment are removed and `.`/`..` segments resolved before
+The authority, query and fragment are removed and `.`/`..` segments resolved before
 matching, so a proxy that forwards an absolute `GET` target reaches the same route
 the browser would. A trailing slash is *kept*, because the browser keeps it and the
 client router sees it — dropping it would let the server decide on a different URL
 than the client renders.
+
+**Only `http` and `https` name an absolute request target.** Everything else is
+handed to the router as it arrived, because re-reading it as a path on *this* origin
+would invent a page no client can ask for under that name:
+
+```ts
+getRouteStatus(routes, "ftp://example.com/users/123");  // 404, not the /users/123 page
+getRouteStatus(routes, "//example.com/users/123");      // 404: a path of two slashes
+getRouteStatus(routes, "mailto:someone@example.com");   // 404
+```
+
+A protocol-relative `//host/path` is an *href* shortcut inside a document, not a
+request target — a server handed `GET //example.com/users/123` is being asked about
+a path that really does begin with two slashes, which is what the browser's own
+`location.pathname` says too. And a path carrying a malformed escape (`/%zz`, which
+is what scanners walk) is answered `404` without being parsed: React Router decodes
+the pathname it matches and Node prints a warning for each bad escape, so handing
+those over would put a line in your server log per probe. `normalizeRequestTarget()`
+is exported if you want the same reading for your own logging.
 
 If you took the advice this section gave earlier, or the `route.path === "*"` line in
 the 4.0.0 notes, that check is wrong in both directions: it 404s catch-all pages and

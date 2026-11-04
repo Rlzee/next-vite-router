@@ -13,6 +13,7 @@ import {
   isNotFoundRoute,
   isUnmatched,
   getRouteStatus,
+  normalizeRequestTarget,
   treeToRoutes,
 } from "../dist/index.js";
 import { extractRoutePath, parseRouteSegments } from "../dist/index.js";
@@ -657,7 +658,6 @@ describe("route generator", () => {
       "/users/123/?tab=profile",
       "https://example.com/users/123",
       "https://example.com/users/123?tab=profile",
-      "//example.com/users/123",
       "/users/other/../123",
       "users/123",
     ]) {
@@ -682,6 +682,96 @@ describe("route generator", () => {
     );
     assert.equal(getRouteStatus(insensitive, "/USERS"), 200);
     assert.equal(getRouteStatus(insensitive, "/BLOG/a"), 200);
+  });
+
+  test("normalizeRequestTarget() takes a request target, not any URL", () => {
+    // The contract, pinned pathname by pathname: an SSR server is handed an HTTP
+    // request target, and only `http`/`https` carry an authority to drop. Reading
+    // anything else as a path on this origin would invent a page no client can ask
+    // for under that name, so those arrive untouched - and answer 404.
+    const routes = createRoutes({
+      pages: {
+        "page.tsx": loader("home"),
+        "users/[id]/page.tsx": loader("user"),
+        "docs/[[...slug]]/page.tsx": loader("docs"),
+      },
+    });
+
+    const PATHNAMES = {
+      // Absolute-form: host, credentials, port and case of the scheme are noise.
+      "https://example.com/users/123": "/users/123",
+      "https://example.com:8443/users/123": "/users/123",
+      "http://user:pass@example.com/users/123": "/users/123",
+      "HTTPS://EXAMPLE.COM/users/123": "/users/123",
+      // A malformed escape in the *query* is not the path's business: the page
+      // still answers, and nothing is refused over something matchRoutes parses.
+      "/users/123?tag=%zz": "/users/123",
+      "https://example.com/users/123?tag=%zz": "/users/123",
+      // Origin-form, dot segments resolved the way a browser resolves them.
+      "/users/other/../123": "/users/123",
+      "users/123": "/users/123",
+      "?tab=profile": "/",
+      "#frag": "/",
+      "": "/",
+      // A space is encoded, because that is what `location.pathname` would hold.
+      "/users/hello world": "/users/hello%20world",
+      "/users/hello%20world": "/users/hello%20world",
+      // A double slash inside the path is content; the catch-all keeps it.
+      "/docs/a//b": "/docs/a//b",
+      // `%2e` is a dot to the URL parser, so `..` is removed exactly as a browser
+      // removes it. The 404 below is therefore the browser's own answer.
+      "/docs/%2e%2e/x": "/x",
+      // Not a request target at all: left as it arrived, so it matches nothing.
+      "mailto:someone@example.com": "mailto:someone@example.com",
+      "javascript:alert(1)": "javascript:alert(1)",
+      "file:///C:/users/123": "file:///C:/users/123",
+      "ftp://example.com/users/123": "ftp://example.com/users/123",
+      // A protocol-relative href is a document shortcut, not a request target: a
+      // server handed `GET //host/path` is asked about a path of two slashes.
+      "//example.com/users/123": "//example.com/users/123",
+      "//users/123": "//users/123",
+      // Malformed escapes are never routed through the parser (see below), and an
+      // unparseable absolute URL is used as it came.
+      "/%zz": "/%zz",
+      "http://": "http://",
+    };
+
+    for (const [url, pathname] of Object.entries(PATHNAMES)) {
+      assert.equal(normalizeRequestTarget(url), pathname, `"${url}"`);
+    }
+
+    // What those readings cost in status: the pages keep their 200, and every input
+    // that is not a request target on this origin is a 404 - never a borrowed page.
+    assert.equal(getRouteStatus(routes, "https://example.com:8443/users/123"), 200);
+    assert.equal(getRouteStatus(routes, "http://user:pass@example.com/users/123"), 200);
+    assert.equal(getRouteStatus(routes, "/users/123?tag=%zz"), 200);
+    assert.equal(getRouteStatus(routes, "/users/hello world"), 200);
+    assert.equal(getRouteStatus(routes, "/docs/a//b"), 200);
+    assert.equal(getRouteStatus(routes, "ftp://example.com/users/123"), 404);
+    assert.equal(getRouteStatus(routes, "//example.com/users/123"), 404);
+    assert.equal(getRouteStatus(routes, "/docs/%2e%2e/x"), 404);
+    // A trailing slash is kept, and the router still answers the page: normalising
+    // it away would let the server decide on a URL the client does not see.
+    assert.equal(getRouteStatus(routes, "/users/123/"), 200);
+
+    // The reason malformed escapes are refused rather than parsed: React Router
+    // decodes the pathname it matches, and Node prints a warning per read. A
+    // scanner walking `/%zz` must not cost a line of server log per request.
+    const writes = [];
+    const originalWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (chunk, ...rest) => {
+      writes.push(String(chunk));
+      return true;
+    };
+    try {
+      for (const url of ["/%zz", "/users/%zz", "/users/a%2", "/docs/%zz/x"]) {
+        assert.equal(getRouteStatus(routes, url), 404, `"${url}" should be a 404`);
+      }
+    } finally {
+      process.stderr.write = originalWrite;
+    }
+    const decoded = writes.filter((text) => text.includes("could not be decoded"));
+    assert.deepEqual(decoded, [], `malformed escapes should stay quiet, got: ${decoded.join("")}`);
   });
 
   test("only the routes that render a not-found page carry the handle", () => {

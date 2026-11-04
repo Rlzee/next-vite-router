@@ -34,36 +34,79 @@ export function isNotFoundRoute(route: { handle?: unknown }): boolean {
 }
 
 /**
- * The dummy origin `normalizeRequestTarget` resolves against. It is never sent
- * anywhere; it only gives relative input a frame of reference, the way the current
- * page does in a browser.
+ * The dummy origin `normalizeRequestTarget` resolves a bare path against. It is
+ * never sent anywhere; it only gives relative input a frame of reference, the way
+ * the current page does in a browser.
  */
 const ORIGIN = "http://next-vite-router.invalid/";
+
+/** An absolute request target, in the one two forms a server can be handed. */
+const HTTP_ABSOLUTE = /^https?:\/\//i;
+
+/**
+ * A percent sign that starts no valid escape. Node's URL parser reads such a path
+ * and prints a warning to stderr while doing it, so a scanner sending `/%zz` would
+ * add a line to the server log for every request it probes.
+ */
+const MALFORMED_ESCAPE = /%(?![0-9A-Fa-f]{2})/;
+
+/** A leading `scheme:` - whatever it turns out to name, it is not an origin-form path. */
+const SCHEME = /^[a-z][a-z0-9+.-]*:/i;
 
 /**
  * Reduce anything a server may hand over to the pathname React Router should
  * match - the same value a browser would put in `location.pathname`.
  *
- * `matchRoutes()` matches on a pathname, so an absolute request target (`GET` with
- * `http://host/path`, a proxy that forwards one, or a `new URL(req.url)` readback)
- * is not a route: it matches nothing and silently reports "not found". Going
- * through the WHATWG parser rather than a hand-rolled split means the result is
- * what the client would have seen - origin and credentials dropped, `?query` and
- * `#fragment` gone, `.`/`..` segments resolved, a missing leading slash completed -
- * so server and browser reach the same leaf for the same request. A path that
- * cannot be parsed is returned untouched, because React Router's own reading of it
- * is a better answer than an exception thrown from a status helper.
+ * The accepted input is an HTTP request target, which is what an SSR server is
+ * asked to answer:
  *
- * The trailing slash is deliberately kept: the browser keeps it, the client router
+ * - origin-form (`/users/123`), with or without a `?query` and a `#fragment`;
+ * - absolute-form (`https://host/users/123`) - what a proxy forwards and what a
+ *   `new URL(req.url)` readback gives - for `http` and `https` only.
+ *
+ * For those the authority (host, credentials, port), the query and the fragment are
+ * dropped and `.`/`..` segments resolved, so the server reaches the same leaf the
+ * browser would. Anything else is handed to React Router as it arrived, because
+ * reading it as a path on *this* origin would invent a page no client can reach
+ * under that name: `ftp://example.com/users/123`, `file:///C:/users/123`,
+ * `mailto:` and `javascript:` are not requests, and a `//host/path` - an href
+ * shortcut in a document, not a request target - is a path that genuinely begins
+ * with two slashes. All of them answer no route, which is the honest `404`.
+ *
+ * A trailing slash is deliberately kept: the browser keeps it, the client router
  * sees it, and dropping it here would make the server decide with a different URL
  * than the client renders.
  */
 export function normalizeRequestTarget(url: string): string {
+  // Judged on the path alone: a malformed escape in the query is React Router's to
+  // parse, and must not cost a real page its `200`.
+  if (MALFORMED_ESCAPE.test(withoutSuffix(url))) return url;
+
+  // Absolute-form: the authority carries no routing information for this app.
+  if (HTTP_ABSOLUTE.test(url)) {
+    try {
+      return new URL(url).pathname;
+    } catch {
+      return url;
+    }
+  }
+
+  if (url.startsWith("//")) return withoutSuffix(url);
+
+  // A scheme that is not `http` or `https`, but not a bare path either.
+  if (SCHEME.test(url) && !url.startsWith("?") && !url.startsWith("#")) return url;
+
   try {
-    return new URL(url, ORIGIN).pathname;
+    return new URL(url.startsWith("/") ? url : `/${url}`, ORIGIN).pathname;
   } catch {
     return url;
   }
+}
+
+/** Everything before the first `?` or `#`. */
+function withoutSuffix(url: string): string {
+  const cut = url.search(/[?#]/);
+  return cut === -1 ? url : url.slice(0, cut);
 }
 
 /**
@@ -92,7 +135,15 @@ export function normalizeRequestTarget(url: string): string {
  *               or an absolute URL
  */
 export function isUnmatched(routes: RouteObject[], url: string): boolean {
-  const matches = matchRoutes(routes, normalizeRequestTarget(url));
+  const target = normalizeRequestTarget(url);
+  // Answered here rather than handed to the matcher: React Router decodes the
+  // pathname it matches, and Node prints a warning to stderr for a malformed
+  // escape, so a scanner walking `/%zz` would add a line to the server log for
+  // every request it probes. Such a path addresses no page either way - a folder
+  // whose name contains a `%` is reached as `%25`, which is a valid escape - so
+  // skipping the match loses nothing.
+  if (MALFORMED_ESCAPE.test(withoutSuffix(target))) return true;
+  const matches = matchRoutes(routes, target);
   // Still worth honouring: a caller may hand a partial tree, or one built without
   // this package's conversion, and then `null` means what it always meant.
   if (!matches) return true;

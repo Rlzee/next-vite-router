@@ -80,14 +80,26 @@ security gate - that the next change to any of this will be caught by.
   the headers and the stream.
 - **Request targets are normalised before matching.** `matchRoutes()` matches on a
   pathname, so an absolute URL - what a proxy forwards, what a `new URL(req.url)`
-  readback gives - matched nothing and was silently reported as a 404, along with a
-  protocol-relative URL, a path missing its leading slash and one carrying `..`
-  segments. `isUnmatched()` and `getRouteStatus()` now reduce the argument the way a
-  browser would (origin, query and fragment dropped, dot segments resolved) and hand
-  React Router the same pathname the client would have routed. A query or fragment
-  already worked; a trailing slash is deliberately left alone, because the client
-  router sees it and normalising it away would let the server decide on a different
-  URL than the client renders.
+  readback gives - matched nothing and was silently reported as a 404. `isUnmatched()`
+  and `getRouteStatus()` now reduce the argument the way a browser would before
+  handing it to React Router: authority (host, credentials, port), query and
+  fragment dropped, `.`/`..` segments resolved, a path missing its leading slash
+  completed. A query or fragment already worked; a trailing slash is deliberately
+  left alone, because the client router sees it and normalising it away would let
+  the server decide on a different URL than the client renders.
+- **Only `http` and `https` are read as an absolute request target.** Resolving any
+  other scheme against the fallback origin re-reads it as a path on *this* one,
+  which measured as `ftp://example.com/users/123` answering `200` for the
+  `/users/123` page; `mailto:`, `javascript:`, `file:` and a protocol-relative
+  `//host/path` are now handed over untouched and answer `404`, since no client can
+  reach a page under those names. A malformed percent escape (`/%zz`, the kind a
+  scanner walks) is answered `404` without being parsed too: React Router decodes
+  the pathname it matches and Node prints a warning per bad escape, which would
+  otherwise put a line in the server log for every probe.
+- **`normalizeRequestTarget(url)`, exported from the package root** - the reading
+  the two status functions share, published so a server can log the same pathname it
+  decided on and so the contract is testable directly rather than inferred from a
+  status.
 - **A browser suite in Chromium**, `pnpm run test:browser`: 23 tests over the fixture
   app in `test/browser-app`, run against `vite dev`, against its production build
   through `vite preview`, and against a private copy of the app on its own port for
