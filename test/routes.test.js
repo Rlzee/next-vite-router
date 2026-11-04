@@ -734,6 +734,15 @@ describe("route generator", () => {
       // unparseable absolute URL is used as it came.
       "/%zz": "/%zz",
       "http://": "http://",
+      // Valid hex that is not valid UTF-8 is the same case, and the authority of an
+      // absolute target still has to go - cut by hand, since the parser is not fed
+      // something it would have to warn about decoding.
+      "/users/%FF": "/users/%FF",
+      "/users/%C0%AF": "/users/%C0%AF",
+      "/users/%ED%A0%80": "/users/%ED%A0%80",
+      "/users/a%2": "/users/a%2",
+      "https://example.com/users/%FF": "/users/%FF",
+      "https://user:pass@example.com:8443/users/%FF": "/users/%FF",
     };
 
     for (const [url, pathname] of Object.entries(PATHNAMES)) {
@@ -754,9 +763,22 @@ describe("route generator", () => {
     // it away would let the server decide on a URL the client does not see.
     assert.equal(getRouteStatus(routes, "/users/123/"), 200);
 
-    // The reason malformed escapes are refused rather than parsed: React Router
-    // decodes the pathname it matches, and Node prints a warning per read. A
-    // scanner walking `/%zz` must not cost a line of server log per request.
+    // An undecodable escape is not a 404 when a page of yours can take the path:
+    // `users/[id]` answers `/users/%FF` verbatim, exactly as the client's router
+    // would, and React Router's decode warning is the router's own signal about a
+    // page that exists rather than a reason to deny it.
+    assert.equal(getRouteStatus(routes, "/users/%FF"), 200);
+    assert.equal(getRouteStatus(routes, "/users/%C0%AF"), 200);
+    assert.equal(getRouteStatus(routes, "/users/%ED%A0%80"), 200);
+    assert.equal(getRouteStatus(routes, "https://example.com/users/%FF"), 200);
+    // The docs catch-all takes the malformed segment too.
+    assert.equal(getRouteStatus(routes, "/docs/%zz/x"), 200);
+    // Only where nothing of the app's answers does the malformed path become a 404:
+    // the built-in root page is the leaf, and the root page is a not-found page.
+    assert.equal(getRouteStatus(routes, "/%zz"), 404);
+
+    // What this package does contribute to the log stays empty: the URL parser is
+    // never handed an undecodable path, so no warning is ours to silence.
     const writes = [];
     const originalWrite = process.stderr.write.bind(process.stderr);
     process.stderr.write = (chunk, ...rest) => {
@@ -764,14 +786,56 @@ describe("route generator", () => {
       return true;
     };
     try {
-      for (const url of ["/%zz", "/users/%zz", "/users/a%2", "/docs/%zz/x"]) {
-        assert.equal(getRouteStatus(routes, url), 404, `"${url}" should be a 404`);
+      for (const url of ["/%zz", "/users/%zz", "/users/a%2", "/users/%FF",
+        "https://example.com/users/%FF", "/docs/%zz/x"]) {
+        normalizeRequestTarget(url);
       }
     } finally {
       process.stderr.write = originalWrite;
     }
     const decoded = writes.filter((text) => text.includes("could not be decoded"));
-    assert.deepEqual(decoded, [], `malformed escapes should stay quiet, got: ${decoded.join("")}`);
+    assert.deepEqual(decoded, [], `the normalizer should not warn, got: ${decoded.join("")}`);
+  });
+
+  test("a URL is judged by the routes that can actually take it", () => {
+    // The same double-slash path against three different tables, because the answer
+    // is a property of the app's routes and not of the URL: a root `[...slug]` page
+    // really does answer it, and the built-in page really does not.
+    const catchAll = treeToRoutes(buildRouteTree({
+      pages: {
+        "[...slug]/page.tsx": loader("catchall"),
+        "users/[id]/page.tsx": loader("user"),
+      },
+    }), false);
+    const fallback = treeToRoutes(buildRouteTree({
+      pages: { "page.tsx": loader("home"), "users/[id]/page.tsx": loader("user") },
+    }), true);
+    // Both at once: the app's own splat is reached before the appended root one, so
+    // the URL is a page - and the marking on the fallback leaf is what would have
+    // made this a 404 had the wrong one won.
+    const both = treeToRoutes(buildRouteTree({
+      pages: { "[...slug]/page.tsx": loader("catchall") },
+    }), true);
+
+    for (const [url, expected] of [
+      ["//example.com/users/123", 200],
+      ["//users/123", 200],
+      ["/users//123", 200],
+      ["/%zz", 200],
+      ["/users/%FF", 200],
+    ]) {
+      assert.equal(getRouteStatus(catchAll, url), expected, `catch-all only: "${url}"`);
+      assert.equal(getRouteStatus(both, url), expected, `catch-all and fallback: "${url}"`);
+    }
+
+    // With no page able to take them, the same URLs reach the built-in 404 - which
+    // is the only reason the README's example reads as a 404.
+    assert.equal(getRouteStatus(fallback, "//example.com/users/123"), 404);
+    assert.equal(getRouteStatus(fallback, "//users/123"), 404);
+    assert.equal(getRouteStatus(fallback, "/%zz"), 404);
+    // A page in the fallback app still answers its own malformed path.
+    assert.equal(getRouteStatus(fallback, "/users/%FF"), 200);
+    assert.equal(getRouteStatus(fallback, "/users/123"), 200);
   });
 
   test("only the routes that render a not-found page carry the handle", () => {

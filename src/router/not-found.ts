@@ -44,11 +44,21 @@ const ORIGIN = "http://next-vite-router.invalid/";
 const HTTP_ABSOLUTE = /^https?:\/\//i;
 
 /**
- * A percent sign that starts no valid escape. Node's URL parser reads such a path
- * and prints a warning to stderr while doing it, so a scanner sending `/%zz` would
- * add a line to the server log for every request it probes.
+ * A percent escape that does not form valid UTF-8: `%zz` (not hex at all), `%FF`
+ * (valid hex, undecodable), `%C0%AF` (overlong), `%ED%A0%80` (a lone surrogate).
  */
-const MALFORMED_ESCAPE = /%(?![0-9A-Fa-f]{2})/;
+function isUndecodable(path: string): boolean {
+  if (!path.includes("%")) return false;
+  try {
+    decodeURIComponent(path);
+    return false;
+  } catch {
+    // React Router decodes params the same way and Node prints a warning while
+    // doing it, so a scanner walking these paths would add lines to the server log
+    // for every probe. Handing it back is the whole point of this predicate.
+    return true;
+  }
+}
 
 /** A leading `scheme:` - whatever it turns out to name, it is not an origin-form path. */
 const SCHEME = /^[a-z][a-z0-9+.-]*:/i;
@@ -76,11 +86,25 @@ const SCHEME = /^[a-z][a-z0-9+.-]*:/i;
  * A trailing slash is deliberately kept: the browser keeps it, the client router
  * sees it, and dropping it here would make the server decide with a different URL
  * than the client renders.
+ *
+ * A pathname whose escapes are not valid UTF-8 (`/users/%FF`, an overlong
+ * `%C0%AF`, a lone surrogate `%ED%A0%80`) is also left alone, hex escapes and all:
+ * such a path can address a real page - a `[...slug]` or `[id]` route takes it
+ * verbatim, which is what the client's router does with it - so there is nothing to
+ * clean up here. Matching it makes React Router warn while it decodes the param,
+ * and that warning is the router's, raised against a page that exists; hiding it by
+ * answering 404 would be a wrong answer bought with a quiet log.
  */
 export function normalizeRequestTarget(url: string): string {
-  // Judged on the path alone: a malformed escape in the query is React Router's to
-  // parse, and must not cost a real page its `200`.
-  if (MALFORMED_ESCAPE.test(withoutSuffix(url))) return url;
+  // A path that cannot be decoded never goes through the URL parser, which warns on
+  // stderr reading it - but it is not rewritten either, because it can address a
+  // real page whose params the router takes verbatim. An absolute target still has
+  // to lose its authority, so that is cut by hand here.
+  if (isUndecodable(withoutSuffix(url))) {
+    if (!HTTP_ABSOLUTE.test(url)) return url;
+    const path = withoutSuffix(url.replace(/^https?:\/\/[^/?#]*/i, ""));
+    return path.startsWith("/") ? path : "/";
+  }
 
   // Absolute-form: the authority carries no routing information for this app.
   if (HTTP_ABSOLUTE.test(url)) {
@@ -129,21 +153,18 @@ function withoutSuffix(url: string): string {
  * it goes through {@link normalizeRequestTarget} first, so all three decide on the
  * same pathname the browser would route.
  *
+ * The answer comes out of the route table and nothing else: a URL a page of yours
+ * can take - including one whose percent escapes React Router cannot decode, and
+ * one that begins with two slashes - is a page, and is not reported as a 404 to
+ * keep a log tidy.
+ *
  * @param routes the array to match against - `generateRoutes()`, or your own
  *               `treeToRoutes()` result
  * @param url    the request target: `pathname`, with or without query and fragment,
  *               or an absolute URL
  */
 export function isUnmatched(routes: RouteObject[], url: string): boolean {
-  const target = normalizeRequestTarget(url);
-  // Answered here rather than handed to the matcher: React Router decodes the
-  // pathname it matches, and Node prints a warning to stderr for a malformed
-  // escape, so a scanner walking `/%zz` would add a line to the server log for
-  // every request it probes. Such a path addresses no page either way - a folder
-  // whose name contains a `%` is reached as `%25`, which is a valid escape - so
-  // skipping the match loses nothing.
-  if (MALFORMED_ESCAPE.test(withoutSuffix(target))) return true;
-  const matches = matchRoutes(routes, target);
+  const matches = matchRoutes(routes, normalizeRequestTarget(url));
   // Still worth honouring: a caller may hand a partial tree, or one built without
   // this package's conversion, and then `null` means what it always meant.
   if (!matches) return true;

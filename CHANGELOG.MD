@@ -90,12 +90,21 @@ security gate - that the next change to any of this will be caught by.
 - **Only `http` and `https` are read as an absolute request target.** Resolving any
   other scheme against the fallback origin re-reads it as a path on *this* one,
   which measured as `ftp://example.com/users/123` answering `200` for the
-  `/users/123` page; `mailto:`, `javascript:`, `file:` and a protocol-relative
-  `//host/path` are now handed over untouched and answer `404`, since no client can
-  reach a page under those names. A malformed percent escape (`/%zz`, the kind a
-  scanner walks) is answered `404` without being parsed too: React Router decodes
-  the pathname it matches and Node prints a warning per bad escape, which would
-  otherwise put a line in the server log for every probe.
+  `/users/123` page; `mailto:`, `javascript:` and `file:` are now handed over
+  untouched and answer whatever the route table says, which for a normal app is
+  `404`. A protocol-relative `//host/path` is treated the same way - as the path of
+  two slashes that a server was actually handed - and so answers `200` for an app
+  with a root `[...slug]` page and `404` for one whose only root splat is the
+  built-in fallback: the status comes from the routes able to take the URL, never
+  from a verdict on the URL itself.
+- **Percent escapes that are not valid UTF-8 do not change the answer.** Beyond `%zz`
+  there are valid-hex sequences no decoder accepts - `%FF`, the overlong `%C0%AF`, a
+  lone surrogate `%ED%A0%80` - and a `users/[id]` or `[...slug]` page takes those
+  paths verbatim, as the client's router does. They are therefore matched, not
+  refused: React Router warns while it decodes the param, which is the router's own
+  signal about a page that exists, and hiding it behind a `404` would be a wrong
+  answer bought with a quiet log. The parser this package owns is still never fed an
+  undecodable path, so nothing in the log is ours.
 - **`normalizeRequestTarget(url)`, exported from the package root** - the reading
   the two status functions share, published so a server can log the same pathname it
   decided on and so the contract is testable directly rather than inferred from a

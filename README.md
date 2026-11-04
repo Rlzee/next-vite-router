@@ -316,24 +316,39 @@ the browser would. A trailing slash is *kept*, because the browser keeps it and 
 client router sees it — dropping it would let the server decide on a different URL
 than the client renders.
 
-**Only `http` and `https` name an absolute request target.** Everything else is
-handed to the router as it arrived, because re-reading it as a path on *this* origin
-would invent a page no client can ask for under that name:
+**Only `http` and `https` name an absolute request target.** Anything else is handed
+to the router as it arrived, because re-reading it as a path on *this* origin would
+invent a page no client can ask for under that name:
 
 ```ts
 getRouteStatus(routes, "ftp://example.com/users/123");  // 404, not the /users/123 page
-getRouteStatus(routes, "//example.com/users/123");      // 404: a path of two slashes
 getRouteStatus(routes, "mailto:someone@example.com");   // 404
 ```
 
 A protocol-relative `//host/path` is an *href* shortcut inside a document, not a
-request target — a server handed `GET //example.com/users/123` is being asked about
-a path that really does begin with two slashes, which is what the browser's own
-`location.pathname` says too. And a path carrying a malformed escape (`/%zz`, which
-is what scanners walk) is answered `404` without being parsed: React Router decodes
-the pathname it matches and Node prints a warning for each bad escape, so handing
-those over would put a line in your server log per probe. `normalizeRequestTarget()`
-is exported if you want the same reading for your own logging.
+request target: a server handed `GET //example.com/users/123` is asked about a path
+that really does begin with two slashes, which is what the browser's own
+`location.pathname` says too. What that is worth is decided by **your routes**, not
+by the URL — which is the rule behind all of this: a root `[...slug]` page answers
+`//example.com/users/123` and the request is a `200` for it, while an app whose only
+root splat is the built-in 404 answers `404`.
+
+```ts
+// same path, two different apps
+getRouteStatus(catchAllApp.routes, "//example.com/users/123"); // 200 - the page takes it
+getRouteStatus(plainApp.routes, "//example.com/users/123");    // 404 - nothing of yours does
+```
+
+The same principle covers a path whose percent escapes are not valid UTF-8 — `%zz`,
+but also the valid-hex cases an escape check misses: `%FF`, the overlong `%C0%AF`,
+the lone surrogate `%ED%A0%80`. Such a path is not rewritten and not refused: a
+`users/[id]` or `[...slug]` route takes it verbatim, as the client's router does.
+Matching it makes React Router warn while decoding the param, and that warning is
+the router's own signal about a page that exists — silencing it with a `404` would
+be a wrong answer bought with a quiet log. This package's own share of the log stays
+empty: the URL parser is never handed a path it could not decode.
+
+`normalizeRequestTarget()` is exported if you want the same reading for logging.
 
 If you took the advice this section gave earlier, or the `route.path === "*"` line in
 the 4.0.0 notes, that check is wrong in both directions: it 404s catch-all pages and
