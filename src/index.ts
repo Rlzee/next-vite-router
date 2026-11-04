@@ -5,6 +5,10 @@ export { assertNoDuplicateRoutes } from './routes/tree';
 export { assertNoRouteConflicts } from './routes/tree';
 export { treeToRoutes } from './routes/converter';
 
+// Server-side status decision: reads the handle the conversion stamps on every
+// route that answers a URL with a not-found page.
+export { isUnmatched, isNotFoundRoute } from './router/not-found';
+
 // Types
 export type {
   RouteNode,

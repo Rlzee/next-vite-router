@@ -58,6 +58,7 @@
     "test:browser": "node test/browser/prepare-cli.js && playwright test",
     "test:bench": "node --expose-gc test/test-benchmarks.js",
     "test:modules": "node test/test-modules.js",
+    "typecheck": "tsc --noEmit -p test/fixture && tsc --noEmit -p test/compat-app && tsc --noEmit -p examples && tsc --noEmit -p test/browser-app",
     "preview": "pnpm pack --dry-run",
     "prepublishOnly": "pnpm run build && pnpm run test && pnpm run test:modules",
     "cli": "cd test && node ../dist/cli.cjs"

@@ -4,11 +4,11 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
-One behaviour change in `src/`, and it is a bug fix: an error boundary now catches a
-thrown `null`. Everything else is documentation of the question 4.0.0 raised, plus
-the evidence - a browser suite, a benchmark, a security gate - that the next change
-to any of this will be caught by. Nothing adds to or removes from the public API, so
-no minor bump is owed; the boundary fix alone is a patch.
+Two changes in `src/`. An error boundary now catches a thrown `null`, and a server
+deciding an HTTP status from a rendered route tree now has a function for it instead
+of a rule it has to infer. The second adds to the public API, so this release is a
+minor; the rest is documentation, plus the evidence - a browser suite, a benchmark, a
+security gate - that the next change to any of this will be caught by.
 
 ### Fixed
 
@@ -27,28 +27,15 @@ no minor bump is owed; the boundary fix alone is a patch.
 
 ### Documentation
 
-- **The SSR 404 signal, corrected.** 4.0.0 told a server to test
+- **The SSR 404 signal is answered by the package.** 4.0.0 told a server to test
   `matches.at(-1).route.path === "*"`, and that is wrong in both directions: a
   `[...slug]` page also lives on a `*` route, and a folder declaring `error.tsx` or
   `loading.tsx` gets a pathless boundary route in front of its whole subtree, so the
   chain `"/" > "users" > pathless > "*"` - a working catch-all page - looked like the
-  root's 404. The new `HTTP status for an unmatched URL (SSR servers)` section
-  decides from the **entire ancestor chain**: a splat is the root's only when every
-  route above it is URL-neutral (`"/"`, pathless, or an index). It also states what
-  no chain test can decide, and why - a route group contributes no segment, so its
-  catch-all page's splat is indistinguishable from the root's.
-- **How to decide those exactly anyway.** The answer is not in the route array, it is
-  in the application's files: an SSR entry is bundled by Vite like any other module,
-  so it can read its own `import.meta.glob("./app/**/page.tsx")` keys and match the
-  URL against them (`hasPage()`). The four conventions that helper restates are
-  listed as the whole contract - `(group)` adds no segment, `[id]` exactly one,
-  `[...slug]` one or more so its base is not a page, `[[...seg]]` zero or more so its
-  base is - with the `caseSensitive` switch it must follow. Its `pagesDir` and
-  `pageFile` live in the same object as the glob because Vite requires the pattern to
-  be a static literal: the two cannot be derived from each other, so they are written
-  side by side and changed together. Custom `pagesDir` / `pageFile` get their own
-  example, and matching is done at a folder boundary - a bare prefix would otherwise
-  let `./app` claim `./application/page.tsx`.
+  root's 404. The `HTTP status for an unmatched URL (SSR servers)` section now points
+  at `isUnmatched()` and the `handle` it reads, and says explicitly that the earlier
+  advice and the 4.0.0 note are superseded. The README no longer asks an application
+  to reimplement route matching from its own file names.
 - **`error.tsx` receives the thrown value as React reported it**, which can be any
   value at all, so a fallback must not assume an `Error` instance.
 - A `Browser suite` section under Development says what those tests cover and why the
@@ -58,6 +45,20 @@ no minor bump is owed; the boundary fix alone is a patch.
 
 ### Added
 
+- **`isUnmatched(routes, url)` and `isNotFoundRoute(route)`, exported from the
+  package root** - the engine entry, beside `treeToRoutes()`; the generated
+  `next-vite-router/routes` module keeps only the navigation surface, which a new
+  assertion in `test-route-types.js` guards. They answer the question an SSR server
+  needs for a status code: is this URL being answered by a not-found page? The
+  conversion now stamps `handle: { notFound: true }` on the four kinds of route that
+  render one - the built-in root 404 splat, a folder's `not-found.tsx` splat, the
+  guard index of a page-less folder base, and the guard index of a required
+  catch-all's base - so the answer is what the conversion knew rather than a guess
+  from route shape. That makes it exact on the cases a shape test cannot decide
+  either way: a `[...slug]` page keeps its `200` although its leaf is a splat, and
+  the two 404 shapes that look like ordinary index and splat routes are now reported
+  as the failures they are. A tree built by hand, without this conversion, carries no
+  marking and reads as all pages.
 - **A browser suite in Chromium**, `pnpm run test:browser`: 23 tests over the fixture
   app in `test/browser-app`, run against `vite dev`, against its production build
   through `vite preview`, and against a private copy of the app on its own port for
@@ -97,12 +98,14 @@ no minor bump is owed; the boundary fix alone is a patch.
 
 ### Tests
 
-- The SSR rule is executed, not quoted: `routes.test.js` runs the documented
-  ancestor-chain helper over a tree with a catch-all page, a folder `not-found`, a
-  page-less base and a guard index, pins the boundary case that the immediate-parent
-  test got wrong, and pins `hasPage()` against the same page list - including custom
-  `pagesDir` / `pageFile`, root-absolute glob keys, the wrong-options case finding no
-  page rather than the wrong one, and the ambiguous-prefix pair.
+- The status decision is executed, not quoted: `routes.test.js` checks
+  `isUnmatched()` over a tree with a catch-all page, a folder `not-found`, a
+  page-less base and the built-in root splat, pins the boundary case that made a
+  shape test 404 a working page, and asserts the marking route by route - the page's
+  splat carries nothing while the guard index beside it carries the handle. The
+  compat fixture's own SSR harness asserts the status for every URL it renders, so
+  the marking is proven through bundling, minification and each router major in the
+  matrix rather than only in a unit test.
 - `boundaries.test.js` drives the boundary through every kind of thrown value and
   renders the element it returns, so `error.tsx` painting is proven; the
   reset-on-navigation path is pinned for a captured `null` as well.

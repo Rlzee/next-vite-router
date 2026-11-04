@@ -16,6 +16,7 @@ import {
 import { CatchAllParamProvider } from '../router/params-context';
 import { SegmentBoundary } from '../router/boundary';
 import { DefaultNotFound } from './default-not-found';
+import { NOT_FOUND_ROUTE_HANDLE } from '../router/not-found';
 
 /**
  * The `loading.tsx` / `error.tsx` boundary element of `node` when it declares
@@ -139,7 +140,9 @@ function CatchAllBaseGuard({ fallback, children }: {
 /**
  * `*` route rendering the not-found of the folder that owns it. A child that
  * claims the splat region suppresses it (see `processChildren`), because its
- * own splat already covers that region.
+ * own splat already covers that region. Carries the not-found `handle` that
+ * {@link isUnmatched} reads: this splat and a `[...slug]` page's are the same
+ * shape, and only the conversion knows which is which.
  */
 function createNotFoundRoute(
   node: RouteNode,
@@ -149,6 +152,7 @@ function createNotFoundRoute(
 ): RouteObject {
   return {
     path: "*",
+    handle: NOT_FOUND_ROUTE_HANDLE,
     element: createLazyElement(
       async () => {
         const mod = await loader();
@@ -373,6 +377,7 @@ function createCatchAllBaseRoute(
 ): RouteObject {
   return {
     index: true,
+    handle: NOT_FOUND_ROUTE_HANDLE,
     element: React.createElement(CatchAllBaseGuard, {
       fallback: createNotFoundFallbackElement(
         node,
@@ -404,6 +409,7 @@ function createEmptyFolderBaseRoute(
 ): RouteObject {
   return {
     index: true,
+    handle: NOT_FOUND_ROUTE_HANDLE,
     // A real element, not `null`: React Router warns and renders an empty
     // outlet for a leaf without one, which is the very shape this guard
     // replaces. With no `not-found` anywhere it falls through to the built-in
@@ -639,7 +645,11 @@ function createRootRoutes(
   // An app that declares its own `not-found.tsx` already fills this slot, so the
   // `some` check leaves it untouched; only a fully unmatched URL reaches this one.
   if (!children.some((route) => route.path === "*")) {
-    children.push({ path: "*", element: React.createElement(DefaultNotFound) });
+    children.push({
+      path: "*",
+      handle: NOT_FOUND_ROUTE_HANDLE,
+      element: React.createElement(DefaultNotFound),
+    });
   }
 
   if (hasLayout(node)) {

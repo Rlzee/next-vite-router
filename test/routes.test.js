@@ -10,6 +10,8 @@ import {
   createLazyElement,
   createRouteGenerator,
   clearLazyCache,
+  isNotFoundRoute,
+  isUnmatched,
   treeToRoutes,
 } from "../dist/index.js";
 import { extractRoutePath, parseRouteSegments } from "../dist/index.js";
@@ -558,73 +560,89 @@ describe("route generator", () => {
     assert.match(renderToStaticMarkup(catchAllFallback), /could not be found/i);
   });
 
-  test("the appended root splat is the only leaf an SSR server reads as unmatched", () => {
-    // Pins the rule the README's `HTTP status for an unmatched URL` section
-    // teaches. Since 4.0.0 `matchRoutes()` answers every URL, so a server decides
-    // the status from the matched leaf - and a leaf `path === "*"` alone is not
-    // enough, because a `[...slug]` page lives on a `*` of its own and would be
-    // 404ed. Only a splat with nothing but URL-neutral routes above it means "no
-    // page answers this URL".
+  test("isUnmatched() reports every URL that reaches a not-found page", () => {
+    // The shipped answer for an SSR server's status code. It covers what reading
+    // the matched leaf could not: a `[...slug]` page keeps its 200 even though its
+    // leaf is a splat, while a folder's own `not-found.tsx` and a base folder that
+    // holds no page are reported as the 404s they are even though their leaves look
+    // like any other splat and any other index.
     const routes = createRoutes({
       pages: {
         "page.tsx": loader("home"),
         "blog/[...slug]/page.tsx": loader("blog"),
+        "shop/[...slug]/page.tsx": loader("shop"),
         "users/page.tsx": loader("list"),
         "docs/intro/page.tsx": loader("intro"),
       },
       notFounds: { "users/not-found.tsx": loader("users-not-found") },
     });
 
-    const isUnmatched = (tree, url) => {
-      const matches = matchRoutes(tree, url);
-      if (!matches) return true;
-      if (matches.at(-1)?.route.path !== "*") return false;
-      return matches.slice(0, -1).every(({ route }) =>
-        route.path === undefined
-        || route.path === ""
-        || route.path === "/"
-        || route.index === true,
-      );
-    };
-
     // The 4.0.0 case itself: nothing but the appended splat answers this URL, and
     // the `!matches` branch a 3.x server relied on is gone.
     assert.notEqual(matchRoutes(routes, "/ddddddd"), null);
     assert.ok(isUnmatched(routes, "/ddddddd"));
+    // Case sensitivity is part of the answer: `/USERS` reaches no `users/` folder.
+    assert.ok(isUnmatched(routes, "/USERS"));
 
-    // A catch-all page is a real page even though its leaf is a splat: the splat
-    // sits below `blog`, so the 200 is kept.
-    const catchAllPage = matchRoutes(routes, "/blog/guide/api");
-    assert.equal(catchAllPage.at(-1).route.path, "*");
-    assert.equal(catchAllPage.at(-2).route.path, "blog");
-    assert.ok(!isUnmatched(routes, "/blog/guide/api"));
-
-    // A folder's own `not-found.tsx` is the documented 200 the rule gives up: the
-    // splat is one level below the root and indistinguishable from a page's.
-    const folderNotFound = matchRoutes(routes, "/users/nope");
-    assert.equal(folderNotFound.at(-1).route.path, "*");
-    assert.equal(folderNotFound.at(-2).route.path, "users");
-    assert.ok(!isUnmatched(routes, "/users/nope"));
-
-    // A page-less base renders the not-found through a guard index, and an index
-    // leaf is exactly what a real page at its own base produces too, so
-    // `route.index` cannot serve as the 404 signal.
-    assert.equal(matchRoutes(routes, "/docs").at(-1).route.index, true);
-    assert.equal(matchRoutes(routes, "/users").at(-1).route.index, true);
-    assert.ok(!isUnmatched(routes, "/docs"));
-    assert.ok(!isUnmatched(routes, "/users"));
-
-    // The root page answers 200: its leaf is the folder's own index, not a splat.
+    // Pages keep their 200, whatever shape their leaf ended up in.
     assert.ok(!isUnmatched(routes, "/"));
+    assert.ok(!isUnmatched(routes, "/users"));
+    assert.ok(!isUnmatched(routes, "/docs/intro"));
+    assert.ok(!isUnmatched(routes, "/blog/guide/api"), "a catch-all page is a page");
+    assert.ok(!isUnmatched(routes, "/shop/a/b/c"), "at any depth of splat");
+
+    // The 404s a shape test had to give up on.
+    assert.ok(isUnmatched(routes, "/users/nope"), "a folder's own not-found is a 404");
+    assert.ok(isUnmatched(routes, "/docs"), "so is a folder with children but no page");
+    assert.ok(isUnmatched(routes, "/blog"), "so is a required catch-all's own base");
+    assert.ok(isUnmatched(routes, "/shop"), "at any folder that declares one");
+    // A trailing slash still carries a segment, so the splat page answers it - the
+    // same reading `useCatchAll()` gives by dropping the empty segment.
+    assert.ok(!isUnmatched(routes, "/shop/x/"), "but `/shop/x/` is a page, not the base");
+  });
+
+  test("only the routes that render a not-found page carry the handle", () => {
+    // The whole status decision rests on this marking, so it is pinned route by
+    // route rather than inferred: two of these routes are splats and two are index
+    // routes, and the shape is not what tells them apart.
+    const routes = createRoutes({
+      pages: {
+        "blog/[...slug]/page.tsx": loader("blog"),
+        "docs/intro/page.tsx": loader("intro"),
+      },
+      notFounds: { "not-found.tsx": loader("root-not-found") },
+    });
+    const rootChildren = routes[0].children ?? routes;
+
+    const rootSplat = rootChildren.find((route) => route.path === "*");
+    assert.ok(rootSplat, "the folder's not-found becomes a root splat");
+    assert.ok(isNotFoundRoute(rootSplat), "and that splat carries the handle");
+
+    const blog = rootChildren.find((route) => route.path === "blog");
+    const pageSplat = blog.children.find((route) => route.path === "*");
+    assert.ok(pageSplat, "a required catch-all page also lives on a splat");
+    assert.ok(!isNotFoundRoute(pageSplat), "and that one carries nothing");
+    const blogGuard = blog.children.find((route) => route.index === true);
+    assert.ok(blogGuard && isNotFoundRoute(blogGuard), "its base guard is a 404");
+
+    const docs = rootChildren.find((route) => route.path === "docs");
+    const docsGuard = docs.children.find((route) => route.index === true);
+    assert.ok(docsGuard && isNotFoundRoute(docsGuard), "so is a page-less folder base");
+
+    // The built-in 404 only appears where nothing else owns the root splat, and it
+    // is marked like every other route that renders a not-found page.
+    const bare = createRoutes({ pages: { "page.tsx": loader("home") } });
+    const builtIn = (bare[0].children ?? bare).find((route) => route.path === "*");
+    assert.ok(builtIn && isNotFoundRoute(builtIn), "the appended 404 splat is marked");
   });
 
   test("a folder's boundary route does not turn its catch-all page into a 404", () => {
     // `loading.tsx` / `error.tsx` insert a pathless boundary route in front of
     // everything a folder renders, so the chain reaching a nested catch-all page
-    // is `/ > users > pathless > *`. A server that inspects only the entry above
-    // the splat sees a pathless route, concludes "the root's splat", and answers
-    // 404 for a URL that renders a page. The ancestor scan the README publishes
-    // keeps the 200, because `users` is a segment of the URL.
+    // is `/ > users > pathless > *`. A server guessing at the status from that
+    // shape sees a pathless parent, concludes "the root's splat", and answers 404
+    // for a URL that renders a page - the exact confusion the handle exists to end,
+    // because the root's own 404 behind a root boundary has the same shape.
     const tree = buildRouteTree({
       pages: {
         "page.tsx": loader("home"),
@@ -642,27 +660,16 @@ describe("route generator", () => {
     assert.equal(matches.at(-2).route.path, undefined);
     assert.equal(matches.at(-3).route.path, "users");
 
-    const isUnmatched = (tree, url) => {
-      const found = matchRoutes(tree, url);
-      if (!found) return true;
-      if (found.at(-1)?.route.path !== "*") return false;
-      return found.slice(0, -1).every(({ route }) =>
-        route.path === undefined
-        || route.path === ""
-        || route.path === "/"
-        || route.index === true,
-      );
-    };
-
     assert.equal(
       isUnmatched(routes, "/users/a/b"),
       false,
       "a nested catch-all page must keep its 200 behind its folder's boundary",
     );
+    // Its base, guarded by the same boundary, is still the 404 it renders.
+    assert.ok(isUnmatched(routes, "/users"));
 
-    // The same rule still reports the root's own splat correctly: the URL-neutral
-    // ancestors above it (`/` and the root boundary) are exactly what the
-    // pathless branch exists for.
+    // And the root's own 404, sitting behind the root boundary with the same-shaped
+    // chain, is still reported as unmatched.
     const rootLayoutTree = buildRouteTree({
       pages: { "page.tsx": loader("home") },
       layouts: { "layout.tsx": { default: component("ROOT-LAYOUT") } },
@@ -675,198 +682,6 @@ describe("route generator", () => {
     assert.equal(unmatched.at(-3).route.path, "/");
     assert.ok(isUnmatched(rootRoutes, "/ddddddd"));
     assert.ok(!isUnmatched(rootRoutes, "/"));
-  });
-
-  test("an app that matches its own page files decides the shapes the chain cannot", () => {
-    // The README's `hasPage()`: an SSR entry reads its own `page.tsx` list (the
-    // keys `import.meta.glob` gives it) and asks whether any pattern answers the
-    // URL. That settles the three shapes `isUnmatched()` has to give up on, because
-    // "is there a page here" is a question about files, not about route shape.
-    // The table below is authored from the same list, and was checked against what
-    // the router really renders.
-    // Mirrors the README helper exactly - options object included, because a
-    // documented snippet nobody executes is a snippet that quietly stops matching
-    // the code it describes.
-    const PAGES = {
-      files: [
-        "./app/page.tsx",
-        "./app/(marketing)/pricing/page.tsx",
-        "./app/blog/[...slug]/page.tsx",
-        "./app/docs/[[...seg]]/page.tsx",
-        "./app/users/new/page.tsx",
-        "./app/users/[id]/page.tsx",
-        "./app/shop/[cat]/[item]/page.tsx",
-      ],
-      pagesDir: "./app",
-      pageFile: "page.tsx",
-    };
-
-    const hasPage = (url, { files, pagesDir, pageFile, caseSensitive = true }) => {
-      const wanted = url.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
-      const same = (a, b) => (caseSensitive ? a === b : a.toLowerCase() === b.toLowerCase());
-      const suffix = `/${pageFile}`;
-
-      return files.some((file) => {
-        if (!file.endsWith(suffix)) return false;
-        const folder = file.slice(0, -suffix.length);
-        // A folder boundary, not a bare prefix: `./app` must not claim
-        // `./application/page.tsx` as one of its own.
-        if (folder !== pagesDir && !folder.startsWith(`${pagesDir}/`)) return false;
-        const pattern = folder
-          .slice(pagesDir.length)
-          .split("/")
-          .filter(Boolean)
-          .filter((segment) => !/^\(.*\)$/.test(segment));
-
-        const walk = (p, w) => {
-          if (p === pattern.length) return w === wanted.length;
-          const segment = pattern[p];
-          if (/^\[\[\.\.\..+\]\]$/.test(segment)) {
-            for (let taken = 0; w + taken <= wanted.length; taken += 1) {
-              if (walk(p + 1, w + taken)) return true;
-            }
-            return false;
-          }
-          if (/^\[\.\.\..+\]$/.test(segment)) {
-            for (let taken = 1; w + taken <= wanted.length; taken += 1) {
-              if (walk(p + 1, w + taken)) return true;
-            }
-            return false;
-          }
-          if (w === wanted.length) return false;
-          if (/^\[.+\]$/.test(segment)) return walk(p + 1, w + 1);
-          return same(segment, wanted[w]) && walk(p + 1, w + 1);
-        };
-
-        return walk(0, 0);
-      });
-    };
-
-    const EXPECTED_PAGES = {
-      // Root, and a page reached through a group that adds no URL segment.
-      "/": true,
-      "/pricing": true,
-      // A required catch-all answers below its base, never the base itself.
-      "/blog": false,
-      "/blog/a": true,
-      "/blog/a/b/c": true,
-      // An optional catch-all answers its base too.
-      "/docs": true,
-      "/docs/guide/api": true,
-      // A static segment and a dynamic one at the same level are both pages.
-      "/users/new": true,
-      "/users/7": true,
-      "/users": false,
-      "/users/7/extra": false,
-      // Two parameters, both required.
-      "/shop/a": false,
-      "/shop/a/b": true,
-      // Nothing behind this one: the built-in 404, the case isUnmatched() already
-      // gets right - both tests have to agree here.
-      "/ddddddd": false,
-    };
-
-    for (const [url, expectPage] of Object.entries(EXPECTED_PAGES)) {
-      assert.equal(
-        hasPage(url, PAGES),
-        expectPage,
-        `hasPage("${url}") said ${expectPage ? "no page" : "a page"}`,
-      );
-    }
-
-    // Case sensitivity follows the plugin option, exactly like the converter's
-    // `caseSensitive` stamp. `/DOCS` is answered by `docs/[[...seg]]/page.tsx`
-    // only once segments compare case-insensitively; `/USERS` answers nothing
-    // either way, because both `users` pages need a second segment.
-    assert.equal(hasPage("/DOCS", PAGES), false);
-    assert.equal(hasPage("/DOCS", { ...PAGES, caseSensitive: false }), true);
-    assert.equal(hasPage("/USERS", PAGES), false);
-    assert.equal(hasPage("/USERS", { ...PAGES, caseSensitive: false }), false);
-
-    // Custom `pagesDir` / `pageFile` work only when the options say so: the glob
-    // and the two names are written together in `PAGES`, so a project that moves
-    // its routes has one object to change - and a helper that reads the wrong
-    // names finds no page at all rather than the wrong page.
-    const CUSTOM_PAGES = {
-      files: [
-        "./src/pages/index.tsx",
-        "./src/pages/(marketing)/pricing/index.tsx",
-        "./src/pages/users/[id]/index.tsx",
-        "./src/pages/notes/[...slug]/index.tsx",
-      ],
-      pagesDir: "./src/pages",
-      pageFile: "index.tsx",
-    };
-
-    assert.ok(hasPage("/", CUSTOM_PAGES), "a custom page file name still answers the root");
-    assert.ok(hasPage("/pricing", CUSTOM_PAGES), "a group adds no segment, custom dir or not");
-    assert.ok(hasPage("/users/7", CUSTOM_PAGES));
-    assert.ok(hasPage("/notes/a/b", CUSTOM_PAGES));
-    assert.ok(!hasPage("/notes", CUSTOM_PAGES), "a required catch-all base is still not a page");
-    // The default names find nothing in that list, which is the failure the
-    // README's second snippet exists to prevent.
-    assert.ok(!hasPage("/", { ...PAGES, files: CUSTOM_PAGES.files }));
-    assert.ok(!hasPage("/users/7", { ...PAGES, files: CUSTOM_PAGES.files }));
-    // ...and matching `pageFile` against the same list skips the files that are
-    // not pages at all.
-    assert.ok(!hasPage("/users/7", { ...CUSTOM_PAGES, pageFile: "page.tsx" }));
-
-    // Keys can also be root-absolute, the form `import.meta.glob("/src/app/**")`
-    // produces; the comparison is verbatim, so the option has to be spelled that
-    // way too.
-    const ABSOLUTE_PAGES = {
-      files: ["/src/app/users/[id]/page.tsx"],
-      pagesDir: "/src/app",
-      pageFile: "page.tsx",
-    };
-    assert.ok(hasPage("/users/7", ABSOLUTE_PAGES));
-    assert.ok(!hasPage("/users/7", { ...ABSOLUTE_PAGES, pagesDir: "./src/app" }));
-
-    // An ambiguous prefix is the bug the folder-boundary check removes: `./app`
-    // must not treat `./application/page.tsx` as its own root page, and must not
-    // turn the leftover letters into a route either.
-    const NEIGHBOUR_PAGES = {
-      files: ["./application/page.tsx", "./app-extra/page.tsx"],
-      pagesDir: "./app",
-      pageFile: "page.tsx",
-    };
-    assert.ok(!hasPage("/", NEIGHBOUR_PAGES), "a neighbouring folder is not the pages root");
-    assert.ok(!hasPage("/lication", NEIGHBOUR_PAGES), "the stripped remainder is not a route");
-    assert.ok(!hasPage("/-extra", NEIGHBOUR_PAGES));
-
-    // The two tests agree wherever the chain can decide, and disagree only on the
-    // documented shapes - which is why the README offers both.
-    const routes = createRoutes({
-      pages: {
-        "page.tsx": loader("home"),
-        "blog/[...slug]/page.tsx": loader("blog"),
-        "users/[id]/page.tsx": loader("user"),
-      },
-    });
-    const isUnmatched = (url) => {
-      const matches = matchRoutes(routes, url);
-      if (!matches) return true;
-      if (matches.at(-1)?.route.path !== "*") return false;
-      return matches.slice(0, -1).every(({ route }) =>
-        route.path === undefined
-        || route.path === ""
-        || route.path === "/"
-        || route.index === true,
-      );
-    };
-
-    for (const url of ["/", "/blog/a", "/users/7", "/ddddddd", "/USERS"]) {
-      assert.equal(
-        isUnmatched(url),
-        !hasPage(url, PAGES),
-        `the chain test and the file test disagree on "${url}"`,
-      );
-    }
-    // `/blog` is the documented divergence: a required catch-all's base is a guard
-    // index, so the chain test cannot see the 404, while the file test never claimed
-    // the base was a page.
-    assert.equal(isUnmatched("/blog"), false);
-    assert.equal(hasPage("/blog", PAGES), false);
   });
 
   test("rejects not-found routes that conflict with catch-all pages", () => {

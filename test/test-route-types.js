@@ -55,6 +55,12 @@ try {
   assert.equal(plugin.resolveId("virtual:next-vite-router"), undefined);
   assert.equal(plugin.resolveId("some-other-module"), undefined);
 
+  // The generated module stays the navigation surface it has always been. The SSR
+  // status helpers read a route array, so they belong to the package root beside
+  // `treeToRoutes()` - not to a module an application imports for `Link`.
+  assert.doesNotMatch(virtualModule, /isUnmatched|isNotFoundRoute/,
+    "the engine status helpers must not leak into next-vite-router/routes");
+
   // The fixture keeps a checked-in copy of this declaration so that
   // `next-vite-router/routes` resolves in an editor before anything has been
   // generated. Compare it against what the plugin just emitted (comments and

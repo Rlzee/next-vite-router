@@ -297,3 +297,12 @@ jobs:
 
       - name: Run browser tests
         run: pnpm run test:browser
+
+      # The example and fixture apps are what this package's declarations exist for,
+      # and no job above compiles them: `pnpm run build` type-checks `src`, and an
+      # app with no `tsconfig.json` at all is invisible until an editor opens one of
+      # its files (that is how `test/compat-app` shipped with an unresolved
+      # `next-vite-router/routes` import). Each of the four projects resolves that
+      # specifier from a checked-in placeholder, so the step needs no build first.
+      - name: Typecheck the example and fixture apps
+        run: pnpm run typecheck

@@ -276,162 +276,44 @@ const matches = matchRoutes(routes, url);
 if (!matches) return new Response("Not Found", { status: 404 });
 ```
 
-Read the signal from the matched leaf. The catch is that `path: "*"` is not
-reserved for not-founds: a `[...slug]` page lives on a `*` route of its own. So the
-test has to ask whether the splat is **the root's** — the one the converter
-appends — and not one some folder contributes, and that question is about the
-**whole ancestor chain**, not the immediate parent. A folder that declares
-`error.tsx` or `loading.tsx` gets a pathless boundary route in front of everything
-it renders, so the chain for `users/[...slug]/page.tsx` reads
-`"/" > "users" > pathless > "*"`: checking only the entry above the splat sees a
-pathless route and calls a working page a 404.
+The package answers it. `isUnmatched()` reads what the conversion recorded about each
+route that renders a not-found page, so it is exact where reading the shape of a
+match cannot be:
 
 ```ts
-import { matchRoutes, type RouteObject } from "react-router-dom";
-// On a v7 app with no `react-router-dom` installed, both come from `react-router`.
+import { isUnmatched } from "next-vite-router";
+import { generateRoutes } from "next-vite-router/routes";
 
-/**
- * `true` when the URL is answered by the 404 route the converter appends at the
- * root rather than by a page. A splat is the root's when every route above it is
- * URL-neutral: the root itself (`"/"`), a pathless boundary or route group, or an
- * index. `users/[...slug]/page.tsx` fails that test on its `users` segment and so
- * keeps its 200, boundary route or not.
- */
-function isUnmatched(routes: RouteObject[], url: string): boolean {
-  const matches = matchRoutes(routes, url);
-  if (!matches) return true;
-  if (matches.at(-1)?.route.path !== "*") return false;
-
-  return matches
-    .slice(0, -1)
-    .every(
-      ({ route }) =>
-        route.path === undefined
-        || route.path === ""
-        || route.path === "/"
-        || route.index === true,
-    );
-}
-
+const routes = generateRoutes();
 const status = isUnmatched(routes, url) ? 404 : 200;
 ```
 
-`routes` is `generateRoutes()` from `next-vite-router/routes`, or the array your
-own `treeToRoutes()` call returns. Case sensitivity is part of the answer: with
-the default on, `/USERS` reaches no `users/` folder, so it is an unmatched URL and
-404s — which is also what Next.js does.
+A URL is unmatched when the route answering it is a not-found page — the built-in
+root 404, a folder's own `not-found.tsx`, or the guard for a base that holds no page
+(`docs/` with only `docs/intro/page.tsx`, and a required catch-all's own base). That
+covers what no reading of the route shape could separate: a `[...slug]` page also
+lives on a `*` route and keeps its `200`, while a folder's not-found and a page-less
+base render 404 pages from leaves that look like any other splat and any other index.
+Case sensitivity comes with it — with the default on, `/USERS` answers no `users/`
+folder and is unmatched, as in Next.js.
 
-Three shapes are outside what any chain test can decide:
+If you took the advice this section gave earlier, or the `route.path === "*"` line in
+the 4.0.0 notes, that check is wrong in both directions: it 404s catch-all pages and
+misses the two shapes above. `isUnmatched()` replaces it.
 
-- **A catch-all that owns the root URL.** `[...slug]/page.tsx` sitting directly in
-  `pagesDir` — or inside a route group at that level, which is the same thing as
-  far as the URL is concerned — answers `/a/b` from a `*` whose ancestors are all
-  URL-neutral too, so the rule returns `404` for a real page. Skip the test for
-  that shape. Such an app has no root `page.tsx` either: the two would both claim
-  `/`, and the converter refuses the pair, so nearly every URL it serves is a page.
-- **A folder's own `not-found.tsx`.** `users/not-found.tsx` makes `/users/nope`
-  match a splat *below* `users`, and by shape alone that splat is not
-  distinguishable from a `[...slug]` page's.
-- **A base with no page.** `/docs` beside `docs/intro/page.tsx` renders the
-  not-found through a guard **index** route, and an index leaf is what every
-  folder holding a real `page.tsx` produces too — `route.index` is not a 404
-  signal.
+Two things to know about the mechanism:
 
-The last two answer `200`, as they did before 4.0.0 — the `null` test never caught
-them either. The emitted route array carries no documented marker separating a
-not-found route from a page route, so the exact answer is not in the routes at all:
-it is in your files. An SSR entry is bundled by Vite like any other module, so it can
-read its own page list and match the URL against it — which settles all three shapes
-above, because a page either exists at that URL or it does not.
+- The marking lives in the route `handle` (`{ notFound: true }`), which the converter
+  stamps and this package owns for generated routes. `isNotFoundRoute(route)` exposes
+  the same test for a match you already hold. Both functions are exported from the
+  package root — the engine entry — beside `treeToRoutes()`; the navigation helpers
+  stay in `next-vite-router/routes`.
+- A route array that did not come from `treeToRoutes()` carries no marking, so
+  nothing reads as unmatched. Build the tree with the plugin, or hand the records to
+  `treeToRoutes()` / `createRouteGenerator()`, and the marking is there.
 
-```ts
-// src/entry-server.ts — one object, so the glob and the names it is matched with
-// cannot drift apart. A glob pattern has to be a static literal: Vite cannot read
-// it from a variable, which is why `pagesDir` and `pageFile` are written twice —
-// once inside the pattern, once beside it.
-const PAGES = {
-  files: Object.keys(import.meta.glob("./app/**/page.tsx")),
-  pagesDir: "./app",
-  pageFile: "page.tsx",
-};
-
-/** `true` when some page of this application answers `url`. */
-export function hasPage(url: string, options = PAGES): boolean {
-  const { files, pagesDir, pageFile, caseSensitive = true } = options;
-  const wanted = url.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
-  const same = (a: string, b: string) =>
-    caseSensitive ? a === b : a.toLowerCase() === b.toLowerCase();
-  const suffix = `/${pageFile}`;
-
-  return files.some((file) => {
-    if (!file.endsWith(suffix)) return false;
-    const folder = file.slice(0, -suffix.length);
-    // The pages root at a folder boundary or nothing at all: `./app` must not
-    // swallow `./application/page.tsx`, which the shorter prefix alone would.
-    if (folder !== pagesDir && !folder.startsWith(`${pagesDir}/`)) return false;
-
-    const pattern = folder
-      .slice(pagesDir.length)
-      .split("/")
-      .filter(Boolean)
-      // A route group adds no segment to the URL.
-      .filter((segment) => !/^\(.*\)$/.test(segment));
-
-    const walk = (p: number, w: number): boolean => {
-      if (p === pattern.length) return w === wanted.length;
-      const segment = pattern[p];
-      if (/^\[\[\.\.\..+\]\]$/.test(segment)) {
-        // `[[...seg]]` also answers its base: zero or more segments.
-        for (let taken = 0; w + taken <= wanted.length; taken += 1) {
-          if (walk(p + 1, w + taken)) return true;
-        }
-        return false;
-      }
-      if (/^\[\.\.\..+\]$/.test(segment)) {
-        // `[...slug]` needs at least one, so its base is not a page.
-        for (let taken = 1; w + taken <= wanted.length; taken += 1) {
-          if (walk(p + 1, w + taken)) return true;
-        }
-        return false;
-      }
-      if (w === wanted.length) return false;
-      if (/^\[.+\]$/.test(segment)) return walk(p + 1, w + 1);
-      return same(segment, wanted[w]) && walk(p + 1, w + 1);
-    };
-
-    return walk(0, 0);
-  });
-}
-
-const status = hasPage(url) ? 200 : 404;
-```
-
-`pagesDir` has to be spelled exactly the way `import.meta.glob` writes its keys —
-`"./app"` beside the pattern above, `"/src/app"` if the project globs from the Vite
-root the way the plugin's own module does — because the comparison is verbatim, not
-normalized. What it must agree with is the pattern next to it, not the plugin's
-option. A project that moves the routes changes both halves of `PAGES` together:
-
-```ts
-// nextViteRouter({ pagesDir: "src/pages", pageFile: "index.tsx" })
-const PAGES = {
-  files: Object.keys(import.meta.glob("./src/pages/**/index.tsx")),
-  pagesDir: "./src/pages",
-  pageFile: "index.tsx",
-};
-```
-
-The four conventions that list restates are the whole contract: `(group)` contributes
-no segment, `[id]` exactly one, `[...slug]` one or more, `[[...seg]]` zero or more;
-and static segments compare case-sensitively unless the plugin runs with
-`caseSensitive: false`, which this helper has to be told about too. Because a status
-only asks *whether* some page answers the URL, React Router's precedence between a
-static and a dynamic segment at the same level never comes up.
-
-`isUnmatched()` stays the cheaper test — no file walk, no second matcher to keep in
-step — and the two agree wherever the chain can decide. Reach for `hasPage()` when
-one of the three shapes above is in your tree, or when a wrong status on a
-`not-found` page costs you something.
+The decision is independent of rendering, so in an SSR entry it sits right next to
+the `renderTo…` call that produces the document, on the same array.
 
 ### Custom file names and pages directory
 

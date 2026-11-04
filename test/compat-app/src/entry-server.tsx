@@ -3,6 +3,7 @@ import { PassThrough } from "node:stream";
 import { createElement as h } from "react";
 import { renderToPipeableStream } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
+import { isUnmatched } from "next-vite-router";
 import { Router, generateRoutes, useRoutes } from "next-vite-router/routes";
 
 /**
@@ -36,6 +37,12 @@ type RenderCase = {
   url: string;
   /** Which public mount style answers this URL. Defaults to `Router`. */
   via?: "router" | "routes";
+  /**
+   * The status an SSR server should send for this URL, asserted against
+   * `isUnmatched()`. Defaults to 200, so a case only names it when the URL is
+   * answered by a not-found page.
+   */
+  status?: 200 | 404;
   /** Fragments the streamed document must contain. */
   paints: string[];
   /** Fragments it must not contain. */
@@ -96,7 +103,10 @@ const RENDER_CASES: RenderCase[] = [
   {
     url: "/blog",
     // A required catch-all never matches its base URL: the nearest not-found
-    // answers, and the page is never invoked with an empty catch-all.
+    // answers, and the page is never invoked with an empty catch-all. The route
+    // that renders it is a guard index, indistinguishable in shape from a real
+    // page at that base - which is what the status assertion below is for.
+    status: 404,
     paints: ['data-not-found="root"'],
     skips: ['data-page="blog"'],
     order: ["[root", "nf:root", "/root]"],
@@ -111,6 +121,9 @@ const RENDER_CASES: RenderCase[] = [
   },
   {
     url: "/nowhere",
+    // No page anywhere answers this URL: the root's `not-found.tsx` splat does,
+    // and it is marked as the 404 it is.
+    status: 404,
     paints: ['data-not-found="root"'],
     skips: ['data-page="home"', 'data-page="blog"'],
   },
@@ -187,6 +200,20 @@ function assertRendered({ url, paints, skips, order }: RenderCase, html: string)
   }
 }
 
+/**
+ * The status an SSR server would send, decided by the package rather than by
+ * reading the matched leaf. It has to survive bundling and minification, and the
+ * router major this combination installs - which is why it is asserted here and
+ * not only in the unit suite.
+ */
+function assertStatus({ url, status = 200 }: RenderCase): void {
+  assert.equal(
+    isUnmatched(generateRoutes(), url) ? 404 : 200,
+    status,
+    `"${url}" should be reported as ${status}`,
+  );
+}
+
 /** Identify a case in the log; the same URL is rendered by both mount styles. */
 function caseLabel({ url, via = "router" }: RenderCase): string {
   return `${url} [${via === "routes" ? "useRoutes(generateRoutes())" : "Router"}]`;
@@ -204,6 +231,7 @@ async function main(): Promise<void> {
     }
     try {
       assertRendered(renderCase, html);
+      assertStatus(renderCase);
     } catch (error) {
       console.error(`--- streamed html for ${label} ---\n${html}`);
       throw error;
