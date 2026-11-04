@@ -2,6 +2,116 @@
 
 All notable changes to this project are documented in this file.
 
+## [Unreleased]
+
+One behaviour change in `src/`, and it is a bug fix: an error boundary now catches a
+thrown `null`. Everything else is documentation of the question 4.0.0 raised, plus
+the evidence - a browser suite, a benchmark, a security gate - that the next change
+to any of this will be caught by. Nothing adds to or removes from the public API, so
+no minor bump is owed; the boundary fix alone is a patch.
+
+### Fixed
+
+- **A `throw null` is now caught.** `RouteErrorBoundary` stored "nothing failed" and
+  the captured value in the same field (`{ error: null }`), and `throw null` is legal
+  JavaScript. Such a failure therefore read as healthy: the boundary rendered the
+  failing subtree again, the value escaped to the next boundary up, and the folder's
+  `error.tsx` never appeared. The state now separates the two -
+  `{ hasError: boolean; error: unknown }` - and `render()`, `reset()` and the
+  reset-on-navigation branch all decide on `hasError`, so a thrown value is never
+  compared to choose what renders. Existing `error.tsx` files are unaffected; they
+  receive `null` in `error` instead of never being reached. The other falsy values
+  (`undefined`, `""`, `0`, `false`, `NaN`) worked before only because the comparison
+  was strict `!== null`, and they are pinned now so no future `!state.error`
+  shortening can quietly break them.
+
+### Documentation
+
+- **The SSR 404 signal, corrected.** 4.0.0 told a server to test
+  `matches.at(-1).route.path === "*"`, and that is wrong in both directions: a
+  `[...slug]` page also lives on a `*` route, and a folder declaring `error.tsx` or
+  `loading.tsx` gets a pathless boundary route in front of its whole subtree, so the
+  chain `"/" > "users" > pathless > "*"` - a working catch-all page - looked like the
+  root's 404. The new `HTTP status for an unmatched URL (SSR servers)` section
+  decides from the **entire ancestor chain**: a splat is the root's only when every
+  route above it is URL-neutral (`"/"`, pathless, or an index). It also states what
+  no chain test can decide, and why - a route group contributes no segment, so its
+  catch-all page's splat is indistinguishable from the root's.
+- **How to decide those exactly anyway.** The answer is not in the route array, it is
+  in the application's files: an SSR entry is bundled by Vite like any other module,
+  so it can read its own `import.meta.glob("./app/**/page.tsx")` keys and match the
+  URL against them (`hasPage()`). The four conventions that helper restates are
+  listed as the whole contract - `(group)` adds no segment, `[id]` exactly one,
+  `[...slug]` one or more so its base is not a page, `[[...seg]]` zero or more so its
+  base is - with the `caseSensitive` switch it must follow. Its `pagesDir` and
+  `pageFile` live in the same object as the glob because Vite requires the pattern to
+  be a static literal: the two cannot be derived from each other, so they are written
+  side by side and changed together. Custom `pagesDir` / `pageFile` get their own
+  example, and matching is done at a folder boundary - a bare prefix would otherwise
+  let `./app` claim `./application/page.tsx`.
+- **`error.tsx` receives the thrown value as React reported it**, which can be any
+  value at all, so a fallback must not assume an `Error` instance.
+- A `Browser suite` section under Development says what those tests cover and why the
+  suite is not part of `pnpm run test`; the Compatibility section now names the
+  operating-system coverage and the `Security` workflow next to the dependency
+  matrix it sits beside.
+
+### Added
+
+- **A browser suite in Chromium**, `pnpm run test:browser`: 23 tests over the fixture
+  app in `test/browser-app`, run against `vite dev`, against its production build
+  through `vite preview`, and against a private copy of the app on its own port for
+  the route-file watching. It covers what a `react-dom/server` render cannot reach at
+  all - a mounted error boundary's catch, history and back/forward, a deep URL
+  reloaded from the address bar, the built-in 404 inside the root layout, the
+  placeholder behind a held-back page module, `reset()` recovering a transient
+  failure, a page created and deleted while the dev server runs, and `lazyLayouts`
+  keeping a nested layout out of the entry chunk. `@playwright/test` is a
+  devDependency only; the browser itself is not installed by `pnpm install`.
+- **Route-generator benchmarks**, `pnpm run test:bench`: 100, 500 and 1 000-page
+  trees timed through the tree builder, the converter and the declaration writer, and
+  repeated rebuilds measured as post-GC heap growth (120 cycles of a 200-page tree
+  move it by about 0.1 MB). Gates compare *ratios* - a page at 1 000 pages may cost
+  at most four times what it costs at 100 - because an absolute millisecond budget is
+  a coin toss on shared hardware, while a superlinear walk is a ratio. The nesting
+  axis is exact instead: every folder's children must be enumerated once, which is
+  the contract a `2^depth` traversal regression broke.
+- **A real-install check of both module formats**, `pnpm run test:modules`: the
+  published `files` set is laid out in a throwaway project and two consumers -
+  one ESM, one CommonJS - resolve through `node_modules` rather than by path, so the
+  conditional `exports` map, the `.js`/`.cjs` split, the `.d.cts` twins, the `bin`
+  target and the deliberately private engine entry are judged by Node. It also fails
+  if `files` and `exports` ever stop agreeing, which is why `prepublishOnly` runs it.
+- **A `Security` workflow** auditing dependencies on every push, every pull request
+  and weekly: the graph an install actually pulls in blocks at `high`, anything
+  critical anywhere blocks, and the full report stays informational - the suites
+  install the declared floors of React, React Router and Vite on purpose, so a
+  blocking check on dev-side advisories would be red by design. Dependabot now opens
+  grouped weekly updates for the pnpm workspace and for the workflow `uses:` pins,
+  and both workflows run with `permissions: contents: read`.
+- **A `operating-systems` CI job** running the unit and browser suites on Ubuntu,
+  Windows and macOS at Node 22, for the parts a Linux-only workflow cannot judge:
+  path separators, what `path.resolve` returns, the commands the CLI hands a shell,
+  and where the plugin writes the files it generates. `test-compatibility.js` pins
+  the job's existence, its three images and its Linux-only `--with-deps` split.
+
+### Tests
+
+- The SSR rule is executed, not quoted: `routes.test.js` runs the documented
+  ancestor-chain helper over a tree with a catch-all page, a folder `not-found`, a
+  page-less base and a guard index, pins the boundary case that the immediate-parent
+  test got wrong, and pins `hasPage()` against the same page list - including custom
+  `pagesDir` / `pageFile`, root-absolute glob keys, the wrong-options case finding no
+  page rather than the wrong one, and the ambiguous-prefix pair.
+- `boundaries.test.js` drives the boundary through every kind of thrown value and
+  renders the element it returns, so `error.tsx` painting is proven; the
+  reset-on-navigation path is pinned for a captured `null` as well.
+- Two probe bugs are worth recording because they nearly produced a clean-looking
+  result: a fixture layout that renders no `<Outlet/>` hides its whole subtree, so
+  every URL reads as "a page rendered", and a lazily reached `not-found` prints
+  nothing at all under `renderToStaticMarkup`, so an empty render must not be read as
+  a page.
+
 ## [4.0.0] - 2026-11-02
 
 Breaking, and therefore a major rather than a 3.x patch: the removed exports
