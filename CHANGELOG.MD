@@ -109,6 +109,18 @@ security gate - that the next change to any of this will be caught by.
   the two status functions share, published so a server can log the same pathname it
   decided on and so the contract is testable directly rather than inferred from a
   status.
+- **One broken escape cannot reach the segments around it.** Decodability is judged
+  on the whole path - which is what the URL parser would decode - while React Router
+  decodes segment by segment, so skipping the parser for the whole path had to leave
+  its *structural* work standing: a missing leading slash completed and `.`/`..`
+  segments resolved by hand, on the raw segments, with every escape and every empty
+  segment kept byte for byte. `/users/other/../%FF` therefore reads as the browser's
+  `/users/%FF` and reaches the same page as `/users/other/../%41` would, not a `404`
+  for an unmatched depth. Decodable escapes are untouched either way: `/users/a%2Fb`
+  stays one segment and answers `200` where `/users/a/b` answers `404`, since it is
+  React Router that turns `%2F` into a `/` inside the param value, not the path.
+- **`http://` is not read as the root page.** An absolute target with neither host nor
+  path names no request; only a non-empty authority is stripped.
 - **A browser suite in Chromium**, `pnpm run test:browser`: 23 tests over the fixture
   app in `test/browser-app`, run against `vite dev`, against its production build
   through `vite preview`, and against a private copy of the app on its own port for

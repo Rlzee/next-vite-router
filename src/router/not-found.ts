@@ -40,8 +40,18 @@ export function isNotFoundRoute(route: { handle?: unknown }): boolean {
  */
 const ORIGIN = "http://next-vite-router.invalid/";
 
-/** An absolute request target, in the one two forms a server can be handed. */
-const HTTP_ABSOLUTE = /^https?:\/\//i;
+/**
+ * Whether the target is in absolute form - `http(s)://host/path`, the one form that
+ * carries an authority to drop. `http://` alone has neither host nor path, so it
+ * names no request target and is not read as the root page.
+ */
+function isAbsoluteForm(url: string): boolean {
+  const host = /^https?:\/\/([^/?#]*)/i.exec(url);
+  return !!host && host[1] !== "";
+}
+
+/** The authority of an absolute-form target: `//host`, credentials and port alike. */
+const AUTHORITY = /^https?:\/\/[^/?#]*/i;
 
 /**
  * A percent escape that does not form valid UTF-8: `%zz` (not hex at all), `%FF`
@@ -53,11 +63,36 @@ function isUndecodable(path: string): boolean {
     decodeURIComponent(path);
     return false;
   } catch {
-    // React Router decodes params the same way and Node prints a warning while
-    // doing it, so a scanner walking these paths would add lines to the server log
-    // for every probe. Handing it back is the whole point of this predicate.
     return true;
   }
+}
+
+/**
+ * The structural half of `new URL().pathname`, without the parser: a missing
+ * leading slash completed, `.` and `..` segments resolved, everything else - every
+ * empty segment and every percent escape - kept byte for byte.
+ *
+ * Only reached for a path that cannot be decoded, where the parser must not be run
+ * at all because it warns on stderr. Judging the whole path for one broken escape
+ * must not cost the *other* segments their structure, or the escape in `/%FF/x`
+ * would decide how `/a/../%FF` matches.
+ */
+function resolveByHand(path: string): string {
+  const absolute = path.startsWith("/") ? path : `/${path}`;
+  if (!/(^|\/)\.{1,2}(\/|$)/.test(absolute)) return absolute;
+
+  const kept = [""];
+  for (const segment of absolute.split("/").slice(1)) {
+    if (segment === ".") continue;
+    // An empty segment is part of the path (`/a//b` means two slashes), so `..`
+    // may only pop a named one, never the leading slash itself.
+    if (segment === "..") {
+      if (kept.length > 1) kept.pop();
+      continue;
+    }
+    kept.push(segment);
+  }
+  return kept.join("/") || "/";
 }
 
 /** A leading `scheme:` - whatever it turns out to name, it is not an origin-form path. */
@@ -88,42 +123,35 @@ const SCHEME = /^[a-z][a-z0-9+.-]*:/i;
  * than the client renders.
  *
  * A pathname whose escapes are not valid UTF-8 (`/users/%FF`, an overlong
- * `%C0%AF`, a lone surrogate `%ED%A0%80`) is also left alone, hex escapes and all:
- * such a path can address a real page - a `[...slug]` or `[id]` route takes it
- * verbatim, which is what the client's router does with it - so there is nothing to
- * clean up here. Matching it makes React Router warn while it decodes the param,
- * and that warning is the router's, raised against a page that exists; hiding it by
+ * `%C0%AF`, a lone surrogate `%ED%A0%80`) goes through the same steps minus the
+ * parser, because the parser reads every escape and warns on stderr for those it
+ * cannot decode. Nothing about it is *rewritten*: the escapes stay as they are and
+ * React Router hands them to the page verbatim, which is what the client's router
+ * does. Matching such a path makes React Router warn while decoding the param, and
+ * that warning is the router's, raised against a page that exists; hiding it by
  * answering 404 would be a wrong answer bought with a quiet log.
  */
 export function normalizeRequestTarget(url: string): string {
-  // A path that cannot be decoded never goes through the URL parser, which warns on
-  // stderr reading it - but it is not rewritten either, because it can address a
-  // real page whose params the router takes verbatim. An absolute target still has
-  // to lose its authority, so that is cut by hand here.
-  if (isUndecodable(withoutSuffix(url))) {
-    if (!HTTP_ABSOLUTE.test(url)) return url;
-    const path = withoutSuffix(url.replace(/^https?:\/\/[^/?#]*/i, ""));
-    return path.startsWith("/") ? path : "/";
+  // A scheme that is not `http`/`https` names no request target on this origin, and
+  // a bare path or a lone `?query` is not a scheme, whatever precedes the colon.
+  const absolute = isAbsoluteForm(url);
+  if (!absolute && !url.startsWith("//") && SCHEME.test(url)
+    && !url.startsWith("?") && !url.startsWith("#")) {
+    return url;
   }
 
-  // Absolute-form: the authority carries no routing information for this app.
-  if (HTTP_ABSOLUTE.test(url)) {
-    try {
-      return new URL(url).pathname;
-    } catch {
-      return url;
-    }
-  }
+  const path = absolute ? withoutSuffix(url.replace(AUTHORITY, "")) : withoutSuffix(url);
 
-  if (url.startsWith("//")) return withoutSuffix(url);
+  // A protocol-relative href is an authority shortcut in a *document*, not in a
+  // request target: these two slashes are the path, and must not be read as a host.
+  if (path.startsWith("//")) return path;
 
-  // A scheme that is not `http` or `https`, but not a bare path either.
-  if (SCHEME.test(url) && !url.startsWith("?") && !url.startsWith("#")) return url;
+  if (isUndecodable(path)) return resolveByHand(path);
 
   try {
-    return new URL(url.startsWith("/") ? url : `/${url}`, ORIGIN).pathname;
+    return new URL(path.startsWith("/") ? path : `/${path}`, ORIGIN).pathname;
   } catch {
-    return url;
+    return path;
   }
 }
 

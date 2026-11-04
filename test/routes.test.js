@@ -694,6 +694,7 @@ describe("route generator", () => {
         "page.tsx": loader("home"),
         "users/[id]/page.tsx": loader("user"),
         "docs/[[...slug]]/page.tsx": loader("docs"),
+        "blog/[...slug]/page.tsx": loader("blog"),
       },
     });
 
@@ -743,6 +744,14 @@ describe("route generator", () => {
       "/users/a%2": "/users/a%2",
       "https://example.com/users/%FF": "/users/%FF",
       "https://user:pass@example.com:8443/users/%FF": "/users/%FF",
+      // Escapes that ARE decodable are never touched by this path: an encoded slash
+      // stays inside one segment, an encoded percent stays an escape.
+      "/users/%2F": "/users/%2F",
+      "/users/%25": "/users/%25",
+      "/users/a%2Fb": "/users/a%2Fb",
+      "/blog/ok/%2F/no": "/blog/ok/%2F/no",
+      "/docs/ok/%FF/ok": "/docs/ok/%FF/ok",
+      "/blog/ok/%zz/ok": "/blog/ok/%zz/ok",
     };
 
     for (const [url, pathname] of Object.entries(PATHNAMES)) {
@@ -795,6 +804,47 @@ describe("route generator", () => {
     }
     const decoded = writes.filter((text) => text.includes("could not be decoded"));
     assert.deepEqual(decoded, [], `the normalizer should not warn, got: ${decoded.join("")}`);
+
+    // `decodeURIComponent` judges the whole path while React Router decodes segment
+    // by segment, so one broken escape must not change how the *others* are read.
+    // Each pair below is the same shape with a decodable escape, resolved by the
+    // parser: the hand-resolved answer has to come out with the same structure.
+    for (const [broken, standIn, shape] of [
+      ["/users/other/../%FF", "/users/other/../%41", "/users/%FF"],
+      ["/users/other/../%zz", "/users/other/../%41", "/users/%zz"],
+      ["users/%FF", "users/%41", "/users/%FF"],
+      ["/./users/%FF", "/./users/%41", "/users/%FF"],
+      ["/a/../%FF", "/a/../%41", "/%FF"],
+      ["/%FF/..", "/%41/..", "/"],
+      // Empty segments and a trailing slash are structure too.
+      ["/users//%FF", "/users//%41", "/users//%FF"],
+      ["/users/%FF/", "/users/%41/", "/users/%FF/"],
+      ["/docs/ok/%FF/ok", "/docs/ok/%41/ok", "/docs/ok/%FF/ok"],
+    ]) {
+      assert.equal(
+        normalizeRequestTarget(standIn),
+        shape.replace("%FF", "%41").replace("%zz", "%41"),
+        `the parser should read ${standIn} as ${shape}`,
+      );
+      assert.equal(normalizeRequestTarget(broken), shape, `${broken} should keep that shape`);
+    }
+
+    // Which is to say the matching itself is unchanged, not merely the string:
+    // `%2F` stays one segment, so `users/[id]` answers it, while a path that really
+    // does have a third segment reaches nothing of the app's.
+    assert.equal(getRouteStatus(routes, "/users/a%2Fb"), 200);
+    assert.equal(getRouteStatus(routes, "/users/a/b"), 404);
+    assert.equal(getRouteStatus(routes, "/users/%2F"), 200);
+    assert.equal(getRouteStatus(routes, "/users/%25"), 200);
+    // A broken escape in one segment of a multi-segment path is still a page.
+    assert.equal(getRouteStatus(routes, "/docs/ok/%FF/ok"), 200);
+    assert.equal(getRouteStatus(routes, "/blog/ok/%zz/ok"), 200);
+    // And the structure around it survives: `/users/other/../%FF` is the browser's
+    // `/users/%FF`, so it is the same page - not a 404 for an unmatched depth.
+    assert.equal(getRouteStatus(routes, "/users/other/../%FF"), 200);
+    // An invalid sequence in the pathname is refused by the parser but not by the
+    // route table; in the query it is React Router's to parse, and the page stands.
+    assert.equal(getRouteStatus(routes, "/users/123?tag=%zz"), 200);
   });
 
   test("a URL is judged by the routes that can actually take it", () => {

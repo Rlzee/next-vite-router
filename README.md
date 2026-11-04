@@ -348,6 +348,20 @@ the router's own signal about a page that exists — silencing it with a `404` w
 be a wrong answer bought with a quiet log. This package's own share of the log stays
 empty: the URL parser is never handed a path it could not decode.
 
+Note the asymmetry that implies. The decodability check judges the **whole** path
+because that is what the parser would decode, while React Router decodes **segment by
+segment** — so the parser is skipped for the whole path, and the structural work it
+would have done (a missing leading slash, `.` and `..` segments) is done by hand on
+the raw segments instead. One broken escape therefore cannot change how the others
+match:
+
+```ts
+normalizeRequestTarget("/users/other/../%FF");  // "/users/%FF" - same shape as "/users/other/../%41"
+normalizeRequestTarget("/users//%FF");          // two slashes preserved
+getRouteStatus(routes, "/users/a%2Fb");         // 200 - %2F stays inside one segment
+getRouteStatus(routes, "/users/a/b");           // 404 - a real third segment
+```
+
 `normalizeRequestTarget()` is exported if you want the same reading for logging.
 
 If you took the advice this section gave earlier, or the `route.path === "*"` line in
