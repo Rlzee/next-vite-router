@@ -12,6 +12,16 @@ security gate - that the next change to any of this will be caught by.
 
 ### Fixed
 
+- **An SSR server can now import the package root in an app without the
+  `react-router-dom` shim.** `resolve.alias` only governs imports Vite resolves
+  itself, and a server build keeps `node_modules` imports external by default - so
+  the `react-router-dom` import inside this package's own `dist` was handed to
+  Node, which has no such package installed, and the bundle died with
+  `ERR_MODULE_NOT_FOUND` at the first request. The plugin now pairs the alias with
+  `ssr.noExternal: ["next-vite-router"]`, which puts those imports back on the
+  aliased path. It took `isUnmatched()` being imported from a server entry to
+  surface it: the route tree the generated module builds was already inlined and
+  unaffected.
 - **A `throw null` is now caught.** `RouteErrorBoundary` stored "nothing failed" and
   the captured value in the same field (`{ error: null }`), and `throw null` is legal
   JavaScript. Such a failure therefore read as healthy: the boundary rendered the

@@ -167,13 +167,18 @@ const ROUTER: RouterSpecifier = "react-router";
 const ROUTER_MIN_MAJOR_FOR_SWAP = 7;
 
 // Rewritten by the `config` hook when the application has `react-router` but no
-// `react-router-dom`. Vite applies `resolve.alias` to every import it resolves,
-// including the ones inside this package's own `dist` files and the ones the
-// application writes itself, so one entry redirects the whole build.
+// `react-router-dom`. Vite applies `resolve.alias` to every import it *resolves*
+// itself - the ones inside this package's own `dist` files and the ones the
+// application writes - so one entry redirects the whole build. An import Vite
+// leaves external is the exception: it is handed to Node untouched, and Node does
+// not know about the alias. Hence `ssr.noExternal` below.
 const routerDomToRouterAlias = {
   find: /^react-router-dom$/,
   replacement: ROUTER,
 };
+
+/** This package's own name, as an application would import it. */
+const PACKAGE_NAME = "next-vite-router";
 
 type InstalledPackage = { version: string; major: number };
 
@@ -576,6 +581,14 @@ export function nextViteRouter(
         // instance, not on a specifier it never installed.
         return {
           resolve: { alias: [routerDomToRouterAlias] },
+          // An SSR build externalizes `node_modules` imports by default, and an
+          // external module is resolved by Node, not by Vite: the
+          // `react-router-dom` import inside this package's `dist` would outlive
+          // the alias and fail at runtime (`ERR_MODULE_NOT_FOUND`) on a server that
+          // imports the package root - `isUnmatched()`, or a hand-built route tree.
+          // Keeping this one package inlined puts its imports back on the path the
+          // alias governs.
+          ssr: { noExternal: [PACKAGE_NAME] },
         };
       }
     },

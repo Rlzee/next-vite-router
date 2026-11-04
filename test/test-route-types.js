@@ -521,6 +521,16 @@ try {
     [{ find: /^react-router-dom$/, replacement: "react-router" }],
     "an install without react-router-dom must alias the shim onto react-router",
   );
+  // The alias only governs what Vite resolves. An SSR build keeps `node_modules`
+  // imports external by default, and an external module's own
+  // `react-router-dom` import goes to Node - which has no such package here - so
+  // a server importing `next-vite-router` (for `isUnmatched()`, say) dies at
+  // runtime with ERR_MODULE_NOT_FOUND unless the package is inlined.
+  assert.deepEqual(
+    contributed?.ssr?.noExternal,
+    ["next-vite-router"],
+    "an SSR build must inline this package so the alias reaches its imports",
+  );
 
   const routerOnlyWarnings = [];
   routerOnlyPlugin.configResolved({
