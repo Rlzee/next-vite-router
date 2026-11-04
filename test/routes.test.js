@@ -677,6 +677,136 @@ describe("route generator", () => {
     assert.ok(!isUnmatched(rootRoutes, "/"));
   });
 
+  test("an app that matches its own page files decides the shapes the chain cannot", () => {
+    // The README's `hasPage()`: an SSR entry reads its own `page.tsx` list (the
+    // keys `import.meta.glob` gives it) and asks whether any pattern answers the
+    // URL. That settles the three shapes `isUnmatched()` has to give up on, because
+    // "is there a page here" is a question about files, not about route shape.
+    // The table below is authored from the same list, and was checked against what
+    // the router really renders.
+    const pageFiles = [
+      "./app/page.tsx",
+      "./app/(marketing)/pricing/page.tsx",
+      "./app/blog/[...slug]/page.tsx",
+      "./app/docs/[[...seg]]/page.tsx",
+      "./app/users/new/page.tsx",
+      "./app/users/[id]/page.tsx",
+      "./app/shop/[cat]/[item]/page.tsx",
+    ];
+
+    const hasPage = (url, { caseSensitive = true } = {}) => {
+      const wanted = url.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
+      const same = (a, b) => (caseSensitive ? a === b : a.toLowerCase() === b.toLowerCase());
+
+      return pageFiles.some((file) => {
+        const folder = file.slice(0, -"/page.tsx".length);
+        if (!folder.startsWith("./app")) return false;
+        const pattern = folder
+          .slice("./app".length)
+          .split("/")
+          .filter(Boolean)
+          .filter((segment) => !/^\(.*\)$/.test(segment));
+
+        const walk = (p, w) => {
+          if (p === pattern.length) return w === wanted.length;
+          const segment = pattern[p];
+          if (/^\[\[\.\.\..+\]\]$/.test(segment)) {
+            for (let taken = 0; w + taken <= wanted.length; taken += 1) {
+              if (walk(p + 1, w + taken)) return true;
+            }
+            return false;
+          }
+          if (/^\[\.\.\..+\]$/.test(segment)) {
+            for (let taken = 1; w + taken <= wanted.length; taken += 1) {
+              if (walk(p + 1, w + taken)) return true;
+            }
+            return false;
+          }
+          if (w === wanted.length) return false;
+          if (/^\[.+\]$/.test(segment)) return walk(p + 1, w + 1);
+          return same(segment, wanted[w]) && walk(p + 1, w + 1);
+        };
+
+        return walk(0, 0);
+      });
+    };
+
+    const EXPECTED_PAGES = {
+      // Root, and a page reached through a group that adds no URL segment.
+      "/": true,
+      "/pricing": true,
+      // A required catch-all answers below its base, never the base itself.
+      "/blog": false,
+      "/blog/a": true,
+      "/blog/a/b/c": true,
+      // An optional catch-all answers its base too.
+      "/docs": true,
+      "/docs/guide/api": true,
+      // A static segment and a dynamic one at the same level are both pages.
+      "/users/new": true,
+      "/users/7": true,
+      "/users": false,
+      "/users/7/extra": false,
+      // Two parameters, both required.
+      "/shop/a": false,
+      "/shop/a/b": true,
+      // Nothing behind this one: the built-in 404, the case isUnmatched() already
+      // gets right - both tests have to agree here.
+      "/ddddddd": false,
+    };
+
+    for (const [url, expectPage] of Object.entries(EXPECTED_PAGES)) {
+      assert.equal(
+        hasPage(url),
+        expectPage,
+        `hasPage("${url}") said ${expectPage ? "no page" : "a page"}`,
+      );
+    }
+
+    // Case sensitivity follows the plugin option, exactly like the converter's
+    // `caseSensitive` stamp. `/DOCS` is answered by `docs/[[...seg]]/page.tsx`
+    // only once segments compare case-insensitively; `/USERS` answers nothing
+    // either way, because both `users` pages need a second segment.
+    assert.equal(hasPage("/DOCS"), false);
+    assert.equal(hasPage("/DOCS", { caseSensitive: false }), true);
+    assert.equal(hasPage("/USERS"), false);
+    assert.equal(hasPage("/USERS", { caseSensitive: false }), false);
+
+    // The two tests agree wherever the chain can decide, and disagree only on the
+    // documented shapes - which is why the README offers both.
+    const routes = createRoutes({
+      pages: {
+        "page.tsx": loader("home"),
+        "blog/[...slug]/page.tsx": loader("blog"),
+        "users/[id]/page.tsx": loader("user"),
+      },
+    });
+    const isUnmatched = (url) => {
+      const matches = matchRoutes(routes, url);
+      if (!matches) return true;
+      if (matches.at(-1)?.route.path !== "*") return false;
+      return matches.slice(0, -1).every(({ route }) =>
+        route.path === undefined
+        || route.path === ""
+        || route.path === "/"
+        || route.index === true,
+      );
+    };
+
+    for (const url of ["/", "/blog/a", "/users/7", "/ddddddd", "/USERS"]) {
+      assert.equal(
+        isUnmatched(url),
+        !hasPage(url, { caseSensitive: true }),
+        `the chain test and the file test disagree on "${url}"`,
+      );
+    }
+    // `/blog` is the documented divergence: a required catch-all's base is a guard
+    // index, so the chain test cannot see the 404, while the file test never claimed
+    // the base was a page.
+    assert.equal(isUnmatched("/blog"), false);
+    assert.equal(hasPage("/blog"), false);
+  });
+
   test("rejects not-found routes that conflict with catch-all pages", () => {
     assert.throws(
       () => buildRouteTree(

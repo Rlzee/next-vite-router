@@ -339,9 +339,75 @@ Three shapes are outside what any chain test can decide:
 
 The last two answer `200`, as they did before 4.0.0 — the `null` test never caught
 them either. The emitted route array carries no documented marker separating a
-not-found route from a page route, so a server that must report `404` for those
-shapes has to bring its own knowledge of the tree — the bases it declares no page
-for.
+not-found route from a page route, so the exact answer is not in the routes at all:
+it is in your files. An SSR entry is bundled by Vite like any other module, so it can
+read its own page list and match the URL against it — which settles all three shapes
+above, because a page either exists at that URL or it does not.
+
+```ts
+// src/entry-server.ts — the same paths the plugin globs, keys only.
+const pageFiles = Object.keys(import.meta.glob("./app/**/page.tsx"));
+
+/** `true` when some `page.tsx` of this application answers `url`. */
+export function hasPage(
+  url: string,
+  { pagesDir = "./app", pageFile = "page.tsx", caseSensitive = true } = {},
+): boolean {
+  const wanted = url.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
+  const same = (a: string, b: string) =>
+    caseSensitive ? a === b : a.toLowerCase() === b.toLowerCase();
+
+  return pageFiles.some((file) => {
+    const folder = file.slice(0, -(`/${pageFile}`.length));
+    if (!folder.startsWith(pagesDir)) return false;
+
+    const pattern = folder
+      .slice(pagesDir.length)
+      .split("/")
+      .filter(Boolean)
+      // A route group adds no segment to the URL.
+      .filter((segment) => !/^\(.*\)$/.test(segment));
+
+    const walk = (p: number, w: number): boolean => {
+      if (p === pattern.length) return w === wanted.length;
+      const segment = pattern[p];
+      if (/^\[\[\.\.\..+\]\]$/.test(segment)) {
+        // `[[...seg]]` also answers its base: zero or more segments.
+        for (let taken = 0; w + taken <= wanted.length; taken += 1) {
+          if (walk(p + 1, w + taken)) return true;
+        }
+        return false;
+      }
+      if (/^\[\.\.\..+\]$/.test(segment)) {
+        // `[...slug]` needs at least one, so its base is not a page.
+        for (let taken = 1; w + taken <= wanted.length; taken += 1) {
+          if (walk(p + 1, w + taken)) return true;
+        }
+        return false;
+      }
+      if (w === wanted.length) return false;
+      if (/^\[.+\]$/.test(segment)) return walk(p + 1, w + 1);
+      return same(segment, wanted[w]) && walk(p + 1, w + 1);
+    };
+
+    return walk(0, 0);
+  });
+}
+
+const status = hasPage(url) ? 200 : 404;
+```
+
+The four conventions that list restates are the whole contract: `(group)` contributes
+no segment, `[id]` exactly one, `[...slug]` one or more, `[[...seg]]` zero or more;
+and static segments compare case-sensitively unless the plugin runs with
+`caseSensitive: false`, which this helper has to be told about too. Because a status
+only asks *whether* some page answers the URL, React Router's precedence between a
+static and a dynamic segment at the same level never comes up.
+
+`isUnmatched()` stays the cheaper test — no file walk, no second matcher to keep in
+step — and the two agree wherever the chain can decide. Reach for `hasPage()` when
+one of the three shapes above is in your tree, or when a wrong status on a
+`not-found` page costs you something.
 
 ### Custom file names and pages directory
 
