@@ -746,6 +746,15 @@ describe("route generator", () => {
       // prefix makes rather than the popping.
       "/../../x": "/x",
       "/a/../../x": "/x",
+      // A path ending on a dot segment keeps the slash the URL spec puts back.
+      "/a/%FF/.": "/a/%FF/",
+      "/a/%FF/..": "/a/",
+      "/a/%FF/b/..": "/a/%FF/",
+      "//host/.": "//host/",
+      "//host/..": "//",
+      "//host/a/..": "//host/",
+      "//host/a/b/.": "//host/a/b/",
+      "//host": "//host",
       // Malformed escapes are never routed through the parser (see below), and an
       // unparseable absolute URL is used as it came.
       "/%zz": "/%zz",
@@ -846,6 +855,12 @@ describe("route generator", () => {
       // The same rule for a protocol-relative path, whose two slashes survive it.
       ["//example.com/%2e%2e/%FF", "//example.com/%2e%2e/%41", "//%FF"],
       ["//example.com/../../%FF", "//example.com/../../%41", "//%FF"],
+      // A trailing dot segment leaves its slash behind, dot form or encoded form.
+      ["/a/%FF/.", "/a/%41/.", "/a/%FF/"],
+      ["/a/%FF/..", "/a/%41/..", "/a/"],
+      ["/a/%FF/b/..", "/a/%41/b/..", "/a/%FF/"],
+      ["/a/%2e%2e/%FF/.", "/a/%2e%2e/%41/.", "/%FF/"],
+      ["//example.com/%FF/.", "//example.com/%41/.", "//example.com/%FF/"],
     ]) {
       assert.equal(
         normalizeRequestTarget(standIn),
@@ -856,6 +871,14 @@ describe("route generator", () => {
       );
       assert.equal(normalizeRequestTarget(broken), shape, `${broken} should keep that shape`);
     }
+
+    // The reference behind those pairs is the parser itself, not a hand-written
+    // expectation: for a decodable path `normalizeRequestTarget` *is*
+    // `new URL(path, base).pathname`, so what the hand branch has to match is this.
+    assert.equal(new URL("/a/%41/.", "http://next-vite-router.invalid/").pathname, "/a/%41/");
+    assert.equal(new URL("/a/%41/..", "http://next-vite-router.invalid/").pathname, "/a/");
+    assert.equal(normalizeRequestTarget("/a/%FF/."), "/a/%FF/");
+    assert.equal(normalizeRequestTarget("/a/%FF/.."), "/a/");
 
     // Which is to say the matching itself is unchanged, not merely the string:
     // `%2F` stays one segment, so `users/[id]` answers it, while a path that really

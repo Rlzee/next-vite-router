@@ -124,7 +124,10 @@ security gate - that the next change to any of this will be caught by.
   answer against another origin, so its dot segments are resolved by hand too while
   its two leading slashes stay. Those slashes are held outside the resolution stack -
   they are a prefix, not a segment a `..` may pop - so `//example.com/../../x` reads
-  as `//x` rather than losing one of them, and `/../../x` floors at `/` as before.
+  as `//x` rather than losing one of them, and `/../../x` floors at `/` as before. A
+  path ending on a dot segment also keeps the slash the URL spec puts back (`/a/.` and
+  `/a/..` are `/a/`, `//host/.` is `//host/`); leaving it out dropped a trailing slash
+  that is routing information, present in the browser's `location.pathname`.
 - **`http://` is not read as the root page.** An absolute target with neither host nor
   path names no request; only a non-empty authority is stripped.
 - **A browser suite in Chromium**, `pnpm run test:browser`: 23 tests over the fixture

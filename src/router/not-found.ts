@@ -78,8 +78,9 @@ const DOUBLE_DOT = /^(?:\.\.|%2e\.|\.%2e|%2e%2e)$/i;
 
 /**
  * The structural half of `new URL().pathname`, without the parser: a missing
- * leading slash completed, dot segments resolved, everything else - every empty
- * segment and every percent escape - kept byte for byte.
+ * leading slash completed, dot segments resolved, a dot segment at the end of the
+ * path leaving its slash behind (`/a/..` is `/a/`, not `/a`), and everything else -
+ * every empty segment and every percent escape - kept byte for byte.
  *
  * The leading one or two slashes are held outside the resolution stack, so a chain
  * of dot segments cannot pop them: `//a/../../x` keeps both slashes, and `/../../x`
@@ -98,15 +99,24 @@ function resolveByHand(path: string): string {
   // dot segments follow it, and a root-less path floor at `/` rather than vanish.
   const prefix = /^\/{1,2}/.exec(path)?.[0] ?? "";
   const kept: string[] = [];
+  // A path that ends on a dot segment keeps a slash: that is the URL spec's rule,
+  // which makes `/a/.` and `/a/..` both `/a/` rather than `/a` and `/`. Forgetting it
+  // would drop a trailing slash the client router does see.
+  let endsOnDot = false;
   for (const segment of path.slice(prefix.length).split("/")) {
-    if (SINGLE_DOT.test(segment)) continue;
+    if (SINGLE_DOT.test(segment)) {
+      endsOnDot = true;
+      continue;
+    }
     // A dot segment pops a named segment only; with nothing left to pop the path
     // floors at its own root, which is where `/../../x` and `//a/../../x` differ by
     // exactly that prefix.
     if (DOUBLE_DOT.test(segment)) {
       if (kept.length > 0) kept.pop();
+      endsOnDot = true;
       continue;
     }
+    endsOnDot = false;
     kept.push(segment);
   }
   // `prefix` already carries the leading slash, so the body is appended to it as is;
@@ -114,7 +124,8 @@ function resolveByHand(path: string): string {
   // path - a request target never resolves down to nothing.
   const lead = prefix === "" ? "/" : prefix;
   const body = kept.join("/");
-  return body === "" ? lead : `${lead}${body}`;
+  const resolved = body === "" ? lead : `${lead}${body}`;
+  return endsOnDot && !resolved.endsWith("/") ? `${resolved}/` : resolved;
 }
 
 /** A leading `scheme:` - whatever it turns out to name, it is not an origin-form path. */

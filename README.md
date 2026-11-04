@@ -361,9 +361,15 @@ others match:
 normalizeRequestTarget("/users/other/../%FF");  // "/users/%FF" - same shape as "/users/other/../%41"
 normalizeRequestTarget("/users/%2e%2e/%FF");    // "/%FF"       - the encoded dot pops too
 normalizeRequestTarget("/users//%FF");          // two slashes preserved
+normalizeRequestTarget("/a/%FF/..");            // "/a/"        - a trailing dot leaves its slash
 getRouteStatus(routes, "/users/a%2Fb");         // 200 - %2F stays inside one segment
 getRouteStatus(routes, "/users/a/b");           // 404 - a real third segment
 ```
+
+A path ending on a dot segment keeps the slash the URL spec puts back — `/a/.` and
+`/a/..` are both `/a/`, `//host/.` is `//host/` — because a trailing slash is routing
+information here, not decoration: it is in the browser's `location.pathname`, so it
+has to be in the server's reading of the same request.
 
 The same hand-resolved structure applies to a protocol-relative path — `//example.com/%2e%2e/x`
 keeps its two slashes and loses `example.com` to the dot segment — because the parser
