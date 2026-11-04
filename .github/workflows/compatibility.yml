@@ -12,12 +12,21 @@ on:
   pull_request:
 
 # A queued job left over from a superseded commit tests code that no longer exists,
-# and while it waits it holds the place of the commit that does - so branches cancel
-# their own backlog. The trunk is left to finish: a merge already on main is history
-# worth recording whole, not one cut short by the next merge.
+# and while it waits it holds the place of the commit that does. Grouping has to draw
+# the line between the two kinds of ref carefully:
+#
+# - a pull request is grouped by its branch, so pushing `fix 2 of 3` cancels the jobs
+#   still waiting for `fix 1 of 3`;
+# - a push is grouped by its own run id, which is GitHub's way of saying "nothing to
+#   group": two pushes to main never queue behind each other and never cancel each
+#   other, because the trunk's history is worth recording for both commits.
+#
+# Grouping every ref by `github.ref` was the mistake this replaces: a second push to
+# main while the first run was still going parked all 28 checks in a queue they had no
+# reason to wait in.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
 
 # Every job here builds, tests and reports; none of them pushes, comments or writes
 # an artifact the token has to authorize, so the default write scope is narrowed to

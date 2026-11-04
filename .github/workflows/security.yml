@@ -13,13 +13,12 @@ on:
     - cron: "17 3 * * 1"
   workflow_dispatch:
 
-# Same reasoning as the compatibility workflow next to it: a run still queued for a
-# commit that a later commit has superseded audits a manifest nobody is about to
-# merge, and it holds the slot of the run that would. The trunk is left to finish, so
-# the record of what was actually published stays complete.
+# Same grouping rule as the compatibility workflow next to it: a pull request branches
+# cancel their own superseded backlog, while a push, a scheduled run or a dispatched
+# one each get a group of their own so they never wait for a run that is still going.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
 
 # The audit reads tracked manifests and writes nothing back, and `GITHUB_TOKEN` is
 # scoped per job, so the narrowest grant that still lets it run is read-only
