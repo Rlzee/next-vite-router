@@ -1,4 +1,6 @@
 import { expect, test } from "@playwright/test";
+import { readdirSync, readFileSync } from "node:fs";
+import { distPath } from "./vite-cli.js";
 
 /**
  * The mount-level scenarios, run against BOTH `vite dev` and the production build
@@ -9,6 +11,34 @@ import { expect, test } from "@playwright/test";
  * `test/browser-app/src/app`; they are also what the chunk assertions look for in
  * the built output, so a page must keep its marker literal.
  */
+
+/**
+ * The request a reader would make for `chunk/page.tsx`, which is the file a
+ * stale deploy is simulated by removing: `vite dev` serves the module under its
+ * own path, the production build names the emitted chunk after a hash, so the
+ * chunk is found by the marker it carries (the same read `build.spec.js` does).
+ *
+ * @param {string} projectName `dev` or `preview`, from the Playwright project.
+ */
+function chunkRequest(projectName) {
+  if (projectName !== "preview") {
+    return "**/src/app/chunk/page.tsx*";
+  }
+
+  const assets = readdirSync(distPath("assets")).filter((file) => file.endsWith(".js"));
+  const chunk = assets.find(
+    (file) => readFileSync(distPath("assets", file), "utf8").includes("CHUNK-PAGE"),
+  );
+  if (!chunk) {
+    throw new Error("no emitted chunk carries CHUNK-PAGE, so there is nothing to remove");
+  }
+  // The entry holds the eager files (root layout, boundaries), never a page.
+  const entry = readFileSync(distPath("index.html"), "utf8").match(/src="\/assets\/([^"]+\.js)"/)?.[1];
+  if (chunk === entry) {
+    throw new Error("CHUNK-PAGE is in the entry chunk, which would block the whole app");
+  }
+  return `**/assets/${chunk}`;
+}
 
 test("the initial load paints the home page inside the root layout", async ({ page }) => {
   await page.goto("/");
@@ -185,6 +215,58 @@ test("a query-only navigation keeps the caught error, a path change clears it", 
 
   // The layout above the boundary is the one that never left.
   await expect(page.getByTestId("dashboard-layout")).toContainText("DASHBOARD-LAYOUT[");
+});
+
+test("a stale-deploy chunk failure survives reset() and needs a document reload", async ({ page }, testInfo) => {
+  // The deployment scenario, in the order a reader meets it: their document came
+  // from the previous build, the chunk this lazy route needs is gone, and only
+  // the click on the link asks for it. Blocking the request is how a 404 on a
+  // removed chunk file is reproduced without rebuilding the bundle.
+  const blocked = chunkRequest(testInfo.project.name);
+
+  // A document that loaded fine, so the failure below is a navigation and the
+  // shell has to stay alive around it.
+  await page.goto("/");
+  await page.route(blocked, (route) => route.abort());
+  await page.getByTestId("nav-chunk").click();
+
+  // The rejection reaches the folder's `error.tsx` with the browser's own value,
+  // and the folder's `loading.tsx` does not stay on screen: the boundary sits
+  // outside the `Suspense`, so a chunk that never arrives ends the placeholder
+  // instead of leaving one that promised to finish.
+  await expect(page.getByTestId("chunk-error")).toContainText("CHUNK-ERROR");
+  await expect(page.getByTestId("chunk-loading")).toHaveCount(0);
+  await expect(page.getByTestId("chunk-message")).toContainText("dynamically imported module");
+  // The shell above the boundary is untouched - only the folder's content failed.
+  await expect(page.getByTestId("root-layout")).toContainText("ROOT-LAYOUT[");
+
+  // What a reader does next: retry. `reset()` walks the subtree again and
+  // `React.lazy` answers from the rejection it stored, so the same screen paints
+  // - the limit the unit suite pins on the lifecycle, proven on a real mount.
+  await page.getByTestId("chunk-reset").click();
+  await expect(page.getByTestId("chunk-error")).toContainText("CHUNK-ERROR");
+
+  // And it stays true once the file is back on the server, which is exactly the
+  // moment a reader hits this: the retry inside this document cannot ask for it.
+  await page.unroute(blocked);
+  await page.getByTestId("chunk-reset").click();
+  await expect(page.getByTestId("chunk-error")).toContainText("CHUNK-ERROR");
+
+  // Neither does leaving the route and coming back to it, now that the chunk is
+  // reachable again: the memoized rejection belongs to the document, not to the
+  // route that caught it.
+  await page.getByTestId("nav-home").click();
+  await expect(page.getByTestId("home-page")).toHaveText("HOME");
+  await page.getByTestId("nav-chunk").click();
+  await expect(page.getByTestId("chunk-error")).toContainText("CHUNK-ERROR");
+  await expect(page.getByTestId("chunk-page")).toHaveCount(0);
+
+  // The documented way out is the one that replaces the document.
+  const reloaded = page.waitForLoadState("load");
+  await page.getByTestId("chunk-reload").click();
+  await reloaded;
+  await expect(page.getByTestId("chunk-page")).toHaveText("CHUNK-PAGE");
+  await expect(page.getByTestId("chunk-error")).toHaveCount(0);
 });
 
 test("a thrown null still renders error.tsx", async ({ page }) => {

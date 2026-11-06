@@ -23,6 +23,8 @@ export default function RootLayout() {
         <Link href="/flaky" data-testid="nav-flaky">flaky</Link>
         {" "}
         <Link href="/null-throw" data-testid="nav-null-throw">null-throw</Link>
+        {" "}
+        <Link href="/chunk" data-testid="nav-chunk">chunk</Link>
       </nav>
       <Outlet />
       {"]ROOT-LAYOUT"}

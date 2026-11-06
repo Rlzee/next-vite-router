@@ -724,8 +724,9 @@ renders in place of the content when something below throws, and receives
 a `throw` is legal with any value (`throw null`, `throw "text"`), so an `error.tsx`
 must not assume an `Error` instance. `reset()` clears the boundary's error state
 so React re-renders the subtree - enough to recover from a synchronous failure
-whose cause has been fixed, but not from a rejected dynamic import (see the
-stale-deploy note below). The boundary also clears itself when the path changes,
+whose cause has been fixed, but not from a rejected dynamic import (see
+[Retrying a chunk failure](#retrying-a-chunk-failure-and-when-a-full-reload-is-required)).
+The boundary also clears itself when the path changes,
 so navigating to another page of the same folder after a failure no longer shows
 the stale error. The key it watches is the **pathname** alone: a query-only
 navigation (`?tab=home` to `?tab=settings`) is the same page under the same
@@ -755,13 +756,59 @@ the pages root alongside the root's own `error.tsx` still reports the
 
 Both files are imported eagerly, like layouts: a placeholder fetched by chunk
 would wait for a chunk to announce a chunk, and a boundary that has not loaded
-cannot report the failure it exists for. A chunk that fails outright (a stale
-deploy) surfaces through `error.tsx`, but `React.lazy` memoizes the rejection on
-its own component and the router keeps that instance in its lazy cache, so
-`reset()` re-renders against the same rejection and cannot re-fire the loader.
-Reload the document (`window.location.reload()`) in that case, or evict the
-router's cache explicitly with `clearLazyCache(cache)` on the same cache
-instance the generator owns and re-mount the route tree.
+cannot report the failure it exists for. A chunk that fails outright surfaces
+through `error.tsx` rather than leaving `loading.tsx` on screen forever, because
+the boundary sits outside the `Suspense`.
+
+### Retrying a chunk failure, and when a full reload is required
+
+`reset()` retries the **render**, never the **fetch**. `React.lazy` calls its
+loader once and keeps the outcome - resolved or rejected - on the component it
+memoizes, and the router holds that component in its lazy cache for as long as the
+document lives. So the two failures an `error.tsx` answers need two different
+answers:
+
+| the failure | what recovers it |
+| --- | --- |
+| a page threw while rendering, and its cause is gone (a flag cleared, a value fixed) | `reset()` — the subtree renders again and succeeds |
+| a page module that never arrived (stale deploy, offline reader, blocked CDN) | **a full document reload** — `window.location.reload()` |
+
+A stale deploy is the everyday case, and it stays invisible until the reader
+navigates: their document came from the previous build and names chunk files the
+new build no longer serves, so the first lazy route they open rejects with a
+`TypeError`. Only a fresh document asks the server for the file again — a retry
+still reads the memoized rejection *after* the file is back, and so does the same
+route left and come back to in that tab. An `error.tsx` below a lazily loaded page
+should therefore offer the reload beside the retry:
+
+```tsx
+import type { RouteErrorProps } from "next-vite-router";
+
+// src/app/blog/error.tsx
+export default function BlogError({ error, reset }: RouteErrorProps) {
+  return (
+    <div>
+      <p>Something went wrong: {String(error)}</p>
+      <button onClick={reset}>Try again</button>
+      <button onClick={() => window.location.reload()}>Reload this page</button>
+    </div>
+  );
+}
+```
+
+Do not branch on the message to tell the two failures apart: every browser words a
+rejected dynamic import differently (`"Failed to fetch dynamically imported
+module…"`, `"error loading dynamically imported module…"`, `"Importing a module
+script failed…"`), and `error.tsx` cannot know which one it holds. Two buttons
+cost nothing and cover both.
+
+`clearLazyCache(cache)` is the third option, and it exists only where *your* code
+owns the cache. `createRouteGenerator` keeps its instance private, so an app on the
+generated `next-vite-router/routes` module has nothing to evict — for it, a reload
+is the only complete answer. A tree you build yourself
+(`treeToRoutes(tree, true, "", cache)` with a cache from `createLazyCache`) can
+evict it and re-mount the route tree, which is what makes the next render re-fire
+the loader; the pairing is pinned in `test/boundaries.test.js`.
 
 A boundary only sees render errors: nothing thrown from an event handler or a
 bare `async` callback reaches it, and `loading.tsx` is meaningful for chunk
@@ -1036,6 +1083,7 @@ reloads every client of that server.
 | catch-all routes | `useCatchAll()` segments, the optional base, and a `Link` filling the splat from an array |
 | `loading.tsx` | the folder's placeholder paints while its page module is held back |
 | `error.tsx` | the fallback replaces the failing page, `reset()` recovers once the cause is gone, a `throw null` is caught like any other failure, and the reset key is the pathname — a query-only navigation keeps the screen, another page of the folder clears it |
+| a chunk that cannot be fetched (simulated stale deploy) | `error.tsx` replaces the `loading.tsx` placeholder, neither `reset()` nor a route change re-fetches the file, and only the document reload paints the page |
 | route files | a page created while the server runs joins the table, and deleting it takes the route back out |
 | `lazyLayouts` | a nested layout lives in a chunk of its own and still paints |
 

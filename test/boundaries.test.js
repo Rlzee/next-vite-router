@@ -716,6 +716,12 @@ describe("reset() scope: a failed dynamic import stays failed", () => {
   // loader, and `reset()` therefore cannot recover from a stale-deploy chunk
   // without a document reload (or an explicit `clearLazyCache(cache)` paired
   // with a remount).
+  //
+  // The half this harness cannot reach is the other end of the same story: a
+  // request a real browser cannot fetch, a placeholder that must not hang, and a
+  // document that has to be replaced. That runs in `test/browser/app.spec.js`
+  // ("a stale-deploy chunk failure…"), which aborts the chunk request of
+  // `test/browser-app/src/app/chunk/` in dev and from the production bundle.
   const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
   /**
