@@ -607,6 +607,63 @@ try {
   fs.rmSync(routerRoot6, { recursive: true, force: true });
 }
 
+// What the `config` hook contributes is only half the story: Vite merges the
+// return through `mergeConfig`, whose array rule (`[...arraify(existing),
+// ...arraify(value)]`) is what keeps an application's own `ssr.noExternal`
+// entries next to this package's. The merge is Vite behavior, so it is pinned
+// through Vite's own `resolveConfig` rather than against the hook's return.
+const configMergeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-config-merge-"));
+writeRouterApp(configMergeRoot);
+writeInstalledPackage(configMergeRoot, "react-router", "7.18.4");
+
+const { resolveConfig } = await import("vite");
+
+{
+  const resolved = await resolveConfig(
+    {
+      configFile: false,
+      root: configMergeRoot,
+      logLevel: "silent",
+      plugins: [nextViteRouter()],
+      ssr: { noExternal: ["some-other-package"] },
+      resolve: { alias: { "~/styles": "/src/styles" } },
+    },
+    "build",
+  );
+  assert.deepEqual(
+    resolved.ssr.noExternal,
+    ["some-other-package", "next-vite-router"],
+    "the contributed noExternal entry must be added to the application's own, never replace it",
+  );
+  assert.ok(
+    resolved.resolve.alias.some((entry) => entry.find === "~/styles"),
+    "the contributed alias must not drop the application's own resolve.alias entries",
+  );
+}
+
+{
+  // `noExternal: true` means "inline everything", so the boolean still wins over
+  // the contributed list instead of the list being concatenated onto it.
+  const resolved = await resolveConfig(
+    {
+      configFile: false,
+      root: configMergeRoot,
+      logLevel: "silent",
+      plugins: [nextViteRouter()],
+      ssr: { noExternal: true },
+    },
+    "build",
+  );
+  assert.equal(
+    resolved.ssr.noExternal,
+    true,
+    "a noExternal: true (inline every import) must survive the contribution",
+  );
+}
+
+console.log("✅ contributed ssr.noExternal merges into the application's own SSR settings");
+fs.rmSync(configMergeRoot, { recursive: true, force: true });
+
 // The `config` hook falls back to the process working directory when the user
 // config carries no `root`, which is the same default Vite applies in
 // `resolveConfig`. That branch cannot be exercised in this process: the suite runs

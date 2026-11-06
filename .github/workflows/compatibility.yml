@@ -184,8 +184,17 @@ jobs:
   # `react-router-dom` (as do this package's own `dist` files and the generated
   # module), and the plugin has to substitute the core package for it. Without
   # this leg the support is only claimed, never built or rendered.
+  #
+  # The substitution has to hold for a CommonJS install too, not just an ESM one.
+  # An externalized `node_modules` import is handed to Node untouched, and a
+  # require-based build resolves `react-router-dom` from the file system rather
+  # than through the Vite alias, so the shim-less contract is platform-format
+  # specific. `package_type` is therefore a real matrix key: the base row is
+  # `module`, and the `include` below adds one dedicated `commonjs` combination
+  # (its differing value matches no existing row, so it fans out as a new job
+  # rather than overwriting the ESM leg it otherwise duplicates).
   react-router-only:
-    name: Router react-router only (Vite ${{ matrix.vite }} / React ${{ matrix.react }})
+    name: Router react-router only (Vite ${{ matrix.vite }} / React ${{ matrix.react }} / ${{ matrix.package_type }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -193,6 +202,13 @@ jobs:
         react: ["18.3.1", "19.2.0"]
         router: ["7.18.4"]
         vite: ["5.4.21", "8.0.0"]
+        package_type: ["module"]
+        include:
+          # One CommonJS install of the shim-less router, rendered end to end.
+          - react: "18.3.1"
+            router: "7.18.4"
+            vite: "5.4.21"
+            package_type: commonjs
 
     steps:
       - uses: actions/checkout@v4
@@ -221,11 +237,18 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/compat-app"
           cp -R test/compat-app/. "$RUNNER_TEMP/compat-app/"
-          # No `react-router-dom` in this app, on purpose.
+          # No `react-router-dom` in this app, on purpose. The package type is the
+          # dimension this job moves on top of the missing shim, so the `commonjs`
+          # row leaves `"type"` out and Node loads the emitted entry as CJS.
+          if [ "${{ matrix.package_type }}" = "module" ]; then
+            PACKAGE_TYPE_FIELD='"type": "module",'
+          else
+            PACKAGE_TYPE_FIELD=''
+          fi
           cat > "$RUNNER_TEMP/compat-app/package.json" <<EOF
           {
             "private": true,
-            "type": "module",
+            $PACKAGE_TYPE_FIELD
             "dependencies": {
               "next-vite-router": "file:$PACKAGE_TARBALL",
               "react": "${{ matrix.react }}",

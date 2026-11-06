@@ -385,6 +385,41 @@ for (const pin of [...routerOnlyPins[1].matchAll(/"([^"]+)"/g)].map((match) => m
   );
 }
 
+// The shim-less substitution is format-specific, not just version-specific. An
+// externalized `node_modules` import is handed to Node untouched, and a
+// require-based build resolves the `react-router-dom` import from the file system
+// instead of through the Vite alias the plugin contributes, so the ESM leg proves
+// nothing about a CommonJS install. The job therefore moves `package_type` as a
+// matrix key and fans out one dedicated `commonjs` row through `include`, with the
+// app heredoc switching on it rather than hard-coding `"type": "module"`. The base
+// value and the include value differ, so GitHub treats the row as a new job rather
+// than overwriting the ESM combination it otherwise duplicates.
+assert.match(
+  routerOnlyBody,
+  /package_type: \["module"\]/,
+  "the react-router-only job must declare package_type so the CommonJS leg is a distinct row",
+);
+assert.match(
+  routerOnlyBody,
+  /include:[\s\S]*?package_type: commonjs/,
+  "the react-router-only job must add a dedicated CommonJS combination through include",
+);
+assert.match(
+  routerOnlyBody,
+  /\$\{\{ matrix\.package_type \}\}/,
+  "the app heredoc must switch on matrix.package_type, not hard-code the module type",
+);
+assert.doesNotMatch(
+  routerOnlyBody,
+  /^ +"type": "module",$/m,
+  "the heredoc must not hard-code a package type; that would render the CommonJS row as ESM",
+);
+assert.match(
+  routerOnlyBody,
+  /find dist-ssr[^\n]*-name 'entry-server\.\*'/,
+  "the render step must look the emitted entry up by glob, since a CommonJS build names it .cjs/.mjs",
+);
+
 // Every job above runs on Linux. Path separators, what `path.resolve` hands back,
 // the command lists the CLI gives `execSync`, and the files the plugin writes are
 // exactly the parts that have differed per platform, so the workflow keeps one job
@@ -460,6 +495,9 @@ console.log(
 console.log("✅ The compatibility job renders the fixture app, not only builds it");
 console.log(
   "✅ The compatibility matrix proves react-router works without react-router-dom",
+);
+console.log(
+  "✅ react-router works without the shim in a CommonJS install too",
 );
 console.log(
   "✅ The workflow runs the unit and browser suites on Ubuntu, Windows and macOS",
