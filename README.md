@@ -725,9 +725,13 @@ a `throw` is legal with any value (`throw null`, `throw "text"`), so an `error.t
 must not assume an `Error` instance. `reset()` clears the boundary's error state
 so React re-renders the subtree - enough to recover from a synchronous failure
 whose cause has been fixed, but not from a rejected dynamic import (see the
-stale-deploy note below). The boundary also clears itself when the URL changes, so
-navigating to another page of the same folder after a failure no longer shows the
-stale error.
+stale-deploy note below). The boundary also clears itself when the path changes,
+so navigating to another page of the same folder after a failure no longer shows
+the stale error. The key it watches is the **pathname** alone: a query-only
+navigation (`?tab=home` to `?tab=settings`) is the same page under the same
+`error.tsx`, and the screen stays until `reset()` is called or the path moves.
+That is deliberate - the failure screen belongs to the folder, not to one URL -
+and both halves are pinned by the browser suite and by `test/boundaries.test.js`.
 
 Next.js stacks these as `layout > error > loading > not-found > page`, and this
 package reproduces that order, which fixes two consequences:
@@ -1031,7 +1035,7 @@ reloads every client of that server.
 | an unknown URL | the built-in 404 paints inside the root layout, and the app still works after it |
 | catch-all routes | `useCatchAll()` segments, the optional base, and a `Link` filling the splat from an array |
 | `loading.tsx` | the folder's placeholder paints while its page module is held back |
-| `error.tsx` | the fallback replaces the failing page, `reset()` recovers once the cause is gone, and a `throw null` is caught like any other failure |
+| `error.tsx` | the fallback replaces the failing page, `reset()` recovers once the cause is gone, a `throw null` is caught like any other failure, and the reset key is the pathname — a query-only navigation keeps the screen, another page of the folder clears it |
 | route files | a page created while the server runs joins the table, and deleting it takes the route back out |
 | `lazyLayouts` | a nested layout lives in a chunk of its own and still paints |
 

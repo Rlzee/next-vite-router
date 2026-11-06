@@ -126,6 +126,45 @@ test("error.tsx replaces a failing page and reset retries the subtree", async ({
   await expect(page.getByTestId("root-layout")).toContainText("]ROOT-LAYOUT");
 });
 
+test("a query-only navigation keeps the caught error, a path change clears it", async ({ page }) => {
+  // The boundary's reset key is the pathname (`src/router/boundary.ts`), so this
+  // pins which half of the URL it watches. The failure condition is carried by the
+  // query here - `dashboard/page.tsx` only throws on `?tab=fail` - which is what
+  // makes a screen surviving a tab switch provably stale instead of a fresh catch.
+  await page.goto("/dashboard?tab=fail");
+  await expect(page.getByTestId("dashboard-error")).toContainText("DASHBOARD-ERROR");
+  await expect(page.getByTestId("dashboard-message")).toHaveText("dashboard failure");
+
+  // Same path, other tab: the folder layout really moves, and the screen below it
+  // stays exactly where it was.
+  await page.getByTestId("tab-ok").click();
+  await expect(page).toHaveURL(/\/dashboard\?tab=ok$/);
+  await expect(page.getByTestId("dashboard-tab")).toHaveText("ok");
+  await expect(page.getByTestId("dashboard-error")).toBeVisible();
+  await expect(page.getByTestId("dashboard-page")).toHaveCount(0);
+
+  // And it is the stale screen, not a re-throw: one retry over the same URL paints
+  // the healthy tab.
+  await page.getByTestId("dashboard-reset").click();
+  await expect(page.getByTestId("dashboard-page")).toHaveText("DASHBOARD-PAGE:ok");
+  await expect(page.getByTestId("dashboard-error")).toHaveCount(0);
+
+  // Back on the failing tab, so the assertion below cannot be reading a leftover
+  // success rather than a boundary that is holding a failure.
+  await page.getByTestId("tab-fail").click();
+  await expect(page.getByTestId("dashboard-error")).toBeVisible();
+
+  // Another pathname of the same folder, the query left as it was: the key moved,
+  // so the screen goes even though the URL still says `tab=fail`.
+  await page.getByTestId("tab-settings").click();
+  await expect(page).toHaveURL(/\/dashboard\/settings\?tab=fail$/);
+  await expect(page.getByTestId("dashboard-settings-page")).toHaveText("DASHBOARD-SETTINGS");
+  await expect(page.getByTestId("dashboard-error")).toHaveCount(0);
+
+  // The layout above the boundary is the one that never left.
+  await expect(page.getByTestId("dashboard-layout")).toContainText("DASHBOARD-LAYOUT[");
+});
+
 test("a thrown null still renders error.tsx", async ({ page }) => {
   // `throw null` is legal JavaScript. A boundary that stores "no failure" and the
   // captured value in the same field reads it as healthy, renders the failing

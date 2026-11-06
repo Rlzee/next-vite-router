@@ -44,6 +44,13 @@ const healthyState = (): BoundaryState => ({ hasError: false, error: undefined }
  * would still be on screen after the user navigated to another page of the same
  * folder, because `error.tsx` belongs to the folder and not to the URL. The
  * `reset` handed to the component covers the deliberate retry.
+ *
+ * The key is deliberately the path rather than the whole URL. A navigation that
+ * changes only the query is the same page under the same `error.tsx`, so its
+ * screen stays - even when the value just switched to would have rendered fine.
+ * Dismissing that is `reset()`'s job and not navigation's: only a reader who
+ * asks for a retry says what to do with a failure whose cause may be gone, while
+ * the path changing always means the content the boundary guards is another one.
  */
 export class RouteErrorBoundary extends React.Component<
   {
