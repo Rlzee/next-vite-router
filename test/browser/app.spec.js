@@ -73,12 +73,34 @@ test("an unknown URL renders the built-in 404 inside the layout", async ({ page 
 });
 
 test("a catch-all reads its segments, and its base renders the page", async ({ page }) => {
-  await page.goto("/docs/guide/api");
-  await expect(page.getByTestId("docs-page")).toHaveText("DOCS{guide|api}");
+  // One folder declaring its own layout (`docs/[[...seg]]/layout.tsx`) below an
+  // optional catch-all, so the base URL is answered inside that layout instead
+  // of by a 404 and every deeper URL paints its page through the same shell.
+  const cases = [
+    ["/docs", ""],
+    ["/docs/guide", "guide"],
+    ["/docs/guide/api", "guide|api"],
+  ];
+  for (const [url, segments] of cases) {
+    await page.goto(url);
+    await expect(page.getByTestId("docs-page")).toHaveText(`DOCS{${segments}}`);
+    await expect(page.getByTestId("docs-seg-layout")).toContainText(
+      `DOCS-SEG-LAYOUT[DOCS{${segments}}]DOCS-SEG-LAYOUT`,
+    );
+    await expect(page.getByTestId("root-layout")).toContainText("ROOT-LAYOUT[");
+  }
 
-  // `[[...seg]]` is optional, so the base is a page rather than a 404.
-  await page.goto("/docs");
-  await expect(page.getByTestId("docs-page")).toHaveText("DOCS{}");
+  // Between two URLs of the same catch-all folder the navigation stays
+  // client-side, so the shell that mounted on the first is the one still on
+  // screen for the second - the index and the splat child share it.
+  await page.goto("/docs/guide");
+  await page.evaluate(() => {
+    document.body.dataset.docsMount = "kept";
+  });
+  await page.getByTestId("nav-docs").click();
+  await expect(page).toHaveURL(/\/docs\/guide\/api$/);
+  await expect(page.evaluate(() => document.body.dataset.docsMount)).resolves.toBe("kept");
+  await expect(page.getByTestId("docs-page")).toHaveText("DOCS{guide|api}");
 });
 
 test("a catch-all link fills the splat from a segment array", async ({ page }) => {

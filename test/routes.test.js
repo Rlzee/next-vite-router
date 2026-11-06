@@ -1321,6 +1321,48 @@ describe("route generator", () => {
     assert.equal(matches?.at(-1)?.params["*"], "guide/api");
   });
 
+  test("emits an optional catch-all's layout with an index and a splat child", () => {
+    // The catch-all folder declares its own `layout.tsx`, so the layout branch
+    // converts it, and the page has to appear twice below that layout: as the
+    // index answering the folder's base (an empty splat) and as a `*` child,
+    // because an index never matches once the layout's own `*` has consumed
+    // segments. Claiming the base is the other half - without it the enclosing
+    // folder adds a guard index, which is the more specific match at `/docs`
+    // and answers a URL the optional catch-all owns with a 404.
+    const layout = component("slug-layout");
+    const routes = createRoutes({
+      pages: { "docs/[[...slug]]/page.tsx": loader("docs") },
+      layouts: { "docs/[[...slug]]/layout.tsx": { default: layout } },
+    });
+
+    assert.deepEqual(routeShape(routes), [
+      { path: "docs", children: [
+        { path: "*", children: [
+          { index: true, children: undefined },
+          { path: "*", children: undefined },
+        ] },
+      ] },
+      // No guard index beside `docs`: the base is claimed inside it. The two
+      // routes after it are the root's own base guard and the built-in 404.
+      { index: true, children: undefined },
+      { path: "*", children: undefined },
+    ]);
+
+    assert.deepEqual(matchRoutes(routes, "/docs")?.map(({ route }) => route.path ?? route.index), [
+      "docs", "*", true,
+    ]);
+    assert.deepEqual(matchRoutes(routes, "/docs/guide")?.map(({ route }) => route.path ?? route.index), [
+      "docs", "*", "*",
+    ]);
+
+    // The provider naming the splat wraps the layout too, so the layout of the
+    // catch-all folder reads its own parameter.
+    const shell = routes[0].children[0].element;
+    assert.equal(shell.type, CatchAllParamProvider);
+    assert.equal(shell.props.name, "slug");
+    assert.equal(shell.props.children.type, layout);
+  });
+
   test("keeps only page entries supplied by the glob", () => {
     const routes = createRoutes({
       pages: {

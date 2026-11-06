@@ -791,6 +791,32 @@ function convertNode(
       };
     }
 
+    if (isOptionalCatchAll(node.segment) && node.page) {
+      // The optional sibling of the case above, and it needs the page twice: an
+      // index route matches only its parent's exact path, so once the layout's
+      // own `*` has consumed `guide` nothing is left for it and the layout would
+      // paint an empty Outlet. The page therefore sits both on an index (the
+      // empty splat, the folder's base URL) and on a nested `*` (everything
+      // below it). `emitsIndex` is claimed because the base is answered here: an
+      // enclosing guard index is the more specific match at that URL and would
+      // turn the base into a 404, which is what this branch used to do.
+      const pageRoute = createPageRoute(node, nodePath, cache);
+      const splatChildren: RouteObject[] = [
+        { index: true, element: pageRoute.element },
+        { path: "*", element: pageRoute.element },
+      ];
+      return {
+        // The splat region is left unclaimed, exactly as the same folder without
+        // a layout reports it, so an enclosing `not-found` keeps its own route.
+        claims: { emitsIndex: true, claimsSplats: false },
+        routes: [{
+          path: nodeSegment,
+          element: createLayoutElement(node, nodePath, cache),
+          children: withBoundaryChildren(node, splatChildren),
+        }],
+      };
+    }
+
     // `createNodeChildren` folds an unclaimed base into a guard index.
     const { routes: layoutChildren, childEmitsIndex, childClaimsSplats } =
       createNodeChildren(node, nodePath, cache, inheritedNotFound, !isPathless);
