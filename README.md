@@ -280,16 +280,31 @@ The package answers it. `getRouteStatus()` returns the status for a request, so 
 server never has to know how a not-found is recognised:
 
 ```ts
-import { getRouteStatus } from "next-vite-router";
+import { getRouteStatus, normalizeRequestTarget } from "next-vite-router";
 import { generateRoutes } from "next-vite-router/routes";
 
 const routes = generateRoutes();
-const status = getRouteStatus(routes, request.url); // 200 | 404
+// One reading of the request target, and both halves answer it.
+const pathname = normalizeRequestTarget(request.url);
+const status = getRouteStatus(routes, pathname); // 200 | 404
 
 // Decide before the first byte: a streamed response cannot change its status once
 // headers are out, and by then a 404 is only a styling decision.
-return new Response(document(routes, request.url), { status });
+return new Response(document(routes, pathname), { status });
 ```
+
+**Normalize once, then render from that same value.** `getRouteStatus()` reads a
+target the way a browser does — authority, query and fragment dropped, `.` and
+`..` resolved — because that is what `location.pathname` holds in the client, and
+React Router does no such resolution itself. Hand the router the raw target and it
+matches a *different* URL than the one the status was decided on: the response then
+carries `200` around a document that paints the 404 page (`/users/other/../%FF` is
+the page's `/users/%FF` to the status helper, and nothing's page to `matchRoutes()`),
+and hydration paints that 404 too. One value into both is what keeps one response
+answering one URL. `test/http-integration.test.js` pins the drift over a real
+socket, and `test/browser/url-parity.spec.js` collides the package's reading,
+Chromium's own `location.pathname`, and the page the mounted app paints, over a
+corpus of these targets in both pipelines.
 
 A URL is `404` when the route answering it is a not-found page — the built-in root
 404, a folder's own `not-found.tsx`, or the guard for a base that holds no page
@@ -1086,6 +1101,7 @@ reloads every client of that server.
 | a chunk that cannot be fetched (simulated stale deploy) | `error.tsx` replaces the `loading.tsx` placeholder, neither `reset()` nor a route change re-fetches the file, and only the document reload paints the page |
 | route files | a page created while the server runs joins the table, and deleting it takes the route back out |
 | `lazyLayouts` | a nested layout lives in a chunk of its own and still paints |
+| URL parity (`url-parity.spec.js`) | for one request target, `normalizeRequestTarget()`, Chromium's `location.pathname` and the page the mounted app paints all answer the same URL — never a target that reads as a page to the server and as a 404 after hydration |
 
 ```bash
 pnpm exec playwright install chromium   # once; the browser is not a package dependency

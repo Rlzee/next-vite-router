@@ -24,6 +24,10 @@ prepareWorkspace();
 //                               server, so it must not share one with the tests
 //                               above.
 //
+// `url-parity.spec.js` runs in both of the first two: a request target has to
+// read the same to this package's normalizer, to Chromium's URL parser and to the
+// mounted router, and only a real browser says what the second of those is.
+//
 // Chromium only, and the servers are pinned to 127.0.0.1: on Windows `localhost`
 // may resolve to `::1` while Vite binds the IPv4 loopback.
 
@@ -78,12 +82,12 @@ export default defineConfig({
   projects: [
     {
       name: "dev",
-      testMatch: ["app.spec.js", "dev.spec.js"],
+      testMatch: ["app.spec.js", "dev.spec.js", "url-parity.spec.js"],
       use: { baseURL: url(DEV_PORT) },
     },
     {
       name: "preview",
-      testMatch: ["app.spec.js", "build.spec.js"],
+      testMatch: ["app.spec.js", "build.spec.js", "url-parity.spec.js"],
       use: { baseURL: url(PREVIEW_PORT) },
     },
     {

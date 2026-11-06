@@ -29,15 +29,23 @@ import http from "node:http";
 import { test, describe, before, after } from "node:test";
 import React, { createElement as h } from "react";
 import { renderToPipeableStream } from "react-dom/server";
-import { MemoryRouter, Outlet, useRoutes } from "react-router-dom";
-import { createRouteGenerator, getRouteStatus } from "../dist/index.js";
-import { useCatchAll } from "../dist/plugin-runtime.js";
+import { MemoryRouter, Outlet, matchRoutes, useRoutes } from "react-router-dom";
+import {
+  createRouteGenerator,
+  getRouteStatus,
+  isNotFoundRoute,
+  normalizeRequestTarget,
+} from "../dist/index.js";
+import { useCatchAll, useParams } from "../dist/plugin-runtime.js";
 
 // Route-file factories, mirroring the shapes the plugin's globs hand
 // `createRouteGenerator`: a page and a not-found are lazy loaders, a layout an
 // eager module. Bodies use `React.createElement` so no JSX runtime is needed.
 const page = (name, extra) => async () => ({
   default: () => h("div", { "data-page": name }, extra ? `${name}${extra}` : name),
+});
+const pageWithId = (name) => async () => ({
+  default: () => h("div", { "data-page": name }, `${name}:${useParams().id ?? "?"}`),
 });
 const catchAllPage = (name) => async () => ({
   default: () => h("div", { "data-page": name }, `${name}{${useCatchAll().join("|")}}`),
@@ -54,6 +62,9 @@ const PAGES = {
   // A required catch-all serving user content: 200 for a real path, and its bare
   // base (`/files`) guarded to a 404 by the same rule the converter applies.
   "files/[...path]/page.tsx": catchAllPage("files"),
+  // A single dynamic segment, so a target whose escapes no decoder can read is
+  // answered by a page of the app and not refused - see the parity block below.
+  "users/[id]/page.tsx": pageWithId("user"),
   // A folder that owns a page *and* its own not-found, so a URL under it that
   // reaches no page is answered by the folder-level 404, not the root's.
   "dashboard/page.tsx": page("dash"),
@@ -116,13 +127,15 @@ function request(port, path) {
  * Nothing writes a byte before `writeHead`, and no status is touched afterwards.
  */
 const server = http.createServer((req, res) => {
-  const url = req.url || "/";
-  // The routing decision - computed once, before the first byte. `req.url` may
-  // carry a query or fragment; `getRouteStatus()` normalizes it internally.
-  const status = getRouteStatus(routes, url);
+  // One reading, used twice: the pathname the package normalizes is what the
+  // status is decided on *and* what the router mounts. Handing `req.url` to the
+  // router instead would stream a not-found page under a committed `200` for a
+  // target carrying dot segments - the case pinned below.
+  const pathname = normalizeRequestTarget(req.url || "/");
+  const status = getRouteStatus(routes, pathname);
   res.writeHead(status, { "content-type": "text/html; charset=utf-8" });
 
-  const element = h(MemoryRouter, { initialEntries: [url] }, h(App));
+  const element = h(MemoryRouter, { initialEntries: [pathname] }, h(App));
   const { pipe, abort } = renderToPipeableStream(element, {
     // `onAllReady`: the pages arrive through `React.lazy`, so wait for every
     // boundary to settle and let the client read a complete document.
@@ -254,5 +267,137 @@ describe("real HTTP responses carry the routing status", () => {
     assert.equal(missing.statusCode, 404);
     assert.ok(missing.body.includes('data-layout="dash-shell"'));
     assert.ok(missing.body.includes('data-not-found="dash"'));
+  });
+});
+
+/**
+ * The SSR half of the URL differential, for the targets no browser can be sent
+ * to through Vite.
+ *
+ * `test/browser/url-parity.spec.js` collides `normalizeRequestTarget()`,
+ * Chromium's `location.pathname` and the painted page. It cannot cover a path
+ * whose own escape survives to the request line: Vite's dev middleware and its
+ * preview static handler both decode the whole URL and answer 500 before an
+ * application exists to render anything. A server that owns its socket - the one
+ * this package's status helper is written for - never does, because Node hands
+ * `req.url` over raw. So the three readings that have to agree here are the
+ * normalizer's pathname, the committed status, and the document that came back
+ * down the wire: a `200` whose body is a page, a `404` whose body is the
+ * not-found, and never one wearing the other's status.
+ */
+describe("one request target, read three ways on the server", () => {
+  const CASES = [
+    {
+      // A malformed escape, kept verbatim by the page that owns the path.
+      name: "an undecodable escape still reaches its page",
+      url: "/users/%FF",
+      pathname: "/users/%FF",
+      status: 200,
+      paints: ['data-page="user"', "user:%FF"],
+    },
+    {
+      name: "valid hex that is not valid UTF-8 is the same case",
+      url: "/users/%C0%AF",
+      pathname: "/users/%C0%AF",
+      status: 200,
+      paints: ['data-page="user"'],
+    },
+    {
+      name: "a half-written escape is the same case",
+      url: "/users/%zz",
+      pathname: "/users/%zz",
+      status: 200,
+      paints: ['data-page="user"'],
+    },
+    {
+      // The hand-resolved branch: one broken escape must not change how the
+      // neighbouring segments are read.
+      name: "a dot segment beside a broken escape still pops",
+      url: "/users/other/../%FF",
+      pathname: "/users/%FF",
+      status: 200,
+      paints: ['data-page="user"', "user:%FF"],
+    },
+    {
+      name: "an encoded slash stays one segment, and decodes inside the param",
+      url: "/users/a%2Fb",
+      pathname: "/users/a%2Fb",
+      status: 200,
+      paints: ['data-page="user"', "user:a/b"],
+    },
+    {
+      // A trailing dot segment leaves its slash behind, and the escape is not
+      // what decides that - so the catch-all below its base still has content.
+      name: "a dot at the end of an undecodable path leaves the slash",
+      url: "/files/%FF/.",
+      pathname: "/files/%FF/",
+      status: 200,
+      paints: ['data-page="files"', "files{%FF}"],
+    },
+    {
+      name: "a dot popping back to a required catch-all base is its guarded 404",
+      url: "/files/%FF/..",
+      pathname: "/files/",
+      status: 404,
+      paints: ['data-not-found="root"'],
+      skips: ['data-page="files"'],
+    },
+    {
+      name: "an encoded double dot popping out of the folder answers 404",
+      url: "/users/%2e%2e/x",
+      pathname: "/x",
+      status: 404,
+      paints: ['data-not-found="root"'],
+      skips: ['data-page="user"'],
+    },
+  ];
+
+  for (const testCase of CASES) {
+    test(testCase.name, async () => {
+      // Reading 1: the pathname the package's own server-side reading produces.
+      assert.equal(normalizeRequestTarget(testCase.url), testCase.pathname);
+      // Reading 2: the status that reading decides, before the socket is involved.
+      assert.equal(getRouteStatus(routes, testCase.url), testCase.status);
+      // Reading 3: what actually came back down the wire.
+      const response = await request(port, testCase.url);
+      assert.equal(response.statusCode, testCase.status, `${testCase.url} status on the wire`);
+
+      for (const fragment of testCase.paints ?? []) {
+        assert.ok(response.body.includes(fragment), `${testCase.url} did not paint "${fragment}"`);
+      }
+      for (const fragment of testCase.skips ?? []) {
+        assert.ok(!response.body.includes(fragment), `${testCase.url} painted "${fragment}" unexpectedly`);
+      }
+    });
+  }
+
+  test("the router has to be handed the reading the status was decided on", () => {
+    // The reason the server above normalizes once and uses that value twice.
+    // `matchRoutes()` does not resolve dot segments - a browser has already done
+    // that before anything goes on the wire, so the client router never sees the
+    // raw form. Hand it `req.url` anyway (a proxy forwarding one, a hand-written
+    // client) and the two halves of one response disagree: the package's reading
+    // calls the URL a page, while the router the document is rendered with finds
+    // only a not-found leaf. That is a status lying about its own body, and it
+    // reaches the reader as a 200 whose page is a 404 - after hydration too,
+    // because hydration mounts the pathname the browser itself resolved.
+    const raw = "/users/other/../%FF";
+
+    assert.equal(getRouteStatus(routes, raw), 200, "the package's reading resolves the dots");
+    assert.equal(normalizeRequestTarget(raw), "/users/%FF");
+
+    const rawLeaf = matchRoutes(routes, raw)?.at(-1)?.route;
+    assert.ok(rawLeaf, "a generated tree answers every URL, the raw one included");
+    assert.ok(
+      isNotFoundRoute(rawLeaf),
+      "the raw target, fed to the router as it came, reaches a not-found leaf",
+    );
+
+    const readLeaf = matchRoutes(routes, normalizeRequestTarget(raw))?.at(-1)?.route;
+    assert.ok(readLeaf, "the normalized target must match too");
+    assert.ok(
+      !isNotFoundRoute(readLeaf),
+      "the same URL through the package's reading reaches the page",
+    );
   });
 });

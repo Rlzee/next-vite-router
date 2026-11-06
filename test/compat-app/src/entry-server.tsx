@@ -3,7 +3,7 @@ import { PassThrough } from "node:stream";
 import { createElement as h } from "react";
 import { renderToPipeableStream } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
-import { getRouteStatus } from "next-vite-router";
+import { getRouteStatus, normalizeRequestTarget } from "next-vite-router";
 import { Router, generateRoutes, useRoutes } from "next-vite-router/routes";
 
 /**
@@ -91,6 +91,15 @@ const RENDER_CASES: RenderCase[] = [
     order: ["[root", "[users", "detail:42", "/users]", "/root]"],
   },
   {
+    url: "/users/other/../42",
+    // A request target still carrying the dot segments a browser would have
+    // resolved before sending anything. The status helper resolves them, so the
+    // render has to be mounted on the same reading or the response carries a
+    // `200` around a document that paints the not-found.
+    paints: ['data-page="detail"', "detail:42"],
+    order: ["[root", "[users", "detail:42", "/users]", "/root]"],
+  },
+  {
     url: "/blog/guide/api",
     paints: ['data-page="blog"', "blog{guide|api}"],
   },
@@ -137,11 +146,17 @@ const STREAM_TIMEOUT_MS = 30_000;
  * `onAllReady` rather than `onShellReady`: the pages arrive through
  * `React.lazy`, so waiting for every boundary to settle makes the assertion
  * about what the request eventually paints instead of its loading shell.
+ *
+ * The router is handed `normalizeRequestTarget(url)` - the same value a server
+ * decides its status on - because that pairing is the recipe the README shows,
+ * and this file is where it has to survive bundling, minification and the router
+ * major installed for the combination. A case whose URL carries a dot segment
+ * only renders its page if both halves read one value.
  */
 function renderStreamed({ url, via = "router" }: RenderCase): Promise<string> {
   return new Promise((resolve, reject) => {
     const app = via === "routes" ? h(RoutesApp) : h(Router);
-    const element = h(MemoryRouter, { initialEntries: [url] }, app);
+    const element = h(MemoryRouter, { initialEntries: [normalizeRequestTarget(url)] }, app);
     let pending: ReturnType<typeof setTimeout> | undefined;
 
     const fail = (error: unknown) => {
