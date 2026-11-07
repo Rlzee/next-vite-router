@@ -131,13 +131,13 @@ export interface RenderOutcome {
   /** At most one signal recorded while rendering a fallback; schedules only the bounded pass 3. */
   readonly reentrantSignal: RenderSignal | null;
   /** The first uncaught ordinary failure, together with the pass that observed it. */
-  readonly failure: Readonly<{ error: unknown; pass: 1 | 2 }> | null;
+  readonly failure: Readonly<{ error: unknown; pass: 1 | 2 | 3 }> | null;
   /** Set by `commit()` only. A signal arriving after it cannot change the status: the plan degrades. */
   readonly committed: boolean;
   /** True once `committed` is set and a signal was recorded afterwards. */
   readonly degraded: boolean;
   recordSignal(signal: RenderSignal, phase: "page" | "fallback"): void;
-  recordFailure(error: unknown, pass: 1 | 2): void;
+  recordFailure(error: unknown, pass: 1 | 2 | 3): void;
   markCommitted(): void;
 }
 
@@ -305,7 +305,7 @@ export type RenderPlan = Readonly<
   | { kind: "not-found"; status: 200; headers: Headers; pass: 2; sendBody: true;  forceOwner: string; degraded: true }
   | { kind: "not-found"; status: 404; headers: Headers; pass: 3; sendBody: true;  forceOwner: string; degraded: false }
   | { kind: "redirect";  status: 307 | 308; headers: Headers; pass: 1; sendBody: false; forceOwner: null }
-  | { kind: "error";     status: 500 | 200; headers: Headers; pass: 1; sendBody: boolean; forceOwner: null; error: unknown; degraded: boolean }
+  | { kind: "error";     status: 500 | 200; headers: Headers; pass: 1 | 2 | 3; sendBody: boolean; forceOwner: null; error: unknown; degraded: boolean }
 >;
 
 /** The element to hand to the caller's router. `pass`/`forceOwner` come from the plan. */
@@ -370,7 +370,7 @@ export async function renderResponse(input: {
 }): Promise<RenderPlan>;            // the plan actually committed, for the app's own logging
 
 export type RenderFailure =
-  Readonly<{ request: PreparedRequest; pass: 1 | 2 }> &
+  Readonly<{ request: PreparedRequest; pass: 1 | 2 | 3 }> &
   (
     | Readonly<{ kind: "signal"; signal: RenderSignal }> // expected control flow
     | Readonly<{ kind: "error"; error: unknown }>       // ordinary render failure
@@ -426,7 +426,7 @@ the pass-2 attempt is abandoned before piping, `reentrantSignal` supplies the pa
 and `renderApp()` constructs a fresh tree for pass 3. Pass 3 is the final selected attempt; a signal
 from it is handled by R4 as the root fallback or becomes the ordinary root failure, never pass 4. That is
 the property `test/http-integration.test.js` must prove for headers-before-body, extended to "no
-pass-1 byte ever reached the sink".
+abandoned-pass byte ever reached the sink".
 
 ### 7.3 Status and header matrix
 
@@ -439,7 +439,8 @@ pass-1 byte ever reached the sink".
 | `redirect()` after commit | client-side `<Navigate>`; HTTP status already `200` | as streamed | n/a | 1 |
 | ordinary error before shell commit, uncaught | `500` | the renderer's error document or no body according to the adapter | header + meta | 1 |
 | ordinary error after shell commit, in a folder with `error.tsx` | `200` (frozen) | shell + client-painted `error.tsx` | no header; meta only if already in the committed shell | 1 |
-| prerender / `streaming: false` | exact for every row above | complete HTML or explicit error | meta when the selected plan requests it, header optional | ≤2 |
+| ordinary error in final pass 3 | `500` before commit, or `200` if already committed | explicit error or already streamed parent fallback | follows commit state | 3, never 4 |
+| prerender / `streaming: false` | exact for every row above | complete HTML or explicit error | meta when the selected plan requests it, header optional | maximum 3; two when no pass-2 fallback escalation occurs |
 
 Row 1 is the correction from review, written as the guarantee really is: pre-flight `404` does **not**
 mean "no component runs". It means no *leaf page* of the requesting URL runs — the fallback, the
@@ -450,11 +451,11 @@ layouts above it, and their own providers do, and they are what makes the 404 lo
 Guaranteed, each with its test in §9:
 
 - **G1** nothing from an abandoned pass reaches the client: zero bytes before `head()`, and no
-  pass-1 chunk in the committed body.
+  chunk from an abandoned pass 1 or pass 2 in the committed body.
 - **G2** at most one re-render for an initial page `notFound()`. A `notFound()` from the pass-2
   fallback is the sole exception: it causes one final pass 3 for the parent fallback, never pass 4.
   Normal pages, redirects, and pre-flight 404s render once.
-- **G3** `useEffect`/`useLayoutEffect` never run in either pass: React does not run effects during
+- **G3** `useEffect`/`useLayoutEffect` never run in any pass: React does not run effects during
   `renderToPipeableStream`/`renderToString`. Duplicated *effects* are therefore impossible in SSR.
 - **G4** the fallback identity is the same one a client boundary would have caught (same component,
   same owner, one resolution function).
@@ -512,6 +513,7 @@ Explicitly **not** guaranteed, and this is the reservation kept in the spec:
 | I3 | `notFound()` outside a route render throws a diagnostic error, never a signal. | T1 |
 | I4 | R2: a layout's `notFound()` is owned by an ancestor, and the layout is not replaced by itself. | T1 + T3 |
 | I5 | R3/R5: a signal inside a fallback escalates once, then resolves in one final parent-fallback pass; no fourth pass is possible. | T1 + T2 |
+| I20 | An ordinary failure recorded in pass 3 produces the corresponding `500`/degraded `200` plan, retains `pass: 3`, and never schedules pass 4. | T1 + T2 |
 | I6 | R4: no owner anywhere ⇒ built-in `DefaultNotFound` at owner `"/"`, identical to the base guard. | T1 + T3 |
 | I7 | The fallback resolution is one function used by client and server (no second table). | code review + I4 |
 | I8 | Route shapes and traversal cost unchanged when nothing calls `notFound()`. | T1 (`routes.test.js`) |
@@ -522,7 +524,7 @@ Explicitly **not** guaranteed, and this is the reservation kept in the spec:
 | I13 | `head()` is called exactly once, before the first byte, and never after a write. | T2 |
 | I14 | **Concurrency**: two outcomes interleaved (A signals `notFound()`, B does not, promises resolve in reverse order) commit `404` and `200` respectively, with each other's content absent from both bodies. | T2 |
 | I15 | No module-level outcome exists: `next-vite-router/ssr` holds no mutable state between requests. | static check + I14 |
-| I16 | G1: no abandoned-pass byte reaches the sink; G3: no effect ran in either pass. | T2 |
+| I16 | G1: no abandoned-pass byte reaches the sink; G3: no effect ran in any pass. | T2 |
 | I17 | A document streamed for `notFound()` hydrates without a recoverable/mismatch error. | T4 |
 | I18 | The client reproduces the server's decision: same page code, same fallback, same URL kept. | T3 |
 | I19 | Adding `NotFoundBoundary` does not move who owns an ordinary failure: with the new boundary in place, a page that throws still paints **its folder's** `error.tsx`, not the root's and not a fallback. | T1 + T3 |
@@ -563,12 +565,13 @@ Explicitly **not** guaranteed, and this is the reservation kept in the spec:
 
 ## 11. Test matrix to build with the implementation
 
-- **T1 unit (`node:test`, static render + direct lifecycle calls)** — I1, I3–I12, I15 purity of
-  `planResponse`, owner resolution table, escalation counts. Follows the existing style:
+- **T1 unit (`node:test`, static render + direct lifecycle calls)** — I1, I3–I12, I15, I20, purity of
+  `planResponse`, owner resolution table, escalation counts, and an ordinary pass-3 failure.
+  Follows the existing style:
   `renderToStaticMarkup` cannot run a class catch, so the boundary's lifecycle is pinned directly and
   the *paint* is proven through the gate path, which does run server-side.
-- **T2 real HTTP (`test/http-integration.test.js`, extended)** — I10, I13, I14, I16, G1, G2, G3,
-  the matrix rows, and "no pass-1 byte". Keeps the existing discipline: the status on the wire and the
+- **T2 real HTTP (`test/http-integration.test.js`, extended)** — I10, I13, I14, I16, I20, G1, G2, G3,
+  the matrix rows, and "no pass-1/pass-2 byte". Keeps the existing discipline: the status on the wire and the
   committed plan are asserted from the same outcome, never re-derived by the test.
 - **T3 browser (Playwright, `test/browser-app`)** — I2, I4, I6, I18, I19: a click that runs `notFound()`
   paints the folder's not-found inside the root layout with the URL unchanged; a folder that has both
