@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { describe, test } from "node:test";
 import {
   planResponse,
@@ -55,10 +56,29 @@ describe("SSR response planning", () => {
     const outcome = request();
     outcome.recordSignal({ kind: "not-found", owner: "/shop", reentrant: false }, "page");
     outcome.recordSignal({ kind: "not-found", owner: "/", reentrant: true }, "fallback");
-    const plan = planResponse(outcome);
+    const plan = planResponse(outcome, { preFlight: 404 });
     assert.equal(plan.kind, "not-found");
     assert.equal(plan.pass, 3);
     assert.equal(plan.forceOwner, "/");
+  });
+
+  test("does not preserve application location on non-redirect responses", () => {
+    const headers = new Headers({ location: "/stale", "x-app": "yes" });
+    const page = planResponse(request(), { headers });
+    assert.equal(page.headers.has("location"), false);
+
+    const notFound = planResponse(request(), { headers, preFlight: 404 });
+    assert.equal(notFound.headers.has("location"), false);
+
+    const failure = request();
+    failure.recordFailure(new Error("broken"), 1);
+    const error = planResponse(failure, { headers });
+    assert.equal(error.headers.has("location"), false);
+  });
+
+  test("SSR bundle has no react-router-dom dependency", () => {
+    const bundle = fs.readFileSync(new URL("../dist/ssr.js", import.meta.url), "utf8");
+    assert.equal(bundle.includes("react-router-dom"), false);
   });
 
   test("plans redirects and preserves application cache policy", () => {

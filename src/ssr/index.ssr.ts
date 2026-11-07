@@ -1,6 +1,6 @@
 import {
   normalizeRequestTarget,
-} from "../router/not-found";
+} from "../router/request-target";
 import type {
   PreparedRequest,
   RenderOutcome,
@@ -45,7 +45,9 @@ type PlanOptions = {
 };
 
 function headersFor(options: PlanOptions): Headers {
-  return new Headers(options.headers);
+  const headers = new Headers(options.headers);
+  headers.delete("location");
+  return headers;
 }
 
 function withFallbackHeaders(headers: Headers, noindex: boolean): Headers {
@@ -125,7 +127,7 @@ export function planResponse(
   const noStore = options.noStoreOnRedirect !== false;
   const signal = outcome.reentrantSignal ?? outcome.signal;
 
-  if (options.preFlight === 404 && outcome.signal === null) {
+  if (options.preFlight === 404 && signal === null) {
     return {
       kind: "not-found",
       status: 404,
