@@ -15,7 +15,7 @@ import {
 } from '../utils/index.utils';
 import { CatchAllParamProvider } from '../router/params-context';
 import { NotFoundBoundary, SegmentBoundary } from '../router/boundary';
-import { RenderContext } from '../router/render-outcome';
+import { RenderContext, useRenderContext } from '../router/render-outcome';
 import { DefaultNotFound } from './default-not-found';
 import { NOT_FOUND_ROUTE_HANDLE } from '../router/not-found';
 
@@ -130,6 +130,25 @@ function fallbackComponent(element: React.ReactElement): React.ComponentType {
   };
 }
 
+function RenderContextOverride(props: {
+  owner: string;
+  phase: "page" | "fallback";
+  children?: React.ReactNode;
+}): React.ReactElement {
+  const parent = useRenderContext();
+  return React.createElement(
+    RenderContext.Provider,
+    {
+      value: {
+        ...parent,
+        owner: props.owner,
+        phase: props.phase,
+      },
+    },
+    props.children,
+  );
+}
+
 function withNotFoundPageBoundary(
   node: RouteNode,
   element: React.ReactElement,
@@ -147,8 +166,8 @@ function withNotFoundPageBoundary(
     `notfound:${node.fullPath}:boundary`,
   );
   return React.createElement(
-    RenderContext.Provider,
-    { value: { owner: ownerFor(node), phase: "page" } },
+    RenderContextOverride,
+    { owner: ownerFor(node), phase: "page" },
     React.createElement(NotFoundBoundary, {
       owner: ownerFor(node),
       parentOwner: parentOwnerFor(node),
@@ -163,8 +182,8 @@ function withNotFoundFallbackContext(
   element: React.ReactElement,
 ): React.ReactElement {
   return React.createElement(
-    RenderContext.Provider,
-    { value: { owner: parentOwnerFor(node), phase: "fallback" } },
+    RenderContextOverride,
+    { owner: parentOwnerFor(node), phase: "fallback" },
     element,
   );
 }
@@ -235,8 +254,9 @@ function createIndexRoute(
   node: RouteNode,
   nodePath: string,
   cache: LazyComponentCache,
+  inheritedFallback?: RouteModuleLoader,
 ): RouteObject {
-  return createPageRoute(node, nodePath, cache, true);
+  return createPageRoute(node, nodePath, cache, true, inheritedFallback);
 }
 
 /**
@@ -263,7 +283,8 @@ function createPageRoute(
   node: RouteNode,
   nodePath: string,
   cache: LazyComponentCache,
-  isIndex: boolean = false
+  isIndex: boolean = false,
+  inheritedFallback?: RouteModuleLoader,
 ): RouteObject {
   const page = node.page;
   if (!page) {
@@ -281,7 +302,7 @@ function createPageRoute(
 
   const routeElement = withCatchAllParam(
     node.segment,
-    withNotFoundPageBoundary(node, element, cache, undefined),
+    withNotFoundPageBoundary(node, element, cache, inheritedFallback),
   );
 
   return isIndex
@@ -524,7 +545,7 @@ function createNodeChildren(
   const children: RouteObject[] = [];
 
   if (node.page) {
-    children.push(createIndexRoute(node, currentPath || "/", cache));
+    children.push(createIndexRoute(node, currentPath || "/", cache, notFoundFallback));
   }
 
   children.push(...routes);
@@ -553,7 +574,7 @@ function createPageRoutes(
 ): NodeConversion {
   if (isOptionalCatchAll(node.segment)) {
     const catchAllChildren = [...descendants, ...notFound];
-    const pageElement = createPageRoute(node, nodePath, cache).element;
+    const pageElement = createPageRoute(node, nodePath, cache, false, notFoundFallback).element;
     const element = boundaryOutletElement(node);
     // A required folder-level boundary turns the splat route into a wrapper
     // whose children carry the page through the boundary's Outlet; without
@@ -583,7 +604,7 @@ function createPageRoutes(
   }
 
   if (isRequiredCatchAll(node.segment)) {
-    const pageRoute = createPageRoute(node, nodePath, cache);
+    const pageRoute = createPageRoute(node, nodePath, cache, false, notFoundFallback);
     const element = boundaryOutletElement(node);
     const splatChildren = [{ path: "*", element: pageRoute.element }];
     return {
@@ -614,7 +635,7 @@ function createPageRoutes(
       routes: [{
         path: nodeSegment,
         children: withBoundaryChildren(node, [
-          createIndexRoute(node, nodePath, cache),
+          createIndexRoute(node, nodePath, cache, notFoundFallback),
           ...descendants,
           ...notFound,
         ]),
@@ -628,7 +649,7 @@ function createPageRoutes(
   // the same nested shape every other folder uses, so a page rendered here
   // sits inside its folder's error and loading just like a page several levels
   // deeper does.
-  const leafRoute = createPageRoute(node, nodePath, cache);
+  const leafRoute = createPageRoute(node, nodePath, cache, false, notFoundFallback);
   const element = boundaryOutletElement(node);
   if (!element) {
     return {
@@ -654,9 +675,10 @@ function createPathlessNodeRoutes(
   cache: LazyComponentCache,
   childEmitsIndex: boolean,
   childClaimsSplats: boolean,
+  inheritedFallback?: RouteModuleLoader,
 ): NodeConversion {
   const children = [
-    ...(node.page ? [createIndexRoute(node, nodePath, cache)] : []),
+    ...(node.page ? [createIndexRoute(node, nodePath, cache, inheritedFallback)] : []),
     ...descendants,
     ...notFound,
   ];
@@ -738,7 +760,7 @@ function createRootRoutes(
 
     return [{
       path: "/",
-      element: createPageRoute(node, "/", cache, false).element,
+      element: createPageRoute(node, "/", cache, false, notFoundFallback).element,
     }];
   }
 
@@ -839,12 +861,12 @@ function convertNode(
       // splat's sibling, so the base URL answers without pretending the
       // catch-all matched, and the not-found still renders inside this
       // folder's layout.
-      const pageRoute = createPageRoute(node, nodePath, cache);
+      const pageRoute = createPageRoute(node, nodePath, cache, false, inheritedNotFound);
       const splatChildren: RouteObject[] = [{ path: "*", element: pageRoute.element }];
       return {
         claims: { emitsIndex: true, claimsSplats: true },
         routes: [
-          createCatchAllBaseRoute(node, cache, notFoundFallback),
+          createCatchAllBaseRoute(node, cache, inheritedNotFound),
           {
             path: nodeSegment,
             element: createLayoutElement(node, nodePath, cache),
@@ -863,7 +885,7 @@ function convertNode(
       // below it). `emitsIndex` is claimed because the base is answered here: an
       // enclosing guard index is the more specific match at that URL and would
       // turn the base into a 404, which is what this branch used to do.
-      const pageRoute = createPageRoute(node, nodePath, cache);
+      const pageRoute = createPageRoute(node, nodePath, cache, false, inheritedNotFound);
       const splatChildren: RouteObject[] = [
         { index: true, element: pageRoute.element },
         { path: "*", element: pageRoute.element },
@@ -940,6 +962,7 @@ function convertNode(
         cache,
         childEmitsIndex,
         childClaimsSplats,
+        inheritedNotFound,
       );
     }
 
@@ -954,7 +977,7 @@ function convertNode(
       routes: [{
         path: nodeSegment,
         children: withBoundaryChildren(node, [
-          ...(node.page ? [createIndexRoute(node, nodePath, cache)] : []),
+          ...(node.page ? [createIndexRoute(node, nodePath, cache, inheritedNotFound)] : []),
           ...descendants,
           ...ownNotFound,
           ...(addsBaseGuard

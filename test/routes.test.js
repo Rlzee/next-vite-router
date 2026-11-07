@@ -525,13 +525,13 @@ describe("route generator", () => {
     assert.equal(pageRoute.path, "*");
     assert.equal(pageRoute.children, undefined);
     // The folder's not-found is handed to the guard as its lazy fallback...
-    assert.notEqual(guard.element.props.fallback, undefined);
+    assert.notEqual(guard.element.props.children.props.fallback, undefined);
     // ...while a catch-all with no not-found anywhere falls back to the
     // built-in 404, so the guard's fallback is a real element, not undefined.
     const bare = createRoutes({ pages: { "docs/[...slug]/page.tsx": loader("docs") } });
-    assert.notEqual(bare[0].children[0].element.props.fallback, undefined);
+    assert.notEqual(bare[0].children[0].element.props.children.props.fallback, undefined);
     assert.match(
-      renderToStaticMarkup(bare[0].children[0].element.props.fallback),
+      renderToStaticMarkup(bare[0].children[0].element.props.children.props.fallback),
       /could not be found/i,
     );
   });
@@ -548,7 +548,7 @@ describe("route generator", () => {
     // built-in 404 is that guard's `fallback` prop.
     const catchAllFallback = catchAll
       .find((route) => route.path === "docs")
-      .children[0].element.props.fallback;
+      .children[0].element.props.children.props.fallback;
 
     const pageless = createRoutes({
       pages: { "docs/intro/page.tsx": loader("intro") },
@@ -556,7 +556,7 @@ describe("route generator", () => {
     // The page-less base guard renders the element directly as its `element`.
     const pagelessElement = pageless
       .find((route) => route.path === "docs")
-      .children.find((child) => child.index === true).element;
+      .children.find((child) => child.index === true).element.props.children;
 
     assert.equal(catchAllFallback.type, pagelessElement.type);
     assert.match(renderToStaticMarkup(catchAllFallback), /could not be found/i);
@@ -1253,7 +1253,7 @@ describe("route generator", () => {
     }]);
     assert.equal(routes[0].element.type, rootLayout);
     assert.equal(
-      routes[0].children[0].children[0].element.type,
+      routes[0].children[0].children[0].element.props.children.props.children.type,
       React.Suspense,
     );
 

@@ -357,13 +357,29 @@ describe("full tree: multi-level integration", () => {
     assert.ok(shop, "the shop route exists");
     const page = shop.children.find((route) => route.index);
     assert.ok(page, "the page is an index route");
-    assert.equal(page.element.type, RenderContext.Provider);
-    assert.equal(page.element.props.value.owner, "/shop");
-    assert.equal(page.element.props.value.phase, "page");
+    assert.equal(page.element.props.owner, "/shop");
+    assert.equal(page.element.props.phase, "page");
     assert.equal(page.element.props.children.type, NotFoundBoundary);
     assert.equal(page.element.props.children.props.owner, "/shop");
     assert.equal(page.element.props.children.props.parentOwner, "/");
     assert.equal(page.element.props.children.props.fallback().type, React.Suspense);
+  });
+
+  test("inherits an ancestor not-found fallback when the child has none", () => {
+    const { routes } = generate({
+      pages: {
+        "shop/page.tsx": loader(component("SHOP")),
+        "shop/cart/page.tsx": loader(component("CART")),
+      },
+      notFounds: { "shop/not-found.tsx": loader(component("SHOP-NOT-FOUND")) },
+    });
+
+    const shop = routes.find((route) => route.path === "shop");
+    const cart = shop.children.find((route) => route.path === "cart");
+    assert.equal(cart.element.props.owner, "/shop/cart");
+    assert.equal(cart.element.props.children.type, NotFoundBoundary);
+    assert.equal(cart.element.props.children.props.owner, "/shop/cart");
+    assert.equal(cart.element.props.children.props.fallback().type, React.Suspense);
   });
 
   test("/dx/y/z paints through every boundary in its chain", async () => {
