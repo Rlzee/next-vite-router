@@ -245,10 +245,6 @@ export interface RenderAttempt {
   readonly allReady: Promise<void>;
 }
 
-type InternalRenderAttempt = RenderAttempt & {
-  readonly shellCommitted: boolean;
-};
-
 export type RenderEngine = (
   element: ReactElement,
   callbacks: RenderCallbacks,
@@ -263,7 +259,7 @@ export interface ResponseAdapter {
   head(status: number, headers: Headers): void;
   send(attempt: RenderAttempt): void | Promise<void>;
   abandon(attempt: RenderAttempt): void;
-  fail?(status: 500, error: unknown): void | Promise<void>;
+  fail(status: 500, error: unknown): void | Promise<void>;
 }
 
 export type RenderFailure =
@@ -305,7 +301,7 @@ async function createAttempt(
     pass: 1 | 2 | 3;
     onFailure?: (failure: RenderFailure) => void;
   },
-): Promise<InternalRenderAttempt> {
+): Promise<RenderAttempt> {
   let resolveShell!: () => void;
   let rejectShell!: (error: unknown) => void;
   const shellReady = new Promise<void>((resolve, reject) => {
@@ -313,16 +309,11 @@ async function createAttempt(
     rejectShell = reject;
   });
   const seenErrors = new Set<unknown>();
-  let shellReached = false;
-  let shellCommitted = false;
   const notifyFailure = (error: unknown): void => {
     if (seenErrors.has(error)) {
       return;
     }
     seenErrors.add(error);
-    if (shellReached) {
-      input.outcome.markCommitted();
-    }
     recordRenderError(input.outcome, error, input.pass);
     input.onFailure?.(
       isRenderSignal(error)
@@ -342,11 +333,6 @@ async function createAttempt(
   };
   const callbacks: RenderCallbacks = {
     onShellReady() {
-      shellReached = true;
-      if (input.outcome.signal === null && input.outcome.failure === null) {
-        shellCommitted = true;
-        input.outcome.markCommitted();
-      }
       resolveShell();
     },
     onAllReady() {},
@@ -359,13 +345,7 @@ async function createAttempt(
     },
   };
   const attempt = await input.render(input.element, callbacks);
-  return {
-    ...attempt,
-    shellReady,
-    get shellCommitted() {
-      return shellCommitted;
-    },
-  };
+  return { ...attempt, shellReady };
 }
 
 export async function renderResponse(input: {
@@ -419,9 +399,6 @@ export async function renderResponse(input: {
       await failBeforeShell(input.adapter, outcome.failure?.error);
       throw new Error("SSR render failed before shell became ready");
     }
-    if ((attempt as InternalRenderAttempt).shellCommitted) {
-      outcome.markCommitted();
-    }
     if (input.streaming === false && outcome.failure === null) {
       try {
         await attempt.allReady;
@@ -467,9 +444,7 @@ async function failBeforeShell(
   adapter: ResponseAdapter,
   error: unknown,
 ): Promise<void> {
-  if (adapter.fail) {
-    await adapter.fail(500, error);
-  }
+  await adapter.fail(500, error);
 }
 
 async function waitForShell(

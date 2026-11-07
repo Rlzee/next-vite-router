@@ -173,6 +173,7 @@ describe("SSR response orchestration", () => {
       abandon() {
         events.push("abandon");
       },
+      fail() {},
     };
     const aborted = [];
     const plan = await renderResponse({
@@ -221,6 +222,7 @@ describe("SSR response orchestration", () => {
         abandon() {
           events.push("abandon");
         },
+        fail() {},
       },
       render(_element, callbacks) {
         callbacks.onShellReady();
@@ -233,32 +235,56 @@ describe("SSR response orchestration", () => {
     resolveAllReady();
   });
 
-  test("keeps status 200 for a signal reported after shell", async () => {
+  test("keeps pre-commit signals effective after shell", async () => {
     let sent = 0;
-    let reportLateSignal;
     const result = await renderResponse({
       routes: [],
       url: "/late",
       adapter: {
         head(status) {
-          assert.equal(status, 200);
+          assert.equal(status, 404);
         },
         send() {
           sent += 1;
         },
         abandon() {},
+        fail() {},
       },
       render(_element, callbacks) {
         callbacks.onShellReady();
-        reportLateSignal = () => callbacks.onError(new NotFoundSignal("/late"));
+        queueMicrotask(() => callbacks.onError(new NotFoundSignal("/late")));
         return attempt();
       },
     });
 
-    reportLateSignal();
+    assert.equal(result.kind, "not-found");
+    assert.equal(result.status, 404);
+    assert.equal(sent, 1);
+  });
+
+  test("does not change status after adapter.head commits", async () => {
+    let reportLateSignal;
+    const result = await renderResponse({
+      routes: [],
+      url: "/committed",
+      adapter: {
+        head(status) {
+          assert.equal(status, 200);
+          reportLateSignal();
+        },
+        send() {},
+        abandon() {},
+        fail() {},
+      },
+      render(_element, callbacks) {
+        callbacks.onShellReady();
+        reportLateSignal = () => callbacks.onError(new NotFoundSignal("/committed"));
+        return attempt();
+      },
+    });
+
     assert.equal(result.kind, "page");
     assert.equal(result.status, 200);
-    assert.equal(sent, 1);
   });
 
   test("does not consume a Web stream before the adapter sends it", async () => {
@@ -280,6 +306,7 @@ describe("SSR response orchestration", () => {
           consumed = true;
         },
         abandon() {},
+        fail() {},
       },
       render(_element, callbacks) {
         callbacks.onShellReady();
@@ -396,6 +423,7 @@ describe("SSR response orchestration", () => {
       abandon() {
         events.push(`${name}:abandon`);
       },
+      fail() {},
     });
     const render = async (_element, callbacks) => {
       await new Promise((resolve) => setTimeout(resolve, 1));
