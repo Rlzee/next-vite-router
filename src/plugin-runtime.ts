@@ -15,6 +15,25 @@ export { href, Link, createTypedLink } from "./router/navigation";
 // "exports" map) so the boundary tests can render and drive them directly.
 export { SegmentBoundary, RouteErrorBoundary } from "./router/boundary";
 export { RouteLoadingContext, RouteLoadingProvider } from "./router/loading-context";
+export {
+  notFound,
+  redirect,
+  permanentRedirect,
+  isNotFoundSignal,
+  isRedirectSignal,
+  isRenderSignal,
+  NotFoundSignal,
+  RedirectSignal,
+} from "./router/flow";
+export {
+  createRenderOutcome,
+  RenderContext,
+  readRenderContext,
+  useRenderContext,
+  useRenderOutcome,
+  useNotFoundOwner,
+  useRenderPhase,
+} from "./router/render-outcome";
 
 export type {
   RouteHrefParams,
@@ -23,3 +42,11 @@ export type {
   RouteHrefMetadata,
   RouteLinkMetadata,
 } from "./router/navigation";
+export type {
+  PreparedRequest,
+  RenderSignal,
+  RenderOutcome,
+  RenderPhase,
+  RenderContextValue,
+} from "./router/render-outcome";
+export type { RedirectOptions } from "./router/flow";

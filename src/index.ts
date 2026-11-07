@@ -38,6 +38,15 @@ export type { RouteFileOptions } from './utils/path';
 export type { RouteSegment } from './utils/path';
 export { createLazyCache, createLazyElement, clearLazyCache } from './utils/lazy';
 export type { LazyComponentCache } from './utils/lazy';
+export {
+  isNotFoundSignal,
+  isRedirectSignal,
+  isRenderSignal,
+} from './router/flow';
+export type {
+  NotFoundSignal,
+  RedirectSignal,
+} from './router/flow';
 
 // The navigation helpers (`href`, `Link`, `createTypedLink`, `useParams`,
 // `useCatchAll`, `CatchAllParamProvider`) are intentionally NOT exported here.
