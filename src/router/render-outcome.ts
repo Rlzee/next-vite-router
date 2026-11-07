@@ -32,25 +32,6 @@ export type RenderContextValue = Readonly<{
 
 export const RenderContext = React.createContext<RenderContextValue | undefined>(undefined);
 
-type ReactDispatcher = {
-  useContext<T>(context: React.Context<T>): T;
-};
-
-type ReactInternals = {
-  ReactCurrentDispatcher?: { current: ReactDispatcher | null };
-  H?: ReactDispatcher | null;
-};
-
-function currentDispatcher(): ReactDispatcher | undefined {
-  const react = React as typeof React & {
-    __SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED?: ReactInternals;
-    __CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE?: ReactInternals;
-  };
-  return react.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED?.ReactCurrentDispatcher?.current
-    ?? react.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE?.H
-    ?? undefined;
-}
-
 export function createRenderOutcome(request: PreparedRequest): RenderOutcome {
   let signal: RenderSignal | null = null;
   let reentrantSignal: RenderSignal | null = null;
@@ -105,7 +86,7 @@ export function useRenderContext(): RenderContextValue | undefined {
 }
 
 export function readRenderContext(): RenderContextValue | undefined {
-  return currentDispatcher()?.useContext(RenderContext);
+  return React.useContext(RenderContext);
 }
 
 export function useRenderOutcome(): RenderOutcome | undefined {

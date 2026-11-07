@@ -43,7 +43,7 @@ function renderSignal(signal: RenderSignal, context: ReturnType<typeof readRende
     throw new NotFoundSignal(signal.owner, signal.reentrant);
   }
 
-  context.outcome?.recordSignal(signal, "page");
+  context.outcome?.recordSignal(signal, context.phase);
   throw new RedirectSignal(signal.to, signal.permanent, signal.replace);
 }
 
