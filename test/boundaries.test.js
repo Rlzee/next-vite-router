@@ -346,6 +346,26 @@ describe("full tree: multi-level integration", () => {
     assert.ok(notFound, "the not-found splat renders inside the root boundary");
   });
 
+  test("an owning not-found page is wrapped by the signal boundary", () => {
+    const ChildNotFound = component("CHILD-NOT-FOUND");
+    const { routes } = generate({
+      pages: { "shop/page.tsx": loader(component("SHOP")) },
+      notFounds: { "shop/not-found.tsx": loader(ChildNotFound) },
+    });
+
+    const shop = routes.find((route) => route.path === "shop");
+    assert.ok(shop, "the shop route exists");
+    const page = shop.children.find((route) => route.index);
+    assert.ok(page, "the page is an index route");
+    assert.equal(page.element.type, RenderContext.Provider);
+    assert.equal(page.element.props.value.owner, "/shop");
+    assert.equal(page.element.props.value.phase, "page");
+    assert.equal(page.element.props.children.type, NotFoundBoundary);
+    assert.equal(page.element.props.children.props.owner, "/shop");
+    assert.equal(page.element.props.children.props.parentOwner, "/");
+    assert.equal(page.element.props.children.props.fallback().type, React.Suspense);
+  });
+
   test("/dx/y/z paints through every boundary in its chain", async () => {
     const { routes } = buildFullTree();
     const html = await renderAt(routes, "/dx/y/z");

@@ -14,7 +14,8 @@ import {
   type LazyComponentCache,
 } from '../utils/index.utils';
 import { CatchAllParamProvider } from '../router/params-context';
-import { SegmentBoundary } from '../router/boundary';
+import { NotFoundBoundary, SegmentBoundary } from '../router/boundary';
+import { RenderContext } from '../router/render-outcome';
 import { DefaultNotFound } from './default-not-found';
 import { NOT_FOUND_ROUTE_HANDLE } from '../router/not-found';
 
@@ -110,6 +111,64 @@ function createNotFoundFallbackElement(
   );
 }
 
+function ownerFor(node: RouteNode): string {
+  if (!node.fullPath) {
+    return "/";
+  }
+  return node.fullPath.startsWith("/") ? node.fullPath : `/${node.fullPath}`;
+}
+
+function parentOwnerFor(node: RouteNode): string {
+  const owner = ownerFor(node);
+  const slash = owner.lastIndexOf("/");
+  return slash <= 0 ? "/" : owner.slice(0, slash);
+}
+
+function fallbackComponent(element: React.ReactElement): React.ComponentType {
+  return function NotFoundFallback() {
+    return element;
+  };
+}
+
+function withNotFoundPageBoundary(
+  node: RouteNode,
+  element: React.ReactElement,
+  cache: LazyComponentCache,
+  inheritedFallback: RouteModuleLoader | undefined,
+): React.ReactElement {
+  if (!node.notFound && !inheritedFallback) {
+    return element;
+  }
+
+  const fallback = createNotFoundFallbackElement(
+    node,
+    cache,
+    inheritedFallback,
+    `notfound:${node.fullPath}:boundary`,
+  );
+  return React.createElement(
+    RenderContext.Provider,
+    { value: { owner: ownerFor(node), phase: "page" } },
+    React.createElement(NotFoundBoundary, {
+      owner: ownerFor(node),
+      parentOwner: parentOwnerFor(node),
+      fallback: fallbackComponent(fallback),
+      children: element,
+    }),
+  );
+}
+
+function withNotFoundFallbackContext(
+  node: RouteNode,
+  element: React.ReactElement,
+): React.ReactElement {
+  return React.createElement(
+    RenderContext.Provider,
+    { value: { owner: parentOwnerFor(node), phase: "fallback" } },
+    element,
+  );
+}
+
 /**
  * Element rendered at the base URL of a *required* catch-all (`[...slug]`).
  *
@@ -150,17 +209,18 @@ function createNotFoundRoute(
   loader: RouteModuleLoader = node.notFound!,
   cacheKey: string = `notfound:${node.fullPath}`,
 ): RouteObject {
+  const fallback = createLazyElement(
+    async () => {
+      const mod = await loader();
+      return { default: mod.default };
+    },
+    cacheKey,
+    cache,
+  );
   return {
     path: "*",
     handle: NOT_FOUND_ROUTE_HANDLE,
-    element: createLazyElement(
-      async () => {
-        const mod = await loader();
-        return { default: mod.default };
-      },
-      cacheKey,
-      cache,
-    ),
+    element: withNotFoundFallbackContext(node, fallback),
   };
 }
 
@@ -219,7 +279,10 @@ function createPageRoute(
     cache,
   );
 
-  const routeElement = withCatchAllParam(node.segment, element);
+  const routeElement = withCatchAllParam(
+    node.segment,
+    withNotFoundPageBoundary(node, element, cache, undefined),
+  );
 
   return isIndex
     ? { index: true, element: routeElement }
@@ -378,14 +441,14 @@ function createCatchAllBaseRoute(
   return {
     index: true,
     handle: NOT_FOUND_ROUTE_HANDLE,
-    element: React.createElement(CatchAllBaseGuard, {
+    element: withNotFoundFallbackContext(node, React.createElement(CatchAllBaseGuard, {
       fallback: createNotFoundFallbackElement(
         node,
         cache,
         inheritedFallback,
         `notfound:${node.fullPath}:base`,
       ),
-    }),
+    })),
   };
 }
 
@@ -414,12 +477,12 @@ function createEmptyFolderBaseRoute(
     // outlet for a leaf without one, which is the very shape this guard
     // replaces. With no `not-found` anywhere it falls through to the built-in
     // `DefaultNotFound`, so the base always paints a 404 page.
-    element: createNotFoundFallbackElement(
+    element: withNotFoundFallbackContext(node, createNotFoundFallbackElement(
       node,
       cache,
       inheritedFallback,
       `notfound:${node.fullPath}:empty-base`,
-    ),
+    )),
   };
 }
 

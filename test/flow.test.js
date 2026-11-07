@@ -105,6 +105,17 @@ describe("flow signals", () => {
       permanent: false,
       replace: false,
     });
+
+    test("rejects re-entry from the root fallback", () => {
+      const outcome = createRenderOutcome(request);
+
+      assert.throws(
+        () => renderWithContext(outcome, { phase: "fallback", owner: "/" }, () => notFound()),
+        /cannot re-enter the root fallback/,
+      );
+      assert.equal(outcome.signal, null);
+      assert.equal(outcome.reentrantSignal, null);
+    });
   });
 
   test("rejects flow control outside route rendering", () => {

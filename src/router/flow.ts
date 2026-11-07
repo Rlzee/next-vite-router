@@ -52,6 +52,9 @@ export function notFound(): never {
   if (!context?.owner) {
     throw new Error("next-vite-router notFound() can only be used during route rendering");
   }
+  if (context.phase === "fallback" && context.owner === "/") {
+    throw new Error("next-vite-router notFound() cannot re-enter the root fallback");
+  }
 
   const reentrant = context.phase === "fallback";
   return renderSignal({
