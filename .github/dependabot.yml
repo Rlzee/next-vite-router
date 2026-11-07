@@ -6,7 +6,7 @@ updates:
   # entry covers the shipped runtime graph - `commander`, `kleur`, `prompts` - the
   # build tooling, and the fixture apps' own peers. `workspace:` links are internal
   # and Dependabot skips them.
-  - package-ecosystem: pnpm
+  - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
