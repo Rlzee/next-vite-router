@@ -128,7 +128,7 @@ export interface RenderOutcome {
   readonly request: PreparedRequest;
   /** The initial signal from the page pass. It is immutable once recorded. */
   readonly signal: RenderSignal | null;
-  /** At most one signal recorded while rendering a fallback; never schedules pass 3. */
+  /** At most one signal recorded while rendering a fallback; schedules only the bounded pass 3. */
   readonly reentrantSignal: RenderSignal | null;
   /** The first uncaught ordinary failure, together with the pass that observed it. */
   readonly failure: Readonly<{ error: unknown; pass: 1 | 2 }> | null;
@@ -230,7 +230,7 @@ app-facing/generated-module side, not in `next-vite-router/ssr` (§9 constraint 
 | R2 | `notFound()` called from a **layout** is owned by the nearest *ancestor* owner, never by the segment that layout belongs to. | A boundary cannot replace the tree that is throwing: that is an infinite loop. |
 | R3 | While a fallback is rendering, the outcome context changes to `phase: "fallback"` and carries the parent owner (or `"/"`). A `notFound()` from that fallback records one **reentrant** signal for that parent owner; if the fallback is already the root fallback, it records an ordinary `RenderFailure` instead. | This is explicit escalation, bounded at one step, and cannot re-enter the same fallback. |
 | R4 | No owner anywhere → the eager built-in `DefaultNotFound` at owner `"/"`. | Identical to the pre-flight base-guard answer; the two paths cannot disagree. |
-| R5 | Server: at most **two** passes (`maxRenderPasses: 1` re-render). Pass 2 is entered only for the initial page signal. A reentrant signal in pass 2 is resolved by R3/R4 and never schedules pass 3. | The cap is enforced by the protocol, not inferred from `first record wins`. |
+| R5 | Server: at most **two** passes for an initial page signal. If pass 2 records the one permitted reentrant signal from R3, the protocol aborts pass 2 and performs exactly one final pass 3 with the parent owner. No signal in pass 3 schedules another pass. | The exceptional third pass is explicit and bounded; it is not hidden inside `first record wins`. |
 | R6 | Client: a signal that no boundary owns climbs to the root and paints R4's fallback; it must never reach `error.tsx`. | §3's "not a generic error" requirement, made structural by §6.3. |
 
 ## 6. Converter delta (D1) — targeted, and the only `src/routes/` change
@@ -303,6 +303,7 @@ export type RenderPlan = Readonly<
   | { kind: "not-found"; status: 404; headers: Headers; pass: 1; sendBody: true;  forceOwner: null;  degraded: false }
   | { kind: "not-found"; status: 404; headers: Headers; pass: 2; sendBody: true;  forceOwner: string; degraded: false }
   | { kind: "not-found"; status: 200; headers: Headers; pass: 2; sendBody: true;  forceOwner: string; degraded: true }
+  | { kind: "not-found"; status: 404; headers: Headers; pass: 3; sendBody: true;  forceOwner: string; degraded: false }
   | { kind: "redirect";  status: 307 | 308; headers: Headers; pass: 1; sendBody: false; forceOwner: null }
   | { kind: "error";     status: 500 | 200; headers: Headers; pass: 1; sendBody: boolean; forceOwner: null; error: unknown; degraded: boolean }
 >;
@@ -410,7 +411,9 @@ prepareRequest ──► planResponse(pre-flight)
   pipe pass 1          abandon body            planResponse(signal)
                                                head(404 + noindex)
                                                pass 2 render ─► pipe
-                                               (signal again in pass 2 → R3/R4, no pass 3)
+                                               (signal again in pass 2 → abandon pass 2)
+                                               → plan parent owner
+                                               → pass 3 render ─► pipe
         └───────────────────────────────────────────────────────────┘
    signal recorded after head() ─► status frozen ─► plan.degraded = true
                                    fallback paints at hydration (client boundary)
@@ -418,7 +421,10 @@ prepareRequest ──► planResponse(pre-flight)
 
 `renderResponse` calls `adapter.head()` exactly once for the selected pass, inside that pass's
 `onShellReady`, never earlier and never twice; nothing is piped before that call. A pass that is
-abandoned before its shell is committed is aborted and its `RenderAttempt` is never piped. That is
+abandoned before its shell is committed is aborted and its `RenderAttempt` is never piped. For R3,
+the pass-2 attempt is abandoned before piping, `reentrantSignal` supplies the parent `forceOwner`,
+and `renderApp()` constructs a fresh tree for pass 3. Pass 3 is the final selected attempt; a signal
+from it is handled by R4 as the root fallback or becomes the ordinary root failure, never pass 4. That is
 the property `test/http-integration.test.js` must prove for headers-before-body, extended to "no
 pass-1 byte ever reached the sink".
 
@@ -445,7 +451,8 @@ Guaranteed, each with its test in §9:
 
 - **G1** nothing from an abandoned pass reaches the client: zero bytes before `head()`, and no
   pass-1 chunk in the committed body.
-- **G2** at most one re-render, in exactly one situation (a recorded `not-found` before commit).
+- **G2** at most one re-render for an initial page `notFound()`. A `notFound()` from the pass-2
+  fallback is the sole exception: it causes one final pass 3 for the parent fallback, never pass 4.
   Normal pages, redirects, and pre-flight 404s render once.
 - **G3** `useEffect`/`useLayoutEffect` never run in either pass: React does not run effects during
   `renderToPipeableStream`/`renderToString`. Duplicated *effects* are therefore impossible in SSR.
@@ -464,6 +471,8 @@ Explicitly **not** guaranteed, and this is the reservation kept in the spec:
   are safe to repeat).
 - **N2** cost. Pass 2 costs a second render of the tree up to the owner, plus a load of the
   `not-found` chunk when the folder has one (that loader is lazy, like every fallback today).
+- **N2a** a reentrant fallback costs a third render of the tree up to the parent owner. This is
+  intentional and is limited to the malformed or unusual case where a fallback calls `notFound()`.
 - **N3** status and headers after commit. The degraded row of the matrix is a limitation, not a bug
   to fix later. A late fallback cannot retroactively add a `<meta>` element to a flushed `<head>`.
 
@@ -474,8 +483,12 @@ Explicitly **not** guaranteed, and this is the reservation kept in the spec:
   pass 2; headers produced while rendering abandoned pass 1 are not implicitly visible to pass 2.
 - There is no separate cookie exception or hidden cookie bag. Every `Set-Cookie` value supplied in
   the initial headers is copied to the committed plan; cookies produced by an abandoned pass are
-  discarded with that pass. Adapters must preserve repeated `Set-Cookie` values when applying the
-  plan.
+  discarded with that pass. When applying the plan, an adapter uses `headers.getSetCookie()` when
+  available (the Node 20 compatibility probe must verify this) and otherwise forwards the single
+  `Headers.get("set-cookie")` value without attempting to split on commas. This fallback is
+  lossless for a single cookie and avoids corrupting `Expires` attributes; callers requiring
+  multiple cookies on a runtime without `getSetCookie()` must provide them through the adapter's
+  platform-specific response mechanism.
 - Application headers win by default. The plan adds `cache-control: no-store` and
   `x-robots-tag: noindex` only when the application did not provide those names. `location` is the
   sole plan-owned header: a redirect always replaces an application `location`, and non-redirect
@@ -498,7 +511,7 @@ Explicitly **not** guaranteed, and this is the reservation kept in the spec:
 | I2 | A signal is never treated as an ordinary failure: `error.tsx` does not paint for it, on either side. | T1 + T3 |
 | I3 | `notFound()` outside a route render throws a diagnostic error, never a signal. | T1 |
 | I4 | R2: a layout's `notFound()` is owned by an ancestor, and the layout is not replaced by itself. | T1 + T3 |
-| I5 | R3/R5: a signal inside a fallback escalates once, then becomes a plain error; ≤ 2 passes total. | T1 + T2 |
+| I5 | R3/R5: a signal inside a fallback escalates once, then resolves in one final parent-fallback pass; no fourth pass is possible. | T1 + T2 |
 | I6 | R4: no owner anywhere ⇒ built-in `DefaultNotFound` at owner `"/"`, identical to the base guard. | T1 + T3 |
 | I7 | The fallback resolution is one function used by client and server (no second table). | code review + I4 |
 | I8 | Route shapes and traversal cost unchanged when nothing calls `notFound()`. | T1 (`routes.test.js`) |
@@ -600,16 +613,17 @@ matrices: React/ReactDOM `18.3.1` + Router DOM `6.30.6`, and React/ReactDOM `19.
 
 | probe | observed result | contract consequence |
 | --- | --- | --- |
-| P1 | `onShellReady` and `onAllReady` fired once; no chunk was observed before `pipe()`; the complete Node document arrived after piping. React's Web renderer also returned an unlocked `ReadableStream` whose complete document was readable. | Both render engines provide the required body timing. The callback mapping for the Web renderer remains an adapter responsibility and must be covered by P1/P2 implementation tests. |
+| P1 | On both React 18.3.1 and 19.2.0, `onShellReady` and `onAllReady` fired once; no chunk was observed before `pipe()`; the complete Node document arrived after piping. Aborting before `pipe()` left the Node sink with zero chunks. The Web renderer returned an unlocked `ReadableStream`; cancelling its reader before consumption produced no delivered chunks. | Both render engines provide the required body timing and pre-emission abandonment. The callback mapping for the Web renderer remains an adapter responsibility and must be covered by P1/P2 implementation tests. |
 | P2 | A synchronous render error produced no shell, then `onError`, then `onShellError`; the error was reported twice overall. | Failure recording must be idempotent and must not treat a duplicate callback as a second failure. |
 | P3 | A shell committed with Suspense fallback; after the promise resolved, the late error produced `onError` after the shell and `onAllReady` still fired. | The status is already frozen after `onShellReady`; this is the degraded post-commit case, not a second pass. |
 | P4 | Hydrating matching fallback markup produced no recoverable errors. | A stable fallback document can hydrate cleanly. This probe does not prove every boundary transition; I17 still requires the T4 browser case. |
 | P5 | `Navigate` is exported as a function in Router 6.30.6 and 7.18.4. | The generated client-side gate can use `Navigate`; relative-target behavior remains a T3/T4 test. |
-| P6 | `Headers` cloning preserved repeated `Set-Cookie` entries; `getSetCookie()` was available on Node 22.19.0. | The clone rule is valid on the probe runtime. Node 20 support for `getSetCookie()` must remain an explicit compatibility check rather than an assumption. |
+| P6 | On Node 22.19.0, `Headers` cloning preserved repeated `Set-Cookie` entries and `getSetCookie()` was available. No Node 20 runtime was available in this environment. | The plan does not require `getSetCookie()` to exist: use it when available and otherwise forward the combined `set-cookie` value without comma-splitting. The Node 20 compatibility job remains mandatory before implementation is approved. |
 
 These probes validate the adapter shape and the post-commit limitation, but do not validate the
 library implementation: no source file outside this document was changed, and P4 used a matching
-fallback tree rather than the eventual `NotFoundBoundary` implementation.
+fallback tree rather than the eventual `NotFoundBoundary` implementation. P6 is not closed for the
+package's Node `>=20` floor until the compatibility job runs on Node 20.
 
 ## 13. Documentation deltas the contract commits to
 
