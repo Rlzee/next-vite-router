@@ -270,9 +270,10 @@ describe("SSR response orchestration", () => {
       adapter: {
         head(status) {
           assert.equal(status, 200);
+        },
+        send() {
           reportLateSignal();
         },
-        send() {},
         abandon() {},
         fail() {},
       },
