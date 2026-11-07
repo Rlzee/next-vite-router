@@ -1,5 +1,9 @@
 import React, { type ReactElement } from "react";
-import type { RouteObject } from "react-router-dom";
+import {
+  useRoutes,
+  type RouteObject,
+} from "react-router-dom";
+import { StaticRouter } from "react-router-dom/server";
 import {
   normalizeRequestTarget,
 } from "../router/request-target";
@@ -199,32 +203,31 @@ export function planResponse(
 
 export function renderApp(
   routes: RouteObject[],
-  context: { outcome: RenderOutcome; plan: RenderPlan },
+  context: { outcome: RenderOutcome; plan: RenderPlan; request?: PreparedRequest },
 ): ReactElement {
   const forced = context.plan.forceOwner;
+  const request = context.request ?? context.outcome.request;
   return React.createElement(
-    RenderContext.Provider,
+    StaticRouter,
     {
-      value: {
-        outcome: context.outcome,
-        owner: forced ?? undefined,
-        phase: forced === null ? "page" : "fallback",
-      },
+      location: `${request.pathname}${request.search}${request.hash}`,
     },
-    React.createElement(React.Fragment, null, routes.map((route, index) =>
-      React.createElement(RouteElement, { key: index, route })),
+    React.createElement(
+      RenderContext.Provider,
+      {
+        value: {
+          outcome: context.outcome,
+          owner: forced ?? undefined,
+          phase: forced === null ? "page" : "fallback",
+        },
+      },
+      React.createElement(RouteRenderer, { routes }),
     ),
   );
 }
 
-function RouteElement({ route }: { route: RouteObject }): ReactElement | null {
-  if (!route.element) {
-    return route.children
-      ? React.createElement(React.Fragment, null, route.children.map((child, index) =>
-        React.createElement(RouteElement, { key: index, route: child })))
-      : null;
-  }
-  return route.element as ReactElement;
+function RouteRenderer({ routes }: { routes: RouteObject[] }): ReactElement | null {
+  return useRoutes(routes) as ReactElement | null;
 }
 
 export interface RenderCallbacks {
@@ -238,6 +241,7 @@ export interface RenderAttempt {
   pipeTo(sink: RenderSink): void;
   stream: ReadableStream<Uint8Array> | null;
   abort(): void;
+  readonly shellReady: Promise<void>;
   readonly allReady: Promise<void>;
 }
 
@@ -297,32 +301,53 @@ async function createAttempt(
     onFailure?: (failure: RenderFailure) => void;
   },
 ): Promise<RenderAttempt> {
-  let attempt!: RenderAttempt;
+  let resolveShell!: () => void;
+  let rejectShell!: (error: unknown) => void;
+  const shellReady = new Promise<void>((resolve, reject) => {
+    resolveShell = resolve;
+    rejectShell = reject;
+  });
+  const seenErrors = new Set<unknown>();
+  const notifyFailure = (error: unknown): void => {
+    if (seenErrors.has(error)) {
+      return;
+    }
+    seenErrors.add(error);
+    recordRenderError(input.outcome, error, input.pass);
+    input.onFailure?.(
+      isRenderSignal(error)
+        ? {
+          request: input.outcome.request,
+          pass: input.pass,
+          kind: "signal",
+          signal: toRenderSignal(error),
+        }
+        : {
+          request: input.outcome.request,
+          pass: input.pass,
+          kind: "error",
+          error,
+        },
+    );
+  };
   const callbacks: RenderCallbacks = {
-    onShellReady() {},
+    onShellReady() {
+      resolveShell();
+    },
     onAllReady() {},
     onShellError(error) {
-      recordRenderError(input.outcome, error, input.pass);
-      input.onFailure?.({
-        request: input.outcome.request,
-        pass: input.pass,
-        kind: isRenderSignal(error) ? "signal" : "error",
-        ...(isRenderSignal(error) ? { signal: toRenderSignal(error) } : { error }),
-      } as RenderFailure);
+      notifyFailure(error);
+      rejectShell(error);
     },
     onError(error) {
-      recordRenderError(input.outcome, error, input.pass);
-      input.onFailure?.({
-        request: input.outcome.request,
-        pass: input.pass,
-        kind: isRenderSignal(error) ? "signal" : "error",
-        ...(isRenderSignal(error) ? { signal: toRenderSignal(error) } : { error }),
-      } as RenderFailure);
+      notifyFailure(error);
     },
   };
-  attempt = await input.render(input.element, callbacks);
-  await attempt.allReady;
-  return attempt;
+  const attempt = await input.render(input.element, callbacks);
+  return {
+    ...attempt,
+    shellReady,
+  };
 }
 
 export async function renderResponse(input: {
@@ -349,21 +374,42 @@ export async function renderResponse(input: {
   while (true) {
     const attempt = await createAttempt({
       render: input.render,
-      element: renderApp(input.routes, { outcome, plan }),
+      element: renderApp(input.routes, { outcome, plan, request }),
       outcome,
       pass,
       onFailure: input.onFailure,
     });
+    try {
+      await waitForShell(attempt.shellReady, input.shellTimeoutMs, () => {
+        const timeout = input.shellTimeoutMs ?? 0;
+        const error = new Error(`SSR shell timed out after ${timeout}ms`);
+        outcome.recordFailure(error, pass);
+        input.onFailure?.({
+          request,
+          pass,
+          kind: "timeout",
+          afterMs: timeout,
+        });
+      });
+    } catch {
+      abortAttempt(input.adapter, attempt);
+      if (outcome.failure === null) {
+        throw new Error("SSR render failed before shell became ready");
+      }
+    }
+    if (input.streaming === false && outcome.failure === null) {
+      await attempt.allReady;
+    }
     const nextPlan = planResponse(outcome);
 
     if (pass === 1 && nextPlan.kind === "not-found" && nextPlan.pass === 2) {
-      input.adapter.abandon(attempt);
+      abortAttempt(input.adapter, attempt);
       plan = nextPlan;
       pass = 2;
       continue;
     }
     if (pass === 2 && outcome.reentrantSignal !== null) {
-      input.adapter.abandon(attempt);
+      abortAttempt(input.adapter, attempt);
       plan = planResponse(outcome);
       pass = 3;
       continue;
@@ -374,8 +420,40 @@ export async function renderResponse(input: {
     if (nextPlan.sendBody) {
       await input.adapter.send(attempt);
     } else {
-      input.adapter.abandon(attempt);
+      abortAttempt(input.adapter, attempt);
     }
     return nextPlan;
+  }
+}
+
+function abortAttempt(adapter: ResponseAdapter, attempt: RenderAttempt): void {
+  attempt.abort();
+  adapter.abandon(attempt);
+}
+
+async function waitForShell(
+  shellReady: Promise<void>,
+  timeoutMs: number | undefined,
+  onTimeout: () => void,
+): Promise<void> {
+  if (timeoutMs === undefined) {
+    await shellReady;
+    return;
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      shellReady,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(() => {
+          onTimeout();
+          resolve();
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
   }
 }

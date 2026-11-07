@@ -330,7 +330,8 @@ export interface RenderCallbacks {
  *
  * A Node adapter maps renderToPipeableStream's callbacks and pipe/abort directly.
  * A Web adapter maps renderToReadableStream's promise to the same callbacks:
- * stream availability is onShellReady, `allReady` is onAllReady, rejection before
+ * stream availability is onShellReady, `shellReady` resolves at that boundary,
+ * `allReady` is onAllReady, rejection before
  * shell is onShellError, and the renderer's onError option is onError. The adapter
  * must retain the stream without consuming it until the protocol calls send().
  */
@@ -338,6 +339,7 @@ export interface RenderAttempt {
   pipeTo(sink: RenderSink): void;
   stream: ReadableStream<Uint8Array> | null;
   abort(): void;
+  readonly shellReady: Promise<void>;
   readonly allReady: Promise<void>;
 }
 

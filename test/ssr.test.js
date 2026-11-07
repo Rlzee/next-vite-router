@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import React from "react";
 import { describe, test } from "node:test";
+import { renderToStaticMarkup } from "react-dom/server";
+import { Outlet, useParams } from "react-router-dom";
 import {
   planResponse,
   prepareRequest,
+  renderApp,
   renderResponse,
 } from "../dist/ssr.js";
 import {
@@ -80,9 +84,37 @@ describe("SSR response planning", () => {
     assert.equal(error.headers.has("location"), false);
   });
 
-  test("SSR bundle has no react-router-dom dependency", () => {
+  test("SSR bundle includes React Router route resolution", () => {
     const bundle = fs.readFileSync(new URL("../dist/ssr.js", import.meta.url), "utf8");
-    assert.equal(bundle.includes("react-router-dom"), false);
+    assert.equal(bundle.includes("useRoutes"), true);
+  });
+
+  test("resolves only the route branch matching the request", () => {
+    function Layout() {
+      return React.createElement("main", null, React.createElement(Outlet));
+    }
+    function Page() {
+      return React.createElement("p", null, useParams().id);
+    }
+    const outcome = request("/users/42");
+    const html = renderToStaticMarkup(renderApp([
+      {
+        path: "/",
+        element: React.createElement(Layout),
+        children: [{
+          path: "users/:id",
+          element: React.createElement(Page),
+        }],
+      },
+      {
+        path: "/other",
+        element: React.createElement("aside", null, "wrong"),
+      },
+    ], {
+      outcome,
+      plan: planResponse(outcome),
+    }));
+    assert.equal(html, "<main><p>42</p></main>");
   });
 
   test("plans redirects and preserves application cache policy", () => {
@@ -123,6 +155,7 @@ describe("SSR response orchestration", () => {
       stream: null,
       pipeTo() {},
       abort() {},
+      shellReady: Promise.resolve(),
       allReady: Promise.resolve(),
     };
   }
@@ -141,6 +174,7 @@ describe("SSR response orchestration", () => {
         events.push("abandon");
       },
     };
+    const aborted = [];
     const plan = await renderResponse({
       routes: [],
       url: "/missing",
@@ -152,13 +186,51 @@ describe("SSR response orchestration", () => {
         } else if (renders === 2) {
           callbacks.onError(new NotFoundSignal("/", true));
         }
-        return attempt();
+        callbacks.onShellReady();
+        return {
+          ...attempt(),
+          abort() {
+            aborted.push(renders);
+          },
+        };
       },
     });
 
     assert.equal(plan.pass, 3);
     assert.equal(renders, 3);
     assert.deepEqual(events, ["abandon", "abandon", "head:404", "send"]);
+    assert.deepEqual(aborted, [1, 2]);
+  });
+
+  test("streaming commits after shell without waiting for allReady", async () => {
+    let resolveAllReady;
+    const allReady = new Promise((resolve) => {
+      resolveAllReady = resolve;
+    });
+    const events = [];
+    const result = await renderResponse({
+      routes: [],
+      url: "/",
+      adapter: {
+        head() {
+          events.push("head");
+        },
+        send() {
+          events.push("send");
+        },
+        abandon() {
+          events.push("abandon");
+        },
+      },
+      render(_element, callbacks) {
+        callbacks.onShellReady();
+        return { ...attempt(), allReady };
+      },
+    });
+
+    assert.equal(result.kind, "page");
+    assert.deepEqual(events, ["head", "send"]);
+    resolveAllReady();
   });
 
   test("keeps outcomes isolated across concurrent requests", async () => {
@@ -176,7 +248,8 @@ describe("SSR response orchestration", () => {
     });
     const render = async (_element, callbacks) => {
       await new Promise((resolve) => setTimeout(resolve, 1));
-      callbacks.onError(new NotFoundSignal("/" + events.length));
+      callbacks.onError(new NotFoundSignal("/request"));
+      callbacks.onShellReady();
       return attempt();
     };
 
