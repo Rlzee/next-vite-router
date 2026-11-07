@@ -131,7 +131,7 @@ describe("render outcomes", () => {
     assert.equal(outcome.failure?.error.message, "pass 3");
   });
 
-  test("does not leak signals between concurrent render contexts", () => {
+  test("does not leak signals between separate render contexts", () => {
     const first = createRenderOutcome({ pathname: "/first", search: "", hash: "" });
     const second = createRenderOutcome({ pathname: "/second", search: "", hash: "" });
 

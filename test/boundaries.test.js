@@ -13,9 +13,15 @@ import {
 // The boundary components are engine internals reached through the same build
 // entry the generated routes module resolves by path (never a package specifier).
 import {
+  NotFoundBoundary,
   RouteErrorBoundary,
   RouteLoadingProvider,
   SegmentBoundary,
+} from "../dist/plugin-runtime.js";
+import {
+  NotFoundSignal,
+  RedirectSignal,
+  RenderContext,
 } from "../dist/plugin-runtime.js";
 
 const loader = (name) => async () => ({ default: name });
@@ -548,6 +554,68 @@ describe("RouteErrorBoundary lifecycle", () => {
     assert.deepEqual(RouteErrorBoundary.getDerivedStateFromError(thrown), {
       hasError: true,
       error: thrown,
+    });
+  });
+
+  test("rethrows control-flow signals instead of rendering error.tsx", () => {
+    const signal = new NotFoundSignal("/a");
+    const boundary = makeBoundary(component("SCREEN"), {
+      hasError: true,
+      error: signal,
+    });
+
+    assert.throws(() => boundary.render(), (error) => error === signal);
+
+    const redirectSignal = new RedirectSignal("/login", false, false);
+    boundary.state = { hasError: true, error: redirectSignal };
+    assert.throws(() => boundary.render(), (error) => error === redirectSignal);
+  });
+
+  describe("NotFoundBoundary lifecycle", () => {
+    const fallback = component("NOT-FOUND");
+    const child = React.createElement("i", null, "page");
+
+    test("renders children while healthy and the owned fallback after a signal", () => {
+      const boundary = new NotFoundBoundary({
+        owner: "/shop",
+        fallback,
+        children: child,
+        parentOwner: "/",
+      });
+
+      assert.equal(boundary.render(), child);
+      const signal = new NotFoundSignal("/shop");
+      boundary.state = NotFoundBoundary.getDerivedStateFromError(signal);
+      const element = boundary.render();
+
+      assert.equal(element.type, RenderContext.Provider);
+      assert.equal(element.props.value.owner, "/");
+      assert.equal(element.props.value.phase, "fallback");
+      assert.equal(element.props.children.type, fallback);
+    });
+
+    test("rethrows a signal owned by another segment", () => {
+      const boundary = new NotFoundBoundary({
+        owner: "/shop",
+        fallback,
+        children: child,
+      });
+      const signal = new NotFoundSignal("/other");
+      boundary.state = NotFoundBoundary.getDerivedStateFromError(signal);
+
+      assert.throws(() => boundary.render(), (error) => error === signal);
+    });
+
+    test("rethrows ordinary failures instead of painting a 404", () => {
+      const boundary = new NotFoundBoundary({
+        owner: "/shop",
+        fallback,
+        children: child,
+      });
+      const failure = new Error("broken");
+      boundary.state = NotFoundBoundary.getDerivedStateFromError(failure);
+
+      assert.throws(() => boundary.render(), (error) => error === failure);
     });
   });
 

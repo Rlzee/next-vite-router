@@ -3,6 +3,14 @@ import { useLocation } from "react-router-dom";
 import type { ComponentType } from "react";
 import type { RouteErrorComponent } from "../types/index.type";
 import { RouteLoadingProvider } from "./loading-context";
+import {
+  isNotFoundSignal,
+  isRenderSignal,
+} from "./flow";
+import {
+  RenderContext,
+  type RenderContextValue,
+} from "./render-outcome";
 
 type BoundaryProps = {
   /** This folder's own `loading.tsx`, when it declared one. */
@@ -81,11 +89,78 @@ export class RouteErrorBoundary extends React.Component<
       return this.props.children;
     }
 
+    if (isRenderSignal(this.state.error)) {
+      throw this.state.error;
+    }
+
     const Error = this.props.error;
     return React.createElement(Error, {
       error: this.state.error,
       reset: this.reset,
     });
+  }
+
+}
+
+type NotFoundBoundaryProps = {
+  owner: string;
+  fallback: React.ComponentType;
+  children: React.ReactNode;
+  /** The owner to use when the fallback calls notFound() again. */
+  parentOwner?: string;
+};
+
+type NotFoundBoundaryState = {
+  hasError: boolean;
+  error: unknown;
+};
+
+const healthyNotFoundState = (): NotFoundBoundaryState => ({
+  hasError: false,
+  error: undefined,
+});
+
+/**
+ * Paints only the not-found signal owned by this segment. Other signals and
+ * ordinary failures are re-thrown so the next applicable boundary can decide.
+ */
+export class NotFoundBoundary extends React.Component<
+  NotFoundBoundaryProps,
+  NotFoundBoundaryState
+> {
+  static contextType = RenderContext;
+  declare context: React.ContextType<typeof RenderContext>;
+
+  state = healthyNotFoundState();
+
+  static getDerivedStateFromError(error: unknown): NotFoundBoundaryState {
+    return { hasError: true, error };
+  }
+
+  render(): React.ReactNode {
+    if (!this.state.hasError) {
+      return this.props.children;
+    }
+
+    if (!isNotFoundSignal(this.state.error)
+      || this.state.error.owner !== this.props.owner) {
+      throw this.state.error;
+    }
+
+    const parentOwner = this.props.parentOwner
+      ?? (this.context?.owner === this.props.owner ? undefined : this.context?.owner)
+      ?? "/";
+    const parentContext: RenderContextValue = {
+      outcome: this.context?.outcome,
+      owner: parentOwner,
+      phase: "fallback",
+    };
+    const Fallback = this.props.fallback;
+    return React.createElement(
+      RenderContext.Provider,
+      { value: parentContext },
+      React.createElement(Fallback),
+    );
   }
 }
 
