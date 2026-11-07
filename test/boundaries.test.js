@@ -22,6 +22,8 @@ import {
   NotFoundSignal,
   RedirectSignal,
   RenderContext,
+  createRenderOutcome,
+  notFound,
 } from "../dist/plugin-runtime.js";
 
 const loader = (name) => async () => ({ default: name });
@@ -361,7 +363,7 @@ describe("full tree: multi-level integration", () => {
     assert.equal(page.element.props.phase, "page");
     assert.equal(page.element.props.children.type, NotFoundBoundary);
     assert.equal(page.element.props.children.props.owner, "/shop");
-    assert.equal(page.element.props.children.props.parentOwner, "/shop");
+    assert.equal(page.element.props.children.props.parentOwner, "/");
     assert.equal(page.element.props.children.props.fallback().type, React.Suspense);
   });
 
@@ -395,6 +397,66 @@ describe("full tree: multi-level integration", () => {
     assert.equal(boundary.type, NotFoundBoundary);
     assert.equal(boundary.props.owner, "/shop/cart");
     assert.equal(boundary.props.parentOwner, "/");
+  });
+
+  test("terminates re-entry from a deeply inherited root fallback", () => {
+    const outcome = createRenderOutcome({ pathname: "/", search: "", hash: "" });
+    const Fallback = () => notFound();
+    const boundary = new NotFoundBoundary({
+      owner: "/shop/cart",
+      parentOwner: "/",
+      fallback: Fallback,
+      children: null,
+    });
+    boundary.context = {
+      outcome,
+      owner: "/shop/cart",
+      phase: "page",
+    };
+    boundary.state = NotFoundBoundary.getDerivedStateFromError(
+      new NotFoundSignal("/shop/cart"),
+    );
+
+    const fallbackElement = boundary.render();
+    assert.throws(
+      () => renderToStaticMarkup(React.createElement(
+        RenderContext.Provider,
+        { value: { outcome, owner: "/", phase: "fallback" } },
+        fallbackElement,
+      )),
+      /cannot re-enter the root fallback/,
+    );
+    assert.equal(outcome.reentrantSignal, null);
+  });
+
+  test("local fallback re-entry uses its parent owner instead of itself", () => {
+    const outcome = createRenderOutcome({ pathname: "/", search: "", hash: "" });
+    const Fallback = () => notFound();
+    const boundary = new NotFoundBoundary({
+      owner: "/shop",
+      parentOwner: "/",
+      fallback: Fallback,
+      children: null,
+    });
+    boundary.context = {
+      outcome,
+      owner: "/shop",
+      phase: "page",
+    };
+    boundary.state = NotFoundBoundary.getDerivedStateFromError(
+      new NotFoundSignal("/shop"),
+    );
+
+    const fallbackElement = boundary.render();
+    assert.throws(
+      () => renderToStaticMarkup(React.createElement(
+        RenderContext.Provider,
+        { value: { outcome, owner: "/", phase: "fallback" } },
+        fallbackElement,
+      )),
+      /cannot re-enter the root fallback/,
+    );
+    assert.equal(outcome.reentrantSignal, null);
   });
 
   test("/dx/y/z paints through every boundary in its chain", async () => {

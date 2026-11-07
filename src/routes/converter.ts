@@ -132,6 +132,11 @@ function fallbackOwnerFor(
   return node.notFound ? ownerFor(node) : inheritedFallback?.owner ?? ownerFor(node);
 }
 
+function parentOwnerForFallback(owner: string): string {
+  const slash = owner.lastIndexOf("/");
+  return slash <= 0 ? "/" : owner.slice(0, slash);
+}
+
 function fallbackComponent(element: React.ReactElement): React.ComponentType {
   return function NotFoundFallback() {
     return element;
@@ -178,7 +183,7 @@ function withNotFoundPageBoundary(
     { owner: ownerFor(node), phase: "page" },
     React.createElement(NotFoundBoundary, {
       owner: ownerFor(node),
-      parentOwner: inheritedFallback?.owner ?? ownerFor(node),
+      parentOwner: parentOwnerForFallback(fallbackOwnerFor(node, inheritedFallback)),
       fallback: fallbackComponent(fallback),
       children: element,
     }),
