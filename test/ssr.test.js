@@ -4,8 +4,12 @@ import { describe, test } from "node:test";
 import {
   planResponse,
   prepareRequest,
+  renderResponse,
 } from "../dist/ssr.js";
-import { createRenderOutcome } from "../dist/plugin-runtime.js";
+import {
+  createRenderOutcome,
+  NotFoundSignal,
+} from "../dist/plugin-runtime.js";
 
 const request = (url = "/") => createRenderOutcome(prepareRequest(url));
 
@@ -110,5 +114,88 @@ describe("SSR response planning", () => {
     assert.equal(plan.kind, "error");
     assert.equal(plan.status, 200);
     assert.equal(plan.degraded, true);
+  });
+});
+
+describe("SSR response orchestration", () => {
+  function attempt() {
+    return {
+      stream: null,
+      pipeTo() {},
+      abort() {},
+      allReady: Promise.resolve(),
+    };
+  }
+
+  test("abandons intermediate passes before committing headers or content", async () => {
+    const events = [];
+    let renders = 0;
+    const adapter = {
+      head(status) {
+        events.push(`head:${status}`);
+      },
+      send() {
+        events.push("send");
+      },
+      abandon() {
+        events.push("abandon");
+      },
+    };
+    const plan = await renderResponse({
+      routes: [],
+      url: "/missing",
+      adapter,
+      render(_element, callbacks) {
+        renders += 1;
+        if (renders === 1) {
+          callbacks.onError(new NotFoundSignal("/shop"));
+        } else if (renders === 2) {
+          callbacks.onError(new NotFoundSignal("/", true));
+        }
+        return attempt();
+      },
+    });
+
+    assert.equal(plan.pass, 3);
+    assert.equal(renders, 3);
+    assert.deepEqual(events, ["abandon", "abandon", "head:404", "send"]);
+  });
+
+  test("keeps outcomes isolated across concurrent requests", async () => {
+    const events = [];
+    const makeAdapter = (name) => ({
+      head(status) {
+        events.push(`${name}:head:${status}`);
+      },
+      send() {
+        events.push(`${name}:send`);
+      },
+      abandon() {
+        events.push(`${name}:abandon`);
+      },
+    });
+    const render = async (_element, callbacks) => {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      callbacks.onError(new NotFoundSignal("/" + events.length));
+      return attempt();
+    };
+
+    await Promise.all([
+      renderResponse({
+        routes: [],
+        url: "/one",
+        adapter: makeAdapter("one"),
+        render,
+      }),
+      renderResponse({
+        routes: [],
+        url: "/two",
+        adapter: makeAdapter("two"),
+        render,
+      }),
+    ]);
+
+    assert.equal(events.filter((event) => event.endsWith(":head:404")).length, 2);
+    assert.equal(events.filter((event) => event.endsWith(":send")).length, 2);
   });
 });

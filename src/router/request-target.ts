@@ -1,3 +1,7 @@
+/**
+ * URL normalization shared by routing and SSR. This module deliberately has
+ * no router dependency so the SSR entry can run in a router-only worker.
+ */
 const ORIGIN = "http://next-vite-router.invalid/";
 const AUTHORITY = /^https?:\/\/[^/?#]*/i;
 const SCHEME = /^[a-z][a-z0-9+.-]*:/i;
@@ -20,10 +24,14 @@ function isUndecodable(path: string): boolean {
 }
 
 function resolveByHand(path: string): string {
+  // Keep one or two leading slashes outside the stack: `//host/../../x`
+  // remains a path beginning with two slashes, not a different authority.
   const prefix = /^\/{1,2}/.exec(path)?.[0] ?? "";
   const kept: string[] = [];
   let endsOnDot = false;
   for (const segment of path.slice(prefix.length).split("/")) {
+    // URL dot segments include their encoded forms; preserve every other
+    // escape byte-for-byte, including malformed UTF-8 sequences.
     if (SINGLE_DOT.test(segment)) {
       endsOnDot = true;
       continue;
@@ -48,6 +56,8 @@ function withoutSuffix(url: string): string {
 }
 
 export function normalizeRequestTarget(url: string): string {
+  // HTTP origin-form, HTTP absolute-form, malformed escapes and protocol
+  // relative paths are handled without inventing a browser origin.
   const absolute = isAbsoluteForm(url);
   if (!absolute && !url.startsWith("//") && SCHEME.test(url)
     && !url.startsWith("?") && !url.startsWith("#")) {
