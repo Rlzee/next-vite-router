@@ -30,6 +30,16 @@
         "default": "./dist/plugin.cjs"
       }
     },
+    "./ssr": {
+      "import": {
+        "types": "./dist/ssr.d.ts",
+        "default": "./dist/ssr.js"
+      },
+      "require": {
+        "types": "./dist/ssr.d.cts",
+        "default": "./dist/ssr.cjs"
+      }
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -42,7 +52,7 @@
   },
   "scripts": {
     "dev": "vite build --watch",
-    "build": "vite build && vite build -c vite.config.cli.ts && node --input-type=commonjs -e \"const fs = require('node:fs'); for (const f of ['index','plugin','plugin-runtime']) fs.copyFileSync('dist/'+f+'.d.ts','dist/'+f+'.d.cts')\"",
+    "build": "vite build && vite build -c vite.config.cli.ts && node --input-type=commonjs -e \"const fs = require('node:fs'); for (const f of ['index','ssr','plugin','plugin-runtime']) fs.copyFileSync('dist/'+f+'.d.ts','dist/'+f+'.d.cts')\"",
     "test": "pnpm run test:params && pnpm run test:flow && pnpm run test:generator && pnpm run test:invariants && pnpm run test:http && pnpm run test:boundaries && pnpm run test:routes && pnpm run test:lazy && pnpm run test:plugin && pnpm run test:local && pnpm run test:comments && pnpm run test:cli && pnpm run test:compatibility",
     "test:flow": "node --test test/flow.test.js",
     "test:local": "node test/test-package.js",
