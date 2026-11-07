@@ -1,6 +1,6 @@
 # Flow-control signals, render outcomes and the SSR response contract
 
-Status: **design, approved for specification — no implementation approved.**
+Status: **design, pending technical validation — no implementation approved.**
 Decisions taken (this is the contract those decisions fix):
 
 | decision | outcome |
@@ -126,13 +126,18 @@ export type RenderSignal =
 
 export interface RenderOutcome {
   readonly request: PreparedRequest;
-  /** The first signal recorded. First record wins: a second one is a page bug, not a negotiation. */
+  /** The initial signal from the page pass. It is immutable once recorded. */
   readonly signal: RenderSignal | null;
+  /** At most one signal recorded while rendering a fallback; never schedules pass 3. */
+  readonly reentrantSignal: RenderSignal | null;
+  /** The first uncaught ordinary failure, together with the pass that observed it. */
+  readonly failure: Readonly<{ error: unknown; pass: 1 | 2 }> | null;
   /** Set by `commit()` only. A signal arriving after it cannot change the status: the plan degrades. */
   readonly committed: boolean;
   /** True once `committed` is set and a signal was recorded afterwards. */
   readonly degraded: boolean;
-  record(signal: RenderSignal): void;
+  recordSignal(signal: RenderSignal, phase: "page" | "fallback"): void;
+  recordFailure(error: unknown, pass: 1 | 2): void;
   markCommitted(): void;
 }
 
@@ -142,13 +147,18 @@ export function createRenderOutcome(request: PreparedRequest): RenderOutcome;
 export function useRenderOutcome(): RenderOutcome | undefined;
 /** Provided by the owner marker; the answer to "whose 404 would catch me". */
 export function useNotFoundOwner(): string | undefined;
+/** "fallback" makes a nested notFound() reentrant and routes it to the parent owner. */
+export function useRenderPhase(): "page" | "fallback" | undefined;
 ```
 
 **Architectural invariant (from review, kept as a hard rule):** the outcome reaches a component only
 through React context, created per request. A module-level outcome is forbidden — it is the exact
 shape that leaks between concurrent SSR requests, and it would make the concurrency test in §8/I14
 pass by accident instead of by construction. `useRenderOutcome()` returning `undefined` in the browser
-is what makes the client mechanism exception-driven.
+is what makes the client mechanism exception-driven. `signal` and `reentrantSignal` are separate
+slots: first record wins within each slot, while the fallback phase is allowed to create the second
+slot. `planResponse` consumes the initial slot only; the fallback phase decides whether the second slot
+is a bounded parent escalation or an ordinary failure.
 
 ## 5. Propagation
 
@@ -193,10 +203,11 @@ error to a parent boundary, and the one that behaves identically on React 18 and
 
 ### 5.2 Server / prerender
 
-- The class catch never runs. `render()` consults the outcome instead: when
+- The class catch is not a reliable SSR fallback mechanism: React does not render a class
+  `ErrorBoundary` fallback during server rendering. `render()` consults the outcome instead: when
   `outcome.signal?.kind === "not-found" && outcome.signal.owner === this.owner`, it renders the
   fallback. This is why the component's *position* is the same on both sides — the second pass cannot
-  disagree with what a boundary would have caught.
+  disagree with what a client boundary would have caught.
 - `redirect()` records and throws; on the server the plan discards the body, so the redirect needs no
   owner and no per-segment boundary. The client renders `RedirectGate` once, at the top of `Router`:
 
@@ -214,9 +225,9 @@ app-facing/generated-module side, not in `next-vite-router/ssr` (§9 constraint 
 | --- | --- | --- |
 | R1 | A signal is owned by the nearest `NotFoundBoundary` whose `owner` equals the context owner at the throw site. | Same answer as `createNotFoundFallbackElement` gives during conversion. |
 | R2 | `notFound()` called from a **layout** is owned by the nearest *ancestor* owner, never by the segment that layout belongs to. | A boundary cannot replace the tree that is throwing: that is an infinite loop. |
-| R3 | `notFound()` called from a **fallback** escalates once, then becomes a plain error at the root. | Bounded, diagnosable, never silent. |
+| R3 | While a fallback is rendering, the outcome context changes to `phase: "fallback"` and carries the parent owner (or `"/"`). A `notFound()` from that fallback records one **reentrant** signal for that parent owner; if the fallback is already the root fallback, it records an ordinary `RenderFailure` instead. | This is explicit escalation, bounded at one step, and cannot re-enter the same fallback. |
 | R4 | No owner anywhere → the eager built-in `DefaultNotFound` at owner `"/"`. | Identical to the pre-flight base-guard answer; the two paths cannot disagree. |
-| R5 | Server: at most **two** passes (`maxRenderPasses: 1` re-render). A signal recorded in pass 2 resolves through R3/R4 only. | The cap the review asked for, expressed as a number. |
+| R5 | Server: at most **two** passes (`maxRenderPasses: 1` re-render). Pass 2 is entered only for the initial page signal. A reentrant signal in pass 2 is resolved by R3/R4 and never schedules pass 3. | The cap is enforced by the protocol, not inferred from `first record wins`. |
 | R6 | Client: a signal that no boundary owns climbs to the root and paints R4's fallback; it must never reach `error.tsx`. | §3's "not a generic error" requirement, made structural by §6.3. |
 
 ## 6. Converter delta (D1) — targeted, and the only `src/routes/` change
@@ -299,6 +310,38 @@ export function renderApp(
   context: { outcome: RenderOutcome; plan: RenderPlan },
 ): ReactElement;   // outcome provider + (pass 2) forced-owner provider; no router inside
 
+export interface RenderCallbacks {
+  /** The shell is renderable, but no bytes have been written by this adapter yet. */
+  onShellReady(): void;
+  /** The complete tree is renderable; used by non-streaming/prerender callers. */
+  onAllReady(): void;
+  /** No usable shell exists. The adapter must not call onShellReady afterwards. */
+  onShellError(error: unknown): void;
+  /** Reports an ordinary React error or a render signal with its request/pass context. */
+  onError(error: unknown): void;
+}
+
+/**
+ * Required adaptation boundary around ReactDOMServer.
+ *
+ * A Node adapter maps renderToPipeableStream's callbacks and pipe/abort directly.
+ * A Web adapter maps renderToReadableStream's promise to the same callbacks:
+ * stream availability is onShellReady, `allReady` is onAllReady, rejection before
+ * shell is onShellError, and the renderer's onError option is onError. The adapter
+ * must retain the stream without consuming it until the protocol calls send().
+ */
+export interface RenderAttempt {
+  pipeTo(sink: RenderSink): void;
+  stream: ReadableStream<Uint8Array> | null;
+  abort(): void;
+  readonly allReady: Promise<void>;
+}
+
+export type RenderEngine = (
+  element: ReactElement,
+  callbacks: RenderCallbacks,
+) => RenderAttempt | Promise<RenderAttempt>;
+
 export interface RenderSink {
   write(chunk: string | Uint8Array): unknown;
   end(chunk?: string | Uint8Array): unknown;
@@ -307,40 +350,52 @@ export interface RenderSink {
 /** Platform-neutral adapter: Node's ServerResponse satisfies RenderSink structurally. */
 export interface ResponseAdapter {
   head(status: number, headers: Headers): void;   // exactly once, before any byte
-  send(body: RenderBody): void | Promise<void>;    // no-op for a redirect plan
-  abandon(body: RenderBody): void;                  // discard an aborted pass, never reach the client
+  send(attempt: RenderAttempt): void | Promise<void>; // no-op for a redirect plan
+  abandon(attempt: RenderAttempt): void;              // discard an aborted pass, never reach the client
 }
-
-export type RenderBody = Readonly<{
-  /** Web-standard when present; a `Response` can be built from it directly. */
-  stream: ReadableStream<Uint8Array> | null;
-  /** Node path: attach React's output to the sink. Silently unused when `stream` is null. */
-  pipeTo(sink: RenderSink): void;
-}>;
 
 /** The whole protocol for one request, given React's own render API. */
 export async function renderResponse(input: {
   routes: RouteObject[];
   url: string;
   adapter: ResponseAdapter;
-  render(element: ReactElement): Promise<RenderBody> | { pipe(sink: RenderSink): void; abort(): void };
+  render: RenderEngine;
   streaming?: boolean;              // false = one awaited render, exact statuses (prerender default)
   shellTimeoutMs?: number;
   onFailure?(failure: RenderFailure): void;
 }): Promise<RenderPlan>;            // the plan actually committed, for the app's own logging
 
 export type RenderFailure =
-  | Readonly<{ kind: "signal"; signal: RenderSignal }>   // control flow: expected, never logged as an error
-  | Readonly<{ kind: "error"; error: unknown }>          // ordinary render failure
-  | Readonly<{ kind: "timeout"; afterMs: number }>;
+  Readonly<{ request: PreparedRequest; pass: 1 | 2 }> &
+  (
+    | Readonly<{ kind: "signal"; signal: RenderSignal }> // expected control flow
+    | Readonly<{ kind: "error"; error: unknown }>       // ordinary render failure
+    | Readonly<{ kind: "timeout"; afterMs: number }>
+  );
 ```
+
+`RenderCallbacks` are part of the contract, not optional notifications. `renderResponse` supplies
+them for every pass and associates each callback with the current request, `RenderOutcome`, and pass
+number. `onError` first classifies branded signals, records them with `recordSignal`, and records
+ordinary renderer failures with `recordFailure`; on the server there is no class-boundary fallback
+that can make such a failure handled. `onFailure` is an observer after that classification, not the
+storage mechanism. `onShellError` is an ordinary pre-shell failure unless it is a signal.
+The adapter must call `onShellReady` at most once and must never pipe before it. This contract is
+implementable with both React engines, but the P1/P2 tests must verify the mappings above before the
+entry point is frozen.
+
+The renderer does not use a class boundary to produce an SSR `error.tsx` fallback. An ordinary
+failure before the shell is therefore recorded as an uncaught failure and plans `500`; an ordinary
+failure after the shell leaves the already committed `200` response and is reported to the client
+boundary during hydration. A folder `error.tsx` can provide the client fallback in the latter case,
+but cannot turn a pre-shell server failure into a `200` document.
 
 ### 7.2 State machine (streaming)
 
 ```
 prepareRequest ──► planResponse(pre-flight)
                         │
-        404 from the route table? ──yes──► head(404 + noindex) ─► render once ─► pipe
+        404 from the route table? ──yes──► render once ─► head(404 + noindex) ─► send
                         │ no
                         ▼
               pass 1 render (buffered, not piped)
@@ -358,22 +413,24 @@ prepareRequest ──► planResponse(pre-flight)
                                    fallback paints at hydration (client boundary)
 ```
 
-`renderResponse` calls `adapter.head()` **inside** React's `onShellReady`, never earlier and never
-twice; nothing is piped before that call. That is the property `test/http-integration.test.js`
-already proves for headers-before-body, extended to "no pass-1 byte ever reached the sink".
+`renderResponse` calls `adapter.head()` exactly once for the selected pass, inside that pass's
+`onShellReady`, never earlier and never twice; nothing is piped before that call. A pass that is
+abandoned before its shell is committed is aborted and its `RenderAttempt` is never piped. That is
+the property `test/http-integration.test.js` must prove for headers-before-body, extended to "no
+pass-1 byte ever reached the sink".
 
 ### 7.3 Status and header matrix
 
 | situation | status | body | `x-robots-tag` / meta robots | passes |
 | --- | --- | --- | --- | --- |
-| URL matches no page (pre-flight `404`) | `404` | the fallback tree, **inside its layouts**; no leaf page component runs | header when not yet committed, meta always | 1 |
+| URL matches no page (pre-flight `404`) | `404` | the fallback tree, **inside its layouts**; no leaf page component runs | header + meta when `noindexOnFallback` is enabled | 1 |
 | `notFound()` before `onShellReady` | `404` | pass-2 fallback tree | header + meta | 2 |
 | `notFound()` after the shell flushed | `200`, frozen | shell + client-painted fallback | **impossible**; meta only if the fallback HTML is streamed after the flush | 1 (+ client) |
 | `redirect()` / `permanentRedirect()` before commit | `307` / `308` + `location` | none | n/a | 1 (body abandoned) |
 | `redirect()` after commit | client-side `<Navigate>`; HTTP status already `200` | as streamed | n/a | 1 |
-| ordinary error before commit, uncaught | `500` | the app's own error document | header + meta | 1 |
-| ordinary error inside a folder with `error.tsx` | `200` (a page matched) | shell + `error.tsx` at hydration | none | 1 |
-| prerender / `streaming: false` | exact for every row above | complete HTML | meta always, header optional | ≤2 |
+| ordinary error before shell commit, uncaught | `500` | the renderer's error document or no body according to the adapter | header + meta | 1 |
+| ordinary error after shell commit, in a folder with `error.tsx` | `200` (frozen) | shell + client-painted `error.tsx` | no header; meta only if already in the committed shell | 1 |
+| prerender / `streaming: false` | exact for every row above | complete HTML or explicit error | meta when the selected plan requests it, header optional | ≤2 |
 
 Row 1 is the correction from review, written as the guarantee really is: pre-flight `404` does **not**
 mean "no component runs". It means no *leaf page* of the requesting URL runs — the fallback, the
@@ -404,15 +461,29 @@ Explicitly **not** guaranteed, and this is the reservation kept in the spec:
   are safe to repeat).
 - **N2** cost. Pass 2 costs a second render of the tree up to the owner, plus a load of the
   `not-found` chunk when the folder has one (that loader is lazy, like every fallback today).
-- **N3** status after commit. The degraded row of the matrix is a limitation, not a bug to fix later.
+- **N3** status and headers after commit. The degraded row of the matrix is a limitation, not a bug
+  to fix later. A late fallback cannot retroactively add a `<meta>` element to a flushed `<head>`.
 
 ### 7.5 Headers, cookies, and what an abandoned pass loses
 
-- A page has no header API. `Set-Cookie` and friends belong to the app's server; the plan only ever
-  *adds* `location`, `cache-control: no-store`, and `x-robots-tag: noindex`.
-- Headers the app accumulated for a pass that got abandoned are **discarded**, except the app's own
-  `cookies` bag if it passes one to `planResponse({ headers })`: those are re-attached to the
-  committed plan, and the spec says so rather than leaving it implicit.
+- The caller owns the initial `Headers` object. `planResponse` never mutates it: it clones it once
+  and returns a new `Headers` instance. The caller must pass the same initial headers when planning
+  pass 2; headers produced while rendering abandoned pass 1 are not implicitly visible to pass 2.
+- There is no separate cookie exception or hidden cookie bag. Every `Set-Cookie` value supplied in
+  the initial headers is copied to the committed plan; cookies produced by an abandoned pass are
+  discarded with that pass. Adapters must preserve repeated `Set-Cookie` values when applying the
+  plan.
+- Application headers win by default. The plan adds `cache-control: no-store` and
+  `x-robots-tag: noindex` only when the application did not provide those names. `location` is the
+  sole plan-owned header: a redirect always replaces an application `location`, and non-redirect
+  plans remove it. This makes the conflict rule deterministic while retaining application cache and
+  robots policy when explicitly supplied.
+- `renderApp` adds the robots meta element at the document root when the selected plan has
+  `noindexOnFallback`. It is rendered in the initial document tree for pre-flight 404s and pass-2
+  fallback renders, not in `NotFoundBoundary` itself. For a late signal, the protocol cannot
+  promise a meta element: it is present only if the fallback markup is streamed after the existing
+  document/head position and the application document accepts it; no post-flush head mutation is
+  attempted.
 - `Headers` is a Web global (Node ≥ 18, Edge, browsers) — which is why the API takes it and not
   `NodeHttp.OutgoingHttpHeaders` (D3's constraint).
 
@@ -430,7 +501,7 @@ Explicitly **not** guaranteed, and this is the reservation kept in the spec:
 | I8 | Route shapes and traversal cost unchanged when nothing calls `notFound()`. | T1 (`routes.test.js`) |
 | I9 | `getRouteStatus()` signature, behavior and wording unchanged by this work. | T1 (existing) |
 | I10 | Pre-flight `404` renders the fallback **and its layouts**, and never the leaf page. | T2 |
-| I11 | `planResponse` is pure and total; `first record wins` on the outcome. | T1 |
+| I11 | `planResponse` is pure and total; first record wins independently for the initial and reentrant signal slots, and for the ordinary-failure slot. | T1 |
 | I12 | A redirect sends `location` and no body; `307`/`308` exactly; `replace` never changes a status. | T1 + T2 |
 | I13 | `head()` is called exactly once, before the first byte, and never after a write. | T2 |
 | I14 | **Concurrency**: two outcomes interleaved (A signals `notFound()`, B does not, promises resolve in reverse order) commit `404` and `200` respectively, with each other's content absent from both bodies. | T2 |
@@ -453,7 +524,7 @@ Explicitly **not** guaranteed, and this is the reservation kept in the spec:
 - **C4** No `node:*` import in the `ssr` entry, so the same code runs in Edge and in a prerender
   worker (D3's nuance), and `RenderSink` is duck-typed instead of `ServerResponse`.
 - **C5** `renderToReadableStream` (Web) and `renderToPipeableStream` (Node) both fit through
-  `render(...)` + `RenderBody`.
+  `RenderEngine` + `RenderAttempt`.
 
 ## 10. Files that will change (implementation step, later — none now)
 
@@ -499,12 +570,14 @@ Explicitly **not** guaranteed, and this is the reservation kept in the spec:
 The reservation kept from review is exactly this list; each is answerable in a throwaway script, and
 each decides something in §7 that must not be guessed.
 
-1. **P1 buffering** — does an un-piped `renderToPipeableStream` on React 18.3.1 and 19.2.0 hold every
-   chunk until `pipe()` with no loss or duplication, and does `abort()` before any `pipe()` leave the
-   sink untouched? Decides whether G1 needs a workaround (e.g. a counting sink).
-2. **P2 error timing** — for a synchronous throw inside the shell, is `onError` guaranteed to fire
-   *before* `onShellReady`, and is the value our signal instance, unmodified and un-wrapped? Decides
-   the pass-2 trigger condition (both majors).
+1. **P1 buffering and callback adaptation** — on React 18.3.1 and 19.2.0, does an un-piped
+   `renderToPipeableStream` hold every chunk until `pipe()` and does the
+   `renderToReadableStream` promise expose the same shell/all-ready ordering? Does `abort()` before
+   piping leave the sink untouched in both adapters? Decides whether G1 needs a workaround.
+2. **P2 error timing and classification** — for a synchronous throw inside the shell, is `onError`
+   guaranteed to fire before `onShellReady`, and is the value our signal instance, unmodified and
+   un-wrapped? For an ordinary throw, which callback order distinguishes pre-shell `500` from a
+   committed `200`? Decides the pass-2 trigger and failure-recording rules (both majors).
 3. **P3 suspended signal** — a `notFound()` thrown from inside a Suspense boundary that resolves after
    the shell: which callbacks fire, and can the fallback HTML still be streamed? Decides the degraded
    row's honest wording.
