@@ -197,8 +197,11 @@ error to a parent boundary, and the one that behaves identically on React 18 and
   - an **ordinary failure** → re-throw as well, and the enclosing `RouteErrorBoundary` paints this
     folder's `error.tsx` exactly as it does today. The only difference is one extra hop in React's
     unwind; the handler that owns the failure is unchanged.
-- The fallback is rendered with this boundary's catch re-armed as **inert**: a second `notFound()`
-  inside a not-found page becomes a plain diagnostic error, never a re-entry (§5.3, I5).
+- When this boundary paints its fallback, it re-arms the catch in **fallback phase** and supplies the
+  parent owner (or `"/"`) through context. A `notFound()` from the child `not-found.tsx` is therefore
+  caught once by the parent owner and paints that parent's fallback. If the current fallback is already
+  the root fallback, the call becomes a plain diagnostic error. The same one-step escalation is used
+  on the server and on the client; it is not a third render pass (§5.3, I5).
 - The URL does not change and no navigation is pushed: `notFound()` answers the URL the reader is on.
 
 ### 5.2 Server / prerender
@@ -588,6 +591,25 @@ each decides something in §7 that must not be guessed.
    7.18.4, including a relative `to`. Decides whether the client redirect path needs an effect instead.
 6. **P6 `Headers`** — `Object.fromEntries`/`getSetCookie` availability at the Node floor (`>=20`) and
    in the CJS bundle. Decides the header merge rules in §7.5.
+
+### 12.1 Probe results
+
+The probes were run in an isolated temporary project on Node `22.19.0`, with the following
+matrices: React/ReactDOM `18.3.1` + Router DOM `6.30.6`, and React/ReactDOM `19.2.0` + Router DOM
+`7.18.4`. Both React versions produced the same result:
+
+| probe | observed result | contract consequence |
+| --- | --- | --- |
+| P1 | `onShellReady` and `onAllReady` fired once; no chunk was observed before `pipe()`; the complete Node document arrived after piping. React's Web renderer also returned an unlocked `ReadableStream` whose complete document was readable. | Both render engines provide the required body timing. The callback mapping for the Web renderer remains an adapter responsibility and must be covered by P1/P2 implementation tests. |
+| P2 | A synchronous render error produced no shell, then `onError`, then `onShellError`; the error was reported twice overall. | Failure recording must be idempotent and must not treat a duplicate callback as a second failure. |
+| P3 | A shell committed with Suspense fallback; after the promise resolved, the late error produced `onError` after the shell and `onAllReady` still fired. | The status is already frozen after `onShellReady`; this is the degraded post-commit case, not a second pass. |
+| P4 | Hydrating matching fallback markup produced no recoverable errors. | A stable fallback document can hydrate cleanly. This probe does not prove every boundary transition; I17 still requires the T4 browser case. |
+| P5 | `Navigate` is exported as a function in Router 6.30.6 and 7.18.4. | The generated client-side gate can use `Navigate`; relative-target behavior remains a T3/T4 test. |
+| P6 | `Headers` cloning preserved repeated `Set-Cookie` entries; `getSetCookie()` was available on Node 22.19.0. | The clone rule is valid on the probe runtime. Node 20 support for `getSetCookie()` must remain an explicit compatibility check rather than an assumption. |
+
+These probes validate the adapter shape and the post-commit limitation, but do not validate the
+library implementation: no source file outside this document was changed, and P4 used a matching
+fallback tree rather than the eventual `NotFoundBoundary` implementation.
 
 ## 13. Documentation deltas the contract commits to
 
