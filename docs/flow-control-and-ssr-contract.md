@@ -364,7 +364,7 @@ export async function renderResponse(input: {
   url: string;
   adapter: ResponseAdapter;
   render: RenderEngine;
-  streaming?: boolean;              // false = one awaited render, exact statuses (prerender default)
+  streaming?: boolean;              // false = non-streamed rendering, up to three awaited attempts (prerender default)
   shellTimeoutMs?: number;
   onFailure?(failure: RenderFailure): void;
 }): Promise<RenderPlan>;            // the plan actually committed, for the app's own logging
