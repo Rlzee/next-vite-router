@@ -361,7 +361,7 @@ describe("full tree: multi-level integration", () => {
     assert.equal(page.element.props.phase, "page");
     assert.equal(page.element.props.children.type, NotFoundBoundary);
     assert.equal(page.element.props.children.props.owner, "/shop");
-    assert.equal(page.element.props.children.props.parentOwner, "/");
+    assert.equal(page.element.props.children.props.parentOwner, "/shop");
     assert.equal(page.element.props.children.props.fallback().type, React.Suspense);
   });
 
@@ -380,6 +380,21 @@ describe("full tree: multi-level integration", () => {
     assert.equal(cart.element.props.children.type, NotFoundBoundary);
     assert.equal(cart.element.props.children.props.owner, "/shop/cart");
     assert.equal(cart.element.props.children.props.fallback().type, React.Suspense);
+  });
+
+  test("keeps the declaring owner for a deeply inherited root fallback", () => {
+    const { routes } = generate({
+      pages: { "shop/cart/page.tsx": loader(component("CART")) },
+      notFounds: { "not-found.tsx": loader(component("ROOT-NOT-FOUND")) },
+    });
+
+    const root = routes.find((route) => route.path === "/");
+    const shop = root.children.find((route) => route.path === "shop");
+    const cart = shop.children.find((route) => route.path === "cart");
+    const boundary = cart.element.props.children;
+    assert.equal(boundary.type, NotFoundBoundary);
+    assert.equal(boundary.props.owner, "/shop/cart");
+    assert.equal(boundary.props.parentOwner, "/");
   });
 
   test("/dx/y/z paints through every boundary in its chain", async () => {

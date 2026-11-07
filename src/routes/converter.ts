@@ -96,16 +96,18 @@ function isRequiredCatchAll(segment: string): boolean {
 function createNotFoundFallbackElement(
   node: RouteNode,
   cache: LazyComponentCache,
-  inheritedFallback: RouteModuleLoader | undefined,
+  inheritedFallback: NotFoundFallback | undefined,
   cacheKey: string,
 ): React.ReactElement {
-  const fallbackLoader = node.notFound ?? inheritedFallback;
+  const fallbackLoader = node.notFound
+    ? { loader: node.notFound, owner: ownerFor(node) }
+    : inheritedFallback;
   if (!fallbackLoader) {
     return React.createElement(DefaultNotFound);
   }
 
   return createLazyElement(
-    async () => ({ default: (await fallbackLoader()).default }),
+    async () => ({ default: (await fallbackLoader.loader()).default }),
     cacheKey,
     cache,
   );
@@ -118,10 +120,16 @@ function ownerFor(node: RouteNode): string {
   return node.fullPath.startsWith("/") ? node.fullPath : `/${node.fullPath}`;
 }
 
-function parentOwnerFor(node: RouteNode): string {
-  const owner = ownerFor(node);
-  const slash = owner.lastIndexOf("/");
-  return slash <= 0 ? "/" : owner.slice(0, slash);
+type NotFoundFallback = {
+  loader: RouteModuleLoader;
+  owner: string;
+};
+
+function fallbackOwnerFor(
+  node: RouteNode,
+  inheritedFallback: NotFoundFallback | undefined,
+): string {
+  return node.notFound ? ownerFor(node) : inheritedFallback?.owner ?? ownerFor(node);
 }
 
 function fallbackComponent(element: React.ReactElement): React.ComponentType {
@@ -153,7 +161,7 @@ function withNotFoundPageBoundary(
   node: RouteNode,
   element: React.ReactElement,
   cache: LazyComponentCache,
-  inheritedFallback: RouteModuleLoader | undefined,
+  inheritedFallback: NotFoundFallback | undefined,
 ): React.ReactElement {
   if (!node.notFound && !inheritedFallback) {
     return element;
@@ -170,7 +178,7 @@ function withNotFoundPageBoundary(
     { owner: ownerFor(node), phase: "page" },
     React.createElement(NotFoundBoundary, {
       owner: ownerFor(node),
-      parentOwner: parentOwnerFor(node),
+      parentOwner: inheritedFallback?.owner ?? ownerFor(node),
       fallback: fallbackComponent(fallback),
       children: element,
     }),
@@ -178,12 +186,12 @@ function withNotFoundPageBoundary(
 }
 
 function withNotFoundFallbackContext(
-  node: RouteNode,
+  owner: string,
   element: React.ReactElement,
 ): React.ReactElement {
   return React.createElement(
     RenderContextOverride,
-    { owner: parentOwnerFor(node), phase: "fallback" },
+    { owner, phase: "fallback" },
     element,
   );
 }
@@ -239,7 +247,7 @@ function createNotFoundRoute(
   return {
     path: "*",
     handle: NOT_FOUND_ROUTE_HANDLE,
-    element: withNotFoundFallbackContext(node, fallback),
+    element: withNotFoundFallbackContext(ownerFor(node), fallback),
   };
 }
 
@@ -254,7 +262,7 @@ function createIndexRoute(
   node: RouteNode,
   nodePath: string,
   cache: LazyComponentCache,
-  inheritedFallback?: RouteModuleLoader,
+  inheritedFallback?: NotFoundFallback,
 ): RouteObject {
   return createPageRoute(node, nodePath, cache, true, inheritedFallback);
 }
@@ -284,7 +292,7 @@ function createPageRoute(
   nodePath: string,
   cache: LazyComponentCache,
   isIndex: boolean = false,
-  inheritedFallback?: RouteModuleLoader,
+  inheritedFallback?: NotFoundFallback,
 ): RouteObject {
   const page = node.page;
   if (!page) {
@@ -402,7 +410,7 @@ function processChildren(
   node: RouteNode,
   currentPath: string,
   cache: LazyComponentCache,
-  notFoundFallback: RouteModuleLoader | undefined,
+  notFoundFallback: NotFoundFallback | undefined,
 ): {
   routes: RouteObject[];
   childEmitsIndex: boolean;
@@ -457,19 +465,22 @@ function processChildren(
 function createCatchAllBaseRoute(
   node: RouteNode,
   cache: LazyComponentCache,
-  inheritedFallback: RouteModuleLoader | undefined,
+  inheritedFallback: NotFoundFallback | undefined,
 ): RouteObject {
   return {
     index: true,
     handle: NOT_FOUND_ROUTE_HANDLE,
-    element: withNotFoundFallbackContext(node, React.createElement(CatchAllBaseGuard, {
+    element: withNotFoundFallbackContext(
+      fallbackOwnerFor(node, inheritedFallback),
+      React.createElement(CatchAllBaseGuard, {
       fallback: createNotFoundFallbackElement(
         node,
         cache,
         inheritedFallback,
         `notfound:${node.fullPath}:base`,
       ),
-    })),
+      }),
+    ),
   };
 }
 
@@ -489,7 +500,7 @@ function createCatchAllBaseRoute(
 function createEmptyFolderBaseRoute(
   node: RouteNode,
   cache: LazyComponentCache,
-  inheritedFallback: RouteModuleLoader | undefined,
+  inheritedFallback: NotFoundFallback | undefined,
 ): RouteObject {
   return {
     index: true,
@@ -498,12 +509,15 @@ function createEmptyFolderBaseRoute(
     // outlet for a leaf without one, which is the very shape this guard
     // replaces. With no `not-found` anywhere it falls through to the built-in
     // `DefaultNotFound`, so the base always paints a 404 page.
-    element: withNotFoundFallbackContext(node, createNotFoundFallbackElement(
-      node,
-      cache,
-      inheritedFallback,
-      `notfound:${node.fullPath}:empty-base`,
-    )),
+    element: withNotFoundFallbackContext(
+      fallbackOwnerFor(node, inheritedFallback),
+      createNotFoundFallbackElement(
+        node,
+        cache,
+        inheritedFallback,
+        `notfound:${node.fullPath}:empty-base`,
+      ),
+    ),
   };
 }
 
@@ -522,7 +536,7 @@ function createNodeChildren(
   node: RouteNode,
   currentPath: string,
   cache: LazyComponentCache,
-  notFoundFallback: RouteModuleLoader | undefined,
+  notFoundFallback: NotFoundFallback | undefined,
   hasUrl: boolean,
 ): {
   routes: RouteObject[];
@@ -570,7 +584,7 @@ function createPageRoutes(
   descendants: RouteObject[],
   notFound: RouteObject[],
   cache: LazyComponentCache,
-  notFoundFallback: RouteModuleLoader | undefined,
+  notFoundFallback: NotFoundFallback | undefined,
 ): NodeConversion {
   if (isOptionalCatchAll(node.segment)) {
     const catchAllChildren = [...descendants, ...notFound];
@@ -675,7 +689,7 @@ function createPathlessNodeRoutes(
   cache: LazyComponentCache,
   childEmitsIndex: boolean,
   childClaimsSplats: boolean,
-  inheritedFallback?: RouteModuleLoader,
+  inheritedFallback?: NotFoundFallback,
 ): NodeConversion {
   const children = [
     ...(node.page ? [createIndexRoute(node, nodePath, cache, inheritedFallback)] : []),
@@ -709,7 +723,9 @@ function createRootRoutes(
   node: RouteNode,
   cache: LazyComponentCache,
 ): RouteObject[] {
-  const notFoundFallback = node.notFound;
+  const notFoundFallback = node.notFound
+    ? { loader: node.notFound, owner: ownerFor(node) }
+    : undefined;
   // Folds an unclaimed base into a guard index before the shape below wraps
   // the children, so every root shape answers "/" like Next.js: the not-found
   // inside the root layout when one exists. "/" is a URL, so the root always
@@ -820,7 +836,7 @@ export function treeToRoutes(
   isRoot = false,
   currentPath = "",
   cache: LazyComponentCache = createLazyCache(),
-  notFoundFallback: RouteModuleLoader | undefined = undefined,
+  notFoundFallback: NotFoundFallback | undefined = undefined,
   caseSensitive = true,
 ): RouteObject[] {
   const routes = convertNode(node, isRoot, currentPath, cache, notFoundFallback).routes;
@@ -833,7 +849,7 @@ function convertNode(
   isRoot = false,
   currentPath = "",
   cache: LazyComponentCache = createLazyCache(),
-  notFoundFallback: RouteModuleLoader | undefined = undefined,
+  notFoundFallback: NotFoundFallback | undefined = undefined,
 ): NodeConversion {
   if (isRoot) {
     return { routes: createRootRoutes(node, cache), claims: NO_CLAIMS };
@@ -841,7 +857,9 @@ function convertNode(
 
   // Folders below this one can use its `not-found` as the base fallback for a
   // required catch-all; a folder's own `not-found` shadows an ancestor's.
-  const inheritedNotFound = node.notFound ?? notFoundFallback;
+  const inheritedNotFound = node.notFound
+    ? { loader: node.notFound, owner: ownerFor(node) }
+    : notFoundFallback;
 
   const nodeSegment = normalizedSegment(node.segment);
   const isPathless = !nodeSegment;
