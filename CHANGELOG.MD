@@ -6,6 +6,18 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- `RouteErrorBoundary` now catches every thrown value, including `null`, while
+  preserving reset behavior on retry and pathname navigation.
+
+### Tests
+
+- Restored the Playwright browser suite, cross-platform compatibility checks,
+  benchmarks, module-format checks, and dependency security workflow.
+
+## [Unreleased]
+
+### Fixed
+
 - **`RouteErrorBoundary` now catches every thrown value, including `null`.**
   Error state is tracked separately from the captured value, so `error.tsx`
   renders reliably and navigation/reset still clears the boundary.

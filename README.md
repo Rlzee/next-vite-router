@@ -555,13 +555,20 @@ while one is loading the placeholder paints in the layout's `Outlet` — a neste
 `loading.tsx` overrides its parent's, and a folder that declares none shows
 **nothing** until its page arrives: there is no global fallback to configure, as
 in Next.js, so the placeholder is a file in a folder or there is none. `error.tsx`
-renders in
-place of the content when something below throws, and receives
-`{ error, reset }`; `reset()` clears the boundary's error state so React re-renders
-the subtree - enough to recover from a synchronous failure whose cause has been
-fixed, but not from a rejected dynamic import (see the stale-deploy note below).
-The boundary also clears itself when the URL changes, so navigating to another
-page of the same folder after a failure no longer shows the stale error.
+renders in place of the content when something below throws, and receives
+`{ error, reset }` — `error` is the thrown value exactly as React reported it, and
+a `throw` is legal with any value (`throw null`, `throw "text"`), so an `error.tsx`
+must not assume an `Error` instance. `reset()` clears the boundary's error state
+so React re-renders the subtree - enough to recover from a synchronous failure
+whose cause has been fixed, but not from a rejected dynamic import (see
+[Retrying a chunk failure](#retrying-a-chunk-failure-and-when-a-full-reload-is-required)).
+The boundary also clears itself when the path changes,
+so navigating to another page of the same folder after a failure no longer shows
+the stale error. The key it watches is the **pathname** alone: a query-only
+navigation (`?tab=home` to `?tab=settings`) is the same page under the same
+`error.tsx`, and the screen stays until `reset()` is called or the path moves.
+That is deliberate - the failure screen belongs to the folder, not to one URL -
+and both halves are pinned by the browser suite and by `test/boundaries.test.js`.
 
 Next.js stacks these as `layout > error > loading > not-found > page`, and this
 package reproduces that order, which fixes two consequences:
@@ -585,13 +592,59 @@ the pages root alongside the root's own `error.tsx` still reports the
 
 Both files are imported eagerly, like layouts: a placeholder fetched by chunk
 would wait for a chunk to announce a chunk, and a boundary that has not loaded
-cannot report the failure it exists for. A chunk that fails outright (a stale
-deploy) surfaces through `error.tsx`, but `React.lazy` memoizes the rejection on
-its own component and the router keeps that instance in its lazy cache, so
-`reset()` re-renders against the same rejection and cannot re-fire the loader.
-Reload the document (`window.location.reload()`) in that case, or evict the
-router's cache explicitly with `clearLazyCache(cache)` on the same cache
-instance the generator owns and re-mount the route tree.
+cannot report the failure it exists for. A chunk that fails outright surfaces
+through `error.tsx` rather than leaving `loading.tsx` on screen forever, because
+the boundary sits outside the `Suspense`.
+
+### Retrying a chunk failure, and when a full reload is required
+
+`reset()` retries the **render**, never the **fetch**. `React.lazy` calls its
+loader once and keeps the outcome - resolved or rejected - on the component it
+memoizes, and the router holds that component in its lazy cache for as long as the
+document lives. So the two failures an `error.tsx` answers need two different
+answers:
+
+| the failure | what recovers it |
+| --- | --- |
+| a page threw while rendering, and its cause is gone (a flag cleared, a value fixed) | `reset()` — the subtree renders again and succeeds |
+| a page module that never arrived (stale deploy, offline reader, blocked CDN) | **a full document reload** — `window.location.reload()` |
+
+A stale deploy is the everyday case, and it stays invisible until the reader
+navigates: their document came from the previous build and names chunk files the
+new build no longer serves, so the first lazy route they open rejects with a
+`TypeError`. Only a fresh document asks the server for the file again — a retry
+still reads the memoized rejection *after* the file is back, and so does the same
+route left and come back to in that tab. An `error.tsx` below a lazily loaded page
+should therefore offer the reload beside the retry:
+
+```tsx
+import type { RouteErrorProps } from "next-vite-router";
+
+// src/app/blog/error.tsx
+export default function BlogError({ error, reset }: RouteErrorProps) {
+  return (
+    <div>
+      <p>Something went wrong: {String(error)}</p>
+      <button onClick={reset}>Try again</button>
+      <button onClick={() => window.location.reload()}>Reload this page</button>
+    </div>
+  );
+}
+```
+
+Do not branch on the message to tell the two failures apart: every browser words a
+rejected dynamic import differently (`"Failed to fetch dynamically imported
+module…"`, `"error loading dynamically imported module…"`, `"Importing a module
+script failed…"`), and `error.tsx` cannot know which one it holds. Two buttons
+cost nothing and cover both.
+
+`clearLazyCache(cache)` is the third option, and it exists only where *your* code
+owns the cache. `createRouteGenerator` keeps its instance private, so an app on the
+generated `next-vite-router/routes` module has nothing to evict — for it, a reload
+is the only complete answer. A tree you build yourself
+(`treeToRoutes(tree, true, "", cache)` with a cache from `createLazyCache`) can
+evict it and re-mount the route tree, which is what makes the next render re-fire
+the loader; the pairing is pinned in `test/boundaries.test.js`.
 
 A boundary only sees render errors: nothing thrown from an event handler or a
 bare `async` callback reaches it, and `loading.tsx` is meaningful for chunk
@@ -760,11 +813,25 @@ The compatibility workflow tests React 18 and 19 with React Router 6 and 7 acros
 Vite 5, 6, 7, and 8, and runs the unit tests on Node 20, 22, and 24. Each
 combination installs the published tarball into the app under
 [`test/compat-app`](./test/compat-app), builds it for the browser and for the
-server, then renders its route tree through `renderToPipeableStream`, so a
+server, and builds the generated client application, so a
 combination has to paint layouts, dynamic and catch-all parameters, `not-found`
 and the generated `href`/`Link` — not merely compile. One further job runs the
 same app with `react-router` v7 and **no** `react-router-dom` at all, so the
 substitution is proven by a render instead of by this table.
+
+The unit and [browser](#browser-suite) suites also run on Ubuntu, Windows and
+macOS on Node 22. That job exists for the parts a Linux machine cannot judge:
+path separators, what `path.resolve` returns, the commands the CLI hands to a
+shell, and where the plugin writes the files it generates.
+
+A separate `Security` workflow audits the dependency graph on every push and pull
+request, and weekly, because an advisory is usually published long after the
+release that carries it. Two gates block: the graph an install actually pulls in
+(`pnpm audit --prod --audit-level=high`) and any critical anywhere in it. The full
+report stays informational — the suites deliberately install the declared floors
+of React, React Router and Vite to prove compatibility against them, and a check
+that is red by design trains everyone to ignore it. Dependabot opens grouped
+weekly updates for the pnpm workspace and for the workflow's own `uses:` pins.
 
 ## Examples
 
@@ -787,6 +854,9 @@ pnpm install
 pnpm run build
 pnpm run test            # full suite
 pnpm run test:compatibility
+pnpm run test:browser    # needs a browser: see below
+pnpm run test:bench      # scaling, declaration timing, rebuild memory
+pnpm run test:modules    # ESM and CommonJS as an installed app resolves them
 ```
 
 The route matrix lives in [`test/routes.test.js`](./test/routes.test.js) and
@@ -796,6 +866,24 @@ groups, nested `not-found.tsx` fallbacks, and catch-all pages under layouts.
 updates, and `test/test-compatibility.js` checks the supported dependency ranges,
 the generated production bootstrap, and that the compatibility matrix pins
 versions inside those ranges and really renders them.
+
+`pnpm run test:bench` times the generator against 100, 500 and 1 000-page trees, the
+declaration writer against the same sizes as a real pages directory, and the
+dev-server rebuild loop as heap growth over 120 cycles. It gates on **ratios, not
+budgets**: what one page costs at 1 000 pages must stay within four times what it
+costs at 100, because a superlinear walk shows up as a ratio while an absolute
+millisecond budget is a coin toss on shared hardware. The timings are printed either
+way. The nesting axis is measured exactly instead of statistically — a folder's
+children must be enumerated once, which is the contract a `2^depth` traversal
+regression broke — and `--expose-gc` makes the memory number a post-collection
+measurement rather than a guess.
+
+`pnpm run test:modules` installs the published `files` set into a throwaway project
+and runs two consumers inside it, so the conditional `exports` map, the `.js`/`.cjs`
+condition split, the `.d.cts` twins, the `bin` path, and the private engine entry are
+judged the way Node judges them — through `node_modules`, not by importing a path. A
+`files` list that stopped matching `exports` fails here rather than in somebody's
+install, which is why it also runs in `prepublishOnly`.
 
 Any matrix combination can be reproduced locally by building the fixture app the
 workflow uses against a packed tarball of this package:
@@ -807,9 +895,43 @@ cp -R test/compat-app ../compat-app    # add a package.json that installs the
                                        # tarball plus the versions to check
 cd ../compat-app && pnpm install
 pnpm exec vite build                   # browser bundle
-pnpm exec vite build --ssr src/entry-server.tsx --outDir dist-ssr
-NODE_ENV=production node dist-ssr/entry-server.js
+pnpm exec vite build
 ```
+
+### Browser suite
+
+The unit tests use static rendering where useful, but they cannot show what only
+exists after a real mount: a class error boundary never runs its catch there, a
+layout is never code-split, and there is no history, no address bar and no file
+watcher. `pnpm run test:browser` runs the Playwright suite in
+[`test/browser`](./test/browser) against the fixture app in
+[`test/browser-app`](./test/browser-app) in three projects — `vite dev`
+(per-module requests), `vite preview` (the production bundle), and a private copy
+of the app on its own port for the route-file watching, because a structural change
+reloads every client of that server.
+
+| Scenario | What it pins |
+| --- | --- |
+| initial load, `Link` navigation, back / forward | the shell mounts once and navigation stays client-side |
+| a deep URL reloaded directly | the route and its parameters survive a fresh document |
+| an unknown URL | the built-in 404 paints inside the root layout, and the app still works after it |
+| catch-all routes | `useCatchAll()` segments, the optional base, and a `Link` filling the splat from an array |
+| `loading.tsx` | the folder's placeholder paints while its page module is held back |
+| `error.tsx` | the fallback replaces the failing page, `reset()` recovers once the cause is gone, a `throw null` is caught like any other failure, and the reset key is the pathname — a query-only navigation keeps the screen, another page of the folder clears it |
+| a chunk that cannot be fetched (simulated stale deploy) | `error.tsx` replaces the `loading.tsx` placeholder, neither `reset()` nor a route change re-fetches the file, and only the document reload paints the page |
+| route files | a page created while the server runs joins the table, and deleting it takes the route back out |
+| `lazyLayouts` | a nested layout lives in a chunk of its own and still paints |
+
+```bash
+pnpm exec playwright install chromium   # once; the browser is not a package dependency
+pnpm run test:browser
+```
+
+The suite is deliberately **not** part of `pnpm run test`: the unit matrix runs on
+several Node versions in containers with no browser installed. CI runs it in the
+`operating-systems` job, on Ubuntu, Windows and macOS, and `pnpm run test:browser`
+refreshes the fixture bundle and the HMR copy before Playwright starts, so a bare
+`pnpm exec playwright test` also works from a clean checkout.
 
 ## License
 

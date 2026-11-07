@@ -273,6 +273,71 @@ const MATRIX = [
     ],
   },
   {
+    // The reported combination: `docs/layout.tsx` beside `docs/[[...slug]]/`. The
+    // folder owns no URL of its own, so the layout branch converts `docs` and the
+    // optional catch-all's own special case answers its base - and the layout has
+    // to stay mounted across all three URLs, `useCatchAll()` empty on the first.
+    name: "optional catch-all composes with its parent folder's layout",
+    rows: {
+      pages: [pageWithCatchAll(["docs/[[...slug]]/page", "docs"])],
+      layouts: [layout(["docs/layout", "docs-shell"])],
+    },
+    urls: [
+      { url: "/docs", chain: ["docs", "index"], params: {} },
+      { url: "/docs/guide", chain: ["docs", "*"], params: { "*": "guide" } },
+      { url: "/docs/guide/api", chain: ["docs", "*"], params: { "*": "guide/api" } },
+    ],
+    paints: [
+      {
+        url: "/docs",
+        includes: ['data-layout="docs-shell"', "docs{}"],
+        order: ["[docs-shell", "docs{}", "/docs-shell]"],
+      },
+      {
+        url: "/docs/guide",
+        includes: ['data-layout="docs-shell"', "docs{guide}"],
+        order: ["[docs-shell", "docs{guide}", "/docs-shell]"],
+      },
+      {
+        url: "/docs/guide/api",
+        includes: ['data-layout="docs-shell"', "docs{guide|api}"],
+        order: ["[docs-shell", "docs{guide|api}", "/docs-shell]"],
+      },
+    ],
+  },
+  {
+    // Same folder, layout declared *inside* the catch-all: a different conversion
+    // branch, because the catch-all node itself has a layout. Next.js keeps the
+    // layout mounted over its `[[...slug]]` page at the base and at every depth.
+    name: "optional catch-all with its own layout renders its page at base and below",
+    rows: {
+      pages: [pageWithCatchAll(["docs/[[...slug]]/page", "docs"])],
+      layouts: [layout(["docs/[[...slug]]/layout", "slug-shell"])],
+    },
+    urls: [
+      { url: "/docs", chain: ["docs", "*", "index"], params: { "*": "" } },
+      { url: "/docs/guide", chain: ["docs", "*", "*"], params: { "*": "guide" } },
+      { url: "/docs/guide/api", chain: ["docs", "*", "*"], params: { "*": "guide/api" } },
+    ],
+    paints: [
+      {
+        url: "/docs",
+        includes: ['data-layout="slug-shell"', "docs{}"],
+        order: ["[slug-shell", "docs{}", "/slug-shell]"],
+      },
+      {
+        url: "/docs/guide",
+        includes: ['data-layout="slug-shell"', "docs{guide}"],
+        order: ["[slug-shell", "docs{guide}", "/slug-shell]"],
+      },
+      {
+        url: "/docs/guide/api",
+        includes: ['data-layout="slug-shell"', "docs{guide|api}"],
+        order: ["[slug-shell", "docs{guide|api}", "/slug-shell]"],
+      },
+    ],
+  },
+  {
     name: "root required catch-all is a guarded splat that skips /",
     rows: {
       pages: [pageWithCatchAll(["[...slug]/page", "everything"])],

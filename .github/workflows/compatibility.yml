@@ -1,10 +1,45 @@
-name: Compatibility
+﻿name: Compatibility
 
+# A branch with an open pull request used to fan out on every commit twice - once for
+# the `push` event, once for the `pull_request` event - so 54 jobs instead of 27, on an
+# account whose parallel jobs are capped well below that. `push` now covers only what no
+# pull request will: the trunk after the merge, and a release tag, which names the
+# commit people actually install. A branch is still checked, by its pull request.
 on:
   push:
+    branches: [main]
+    tags: ["v*"]
   pull_request:
 
+# A queued job left over from a superseded commit tests code that no longer exists,
+# and while it waits it holds the place of the commit that does. Grouping has to draw
+# the line between the two kinds of ref carefully:
+#
+# - a pull request is grouped by its branch, so pushing `fix 2 of 3` cancels the jobs
+#   still waiting for `fix 1 of 3`;
+# - a push is grouped by its own run id, which is GitHub's way of saying "nothing to
+#   group": two pushes to main never queue behind each other and never cancel each
+#   other, because the trunk's history is worth recording for both commits.
+#
+# Grouping every ref by `github.ref` was the mistake this replaces: a second push to
+# main while the first run was still going parked all 28 checks in a queue they had no
+# reason to wait in.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
+# Every job here builds, tests and reports; none of them pushes, comments or writes
+# an artifact the token has to authorize, so the default write scope is narrowed to
+# read-only contents for the whole workflow.
+permissions:
+  contents: read
+
 jobs:
+  # Every job below runs its whole matrix on every event. Narrowing a matrix per event
+  # cannot be done here: the `matrix` context is not available in a job-level `if`, only
+  # in a step-level one, and gating at step level would still start one runner per cell
+  # - which is the thing worth saving. What this workflow can cut is the *events*: see
+  # the `push` filter above, so a commit costs one fan-out rather than two.
   unit-tests:
     name: Unit tests (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
@@ -34,6 +69,18 @@ jobs:
 
       - name: Run unit tests
         run: pnpm run test
+
+      # Scaling and packaging are different claims from behaviour, so they are not
+      # folded into `pnpm run test`, and they run on one Node leg rather than three:
+      # a benchmark on every runtime is three chances for a loaded runner to make a
+      # ratio look like a regression.
+      - name: Run route-generator benchmarks
+        if: matrix.node == '22'
+        run: pnpm run test:bench
+
+      - name: Check the installed ESM and CommonJS entry points
+        if: matrix.node == '22'
+        run: pnpm run test:modules
 
   vite-react-router:
     name: React ${{ matrix.react }} / Router ${{ matrix.router }} / Vite ${{ matrix.vite }} / ${{ matrix.package_type }}
@@ -110,35 +157,23 @@ jobs:
         working-directory: ${{ runner.temp }}/compat-app
         run: pnpm exec vite build
 
-      - name: Build compatibility app (SSR)
-        working-directory: ${{ runner.temp }}/compat-app
-        run: pnpm exec vite build --ssr src/entry-server.tsx --outDir dist-ssr
-
-      - name: Render compatibility app (streamed SSR smoke test)
-        working-directory: ${{ runner.temp }}/compat-app
-        # A build only proves the generated module compiles. Running it proves the
-        # route tree actually paints on this combination: eager layouts around
-        # lazily imported pages, `useParams`/`useCatchAll`, and the generated
-        # `href`/`Link`. `NODE_ENV=production` keeps React Router's development
-        # warnings out of the log and matches how the bundle would be deployed.
-        # The emitted entry is `.js` for a `"type": "module"` app and `.mjs` for
-        # the CommonJS one, so it is looked up rather than hard-coded.
-        env:
-          NODE_ENV: production
-        shell: bash
-        run: |
-          entry=$(find dist-ssr -maxdepth 1 -name 'entry-server.*' -print -quit)
-          echo "rendering with $entry"
-          node "$entry"
-
   # React Router v7 moved every export into `react-router` and left
   # `react-router-dom` as a re-export shim whose own README tells a migrated
   # application to remove it. This job removes it: the fixture app keeps importing
   # `react-router-dom` (as do this package's own `dist` files and the generated
   # module), and the plugin has to substitute the core package for it. Without
   # this leg the support is only claimed, never built or rendered.
+  #
+  # The substitution has to hold for a CommonJS install too, not just an ESM one.
+  # An externalized `node_modules` import is handed to Node untouched, and a
+  # require-based build resolves `react-router-dom` from the file system rather
+  # than through the Vite alias, so the shim-less contract is platform-format
+  # specific. `package_type` is therefore a real matrix key: the base row is
+  # `module`, and the `include` below adds one dedicated `commonjs` combination
+  # (its differing value matches no existing row, so it fans out as a new job
+  # rather than overwriting the ESM leg it otherwise duplicates).
   react-router-only:
-    name: Router react-router only (Vite ${{ matrix.vite }} / React ${{ matrix.react }})
+    name: Router react-router only (Vite ${{ matrix.vite }} / React ${{ matrix.react }} / ${{ matrix.package_type }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -146,6 +181,13 @@ jobs:
         react: ["18.3.1", "19.2.0"]
         router: ["7.18.4"]
         vite: ["5.4.21", "8.0.0"]
+        package_type: ["module"]
+        include:
+          # One CommonJS install of the shim-less router, rendered end to end.
+          - react: "18.3.1"
+            router: "7.18.4"
+            vite: "5.4.21"
+            package_type: commonjs
 
     steps:
       - uses: actions/checkout@v4
@@ -174,11 +216,18 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/compat-app"
           cp -R test/compat-app/. "$RUNNER_TEMP/compat-app/"
-          # No `react-router-dom` in this app, on purpose.
+          # No `react-router-dom` in this app, on purpose. The package type is the
+          # dimension this job moves on top of the missing shim, so the `commonjs`
+          # row leaves `"type"` out and Node loads the emitted entry as CJS.
+          if [ "${{ matrix.package_type }}" = "module" ]; then
+            PACKAGE_TYPE_FIELD='"type": "module",'
+          else
+            PACKAGE_TYPE_FIELD=''
+          fi
           cat > "$RUNNER_TEMP/compat-app/package.json" <<EOF
           {
             "private": true,
-            "type": "module",
+            $PACKAGE_TYPE_FIELD
             "dependencies": {
               "next-vite-router": "file:$PACKAGE_TARBALL",
               "react": "${{ matrix.react }}",
@@ -199,16 +248,95 @@ jobs:
         working-directory: ${{ runner.temp }}/compat-app
         run: pnpm exec vite build
 
-      - name: Build compatibility app (SSR)
-        working-directory: ${{ runner.temp }}/compat-app
-        run: pnpm exec vite build --ssr src/entry-server.tsx --outDir dist-ssr
 
-      - name: Render compatibility app (streamed SSR smoke test)
-        working-directory: ${{ runner.temp }}/compat-app
-        env:
-          NODE_ENV: production
-        shell: bash
-        run: |
-          entry=$(find dist-ssr -maxdepth 1 -name 'entry-server.*' -print -quit)
-          echo "rendering with $entry"
-          node "$entry"
+  # Two things no job above can prove.
+  #
+  # One is the mount itself: the unit suites render through `react-dom/server`,
+  # which never runs a class error boundary's catch, never code-splits a layout,
+  # and has no history, no address bar and no file watcher. The Playwright suite in
+  # `test/browser` covers those against the fixture app in `test/browser-app`.
+  #
+  # The other is the platform. Path separators, what `path.resolve` hands back, the
+  # command strings the CLI hands to `execSync`, and every file the plugin writes
+  # (`routes.d.ts`, the generated module, the scaffolded project) have behaved
+  # differently on Windows before - and a Linux-only workflow cannot see either the
+  # regression or the fix. Node stays at 22 because the version question belongs to
+  # `unit-tests`; the platform question belongs here.
+  operating-systems:
+    name: Tests on ${{ matrix.os }} (Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: ["22"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - name: Install package dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build package
+        run: pnpm run build
+
+      - name: Run unit tests
+        # Ubuntu runs the whole suite across the Node matrix in `unit-tests`, so
+        # this leg would repeat a minute of work it already did. Windows and macOS
+        # are the platforms that job cannot cover.
+        if: matrix.os != 'ubuntu-latest'
+        run: pnpm run test
+
+      # The exports map, the `.js`/`.cjs` condition split and the peer lookup are
+      # answered from the file system, so this one runs on every platform: it is also
+      # the only step that links a peer per OS, which is where a Windows junction and
+      # a POSIX symlink stop behaving the same. Under 0.5 s, so the Linux leg pays it
+      # even though its unit tests were skipped above.
+      - name: Check the installed ESM and CommonJS entry points
+        run: pnpm run test:modules
+
+      # The Chromium build is the same bytes for every run of a given Playwright
+      # version, and fetching it is a minute of work the suite does not need repeated.
+      # Keyed on the lockfile because an upgrade asks for a different build, and per
+      # platform because a Chromium for one is not a Chromium for another.
+      # `continue-on-error` because this is a speed-up only: the install below puts the
+      # browser on disk whether the cache hit or not.
+      - name: Cache Playwright browsers
+        continue-on-error: true
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/Library/Caches/ms-playwright
+            ~/AppData/Local/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      # `--with-deps` installs system libraries and is accepted on Linux only; the
+      # other two platforms ship a self-contained browser build.
+      - name: Install Chromium with system dependencies
+        if: runner.os == 'Linux'
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Install Chromium
+        if: runner.os != 'Linux'
+        run: pnpm exec playwright install chromium
+
+      - name: Run browser tests
+        run: pnpm run test:browser
+
+      # The example and fixture apps are what this package's declarations exist for,
+      # and no job above compiles them: `pnpm run build` type-checks `src`, and an
+      # app with no `tsconfig.json` at all is invisible until an editor opens one of
+      # its files (that is how `test/compat-app` shipped with an unresolved
+      # `next-vite-router/routes` import). Each of the four projects resolves that
+      # specifier from a checked-in placeholder, so the step needs no build first.
+      - name: Typecheck the example and fixture apps
+        run: pnpm run typecheck

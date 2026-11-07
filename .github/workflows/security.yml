@@ -1,0 +1,77 @@
+name: Security
+
+# Dependency advisories are published on the maintainer's schedule, not the repo's:
+# an advisory for a version that has been installed for months first appears in a
+# normal push weeks later. The schedule gives the same check a heartbeat between
+# changes, and `workflow_dispatch` lets it be run by hand while triaging. Branch
+# pushes arrive here through their pull request, so `push` names the trunk only.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+# Same grouping rule as the compatibility workflow next to it: a pull request branches
+# cancel their own superseded backlog, while a push, a scheduled run or a dispatched
+# one each get a group of their own so they never wait for a run that is still going.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
+# The audit reads tracked manifests and writes nothing back, and `GITHUB_TOKEN` is
+# scoped per job, so the narrowest grant that still lets it run is read-only
+# contents. Same reasoning for the compatibility workflow next to this one.
+permissions:
+  contents: read
+
+jobs:
+  advisories:
+    name: Dependency advisories
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # `pnpm audit` resolves the graph from `pnpm-lock.yaml` and the registry, so
+      # there is no `pnpm install` here: the check costs seconds and cannot be
+      # greened or masked by whatever happens to be in a local `node_modules`.
+      - name: Audit what an install pulls in (high and above)
+        # The shipped graph: `dependencies`, peer dependencies, and the workspace
+        # members' dependencies - everything a consumer of this package can end up
+        # running. A high here is a finding against the published artifact, so it
+        # fails the job and blocks the pull request.
+        run: pnpm audit --prod --audit-level=high
+
+      - name: Audit the whole graph at critical
+        run: pnpm audit --audit-level=critical
+
+      - name: Report every advisory (informational)
+        # Deliberately non-blocking, and the reason is the compatibility mandate:
+        # the suites install the declared floors of React, React Router and Vite -
+        # `react-router-dom@6.30.6` among them - precisely to prove they still work,
+        # so a blocking check on every dev-side advisory would be red by design and
+        # train everyone to ignore it. The numbers stay in the log, and the two
+        # blocking gates above cover what an install actually inherits.
+        #
+        # `|| true` rather than `continue-on-error`: `pnpm audit` exits 1 whenever it
+        # finds anything, so letting that status reach the runner would paint an error
+        # annotation on a job that passed - and an annotation people have learned to
+        # dismiss is worse than no annotation at all.
+        if: always()
+        run: pnpm audit || true
+
+      # No lockfile-consistency step here: a fresh `pnpm audit` run on a clean runner
+      # is only ever as honest as the lockfile it reads, and that is already the first
+      # thing `pnpm install --frozen-lockfile` proves in `unit-tests` (three Node
+      # legs) and in `operating-systems` (Windows, macOS). Re-checking it with a
+      # resolution-only dry run would add a step whose flag combination no other job
+      # uses - and which failed on CI while passing on every local machine.

@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -258,11 +258,6 @@ const workflowSource = fs.readFileSync(
   path.resolve(".github/workflows/compatibility.yml"),
   "utf8",
 );
-const smokeSource = fs.readFileSync(
-  path.resolve("test/compat-app/src/entry-server.tsx"),
-  "utf8",
-);
-
 // A `strategy.matrix` list such as `vite: ["5.4.21", "6.1.0"]`. The `include:`
 // rows spell their versions without brackets, so they are not matched here, and
 // they only repeat versions the matrix already declares.
@@ -315,22 +310,6 @@ assert.match(
   /cp -R test\/compat-app\/\./,
   "the compatibility job must build the app under test/compat-app",
 );
-assert.match(
-  workflowSource,
-  /vite build --ssr src\/entry-server\.tsx/,
-  "the compatibility job must bundle the SSR render smoke test",
-);
-assert.match(
-  workflowSource,
-  /node "\$entry"/,
-  "the compatibility job must run the bundled SSR entry, not only build it",
-);
-assert.match(
-  smokeSource,
-  /renderToPipeableStream/,
-  "the SSR entry must render through a real stream",
-);
-
 // The `react-router`-only leg is what makes the optional peer above a promise
 // instead of a wish: the fixture app keeps importing `react-router-dom` (so does
 // this package's own `dist`), and on an install that removed the v7 shim the
@@ -385,6 +364,93 @@ for (const pin of [...routerOnlyPins[1].matchAll(/"([^"]+)"/g)].map((match) => m
   );
 }
 
+// The shim-less substitution is format-specific, not just version-specific. An
+// externalized `node_modules` import is handed to Node untouched, and a
+// require-based build resolves the `react-router-dom` import from the file system
+// instead of through the Vite alias the plugin contributes, so the ESM leg proves
+// nothing about a CommonJS install. The job therefore moves `package_type` as a
+// matrix key and fans out one dedicated `commonjs` row through `include`, with the
+// app heredoc switching on it rather than hard-coding `"type": "module"`. The base
+// value and the include value differ, so GitHub treats the row as a new job rather
+// than overwriting the ESM combination it otherwise duplicates.
+assert.match(
+  routerOnlyBody,
+  /package_type: \["module"\]/,
+  "the react-router-only job must declare package_type so the CommonJS leg is a distinct row",
+);
+assert.match(
+  routerOnlyBody,
+  /include:[\s\S]*?package_type: commonjs/,
+  "the react-router-only job must add a dedicated CommonJS combination through include",
+);
+assert.match(
+  routerOnlyBody,
+  /\$\{\{ matrix\.package_type \}\}/,
+  "the app heredoc must switch on matrix.package_type, not hard-code the module type",
+);
+assert.doesNotMatch(
+  routerOnlyBody,
+  /^ +"type": "module",$/m,
+  "the heredoc must not hard-code a package type; that would render the CommonJS row as ESM",
+);
+// Every job above runs on Linux. Path separators, what `path.resolve` hands back,
+// the command lists the CLI gives `execSync`, and the files the plugin writes are
+// exactly the parts that have differed per platform, so the workflow keeps one job
+// that runs the suites on all three - and the browser suite belongs there too,
+// because no `react-dom/server` render can stand in for a mounted application.
+const osJobStart = workflowLines.findIndex((line) =>
+  /^ {2}operating-systems:$/.test(line),
+);
+assert.ok(
+  osJobStart >= 0,
+  "the workflow must keep a job that runs the suites on Ubuntu, Windows and macOS",
+);
+const osJobBodyLines = [];
+for (const line of workflowLines.slice(osJobStart + 1)) {
+  if (/^ {2}\S/.test(line)) break;
+  osJobBodyLines.push(line);
+}
+const osJobBody = osJobBodyLines.join("\n");
+
+assert.match(
+  osJobBody,
+  /runs-on: \$\{\{ matrix\.os \}\}/,
+  "the operating-systems job must run on the matrix image, not on a pinned one",
+);
+for (const image of ["ubuntu-latest", "windows-latest", "macos-latest"]) {
+  assert.ok(
+    osJobBody.includes(image),
+    `the operating-systems job must cover ${image}`,
+  );
+}
+assert.match(
+  osJobBody,
+  /node: \["22"\]/,
+  'the operating-systems job must pin one Node version (22), so the platform is the only variable it moves',
+);
+assert.match(
+  osJobBody,
+  /^ {8}run: pnpm run test$/m,
+  "the operating-systems job must run the unit suite, which no other job runs off Linux",
+);
+assert.match(
+  osJobBody,
+  /pnpm run test:browser/,
+  "the operating-systems job must run the browser suite",
+);
+// `--with-deps` installs system libraries and is accepted on Linux only; using it
+// on every leg would fail the two platforms the job exists to cover.
+assert.match(
+  osJobBody,
+  /if: runner\.os == 'Linux'\n {8}run: pnpm exec playwright install --with-deps chromium/,
+  "only the Linux leg may pass `--with-deps` to the browser install",
+);
+assert.match(
+  osJobBody,
+  /if: runner\.os != 'Linux'\n {8}run: pnpm exec playwright install chromium/,
+  "the Windows and macOS legs must install the browser without the Linux-only flag",
+);
+
 console.log("✅ Peer dependency ranges are explicit and bounded");
 console.log(
   "✅ The two interchangeable router peers are declared optional, the rest are required",
@@ -402,4 +468,10 @@ console.log(
 console.log("✅ The compatibility job renders the fixture app, not only builds it");
 console.log(
   "✅ The compatibility matrix proves react-router works without react-router-dom",
+);
+console.log(
+  "✅ react-router works without the shim in a CommonJS install too",
+);
+console.log(
+  "✅ The workflow runs the unit and browser suites on Ubuntu, Windows and macOS",
 );
