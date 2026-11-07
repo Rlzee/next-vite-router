@@ -3,7 +3,6 @@ import { PassThrough } from "node:stream";
 import { createElement as h } from "react";
 import { renderToPipeableStream } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
-import { getRouteStatus, normalizeRequestTarget } from "next-vite-router";
 import { Router, generateRoutes, useRoutes } from "next-vite-router/routes";
 
 /**
@@ -37,12 +36,6 @@ type RenderCase = {
   url: string;
   /** Which public mount style answers this URL. Defaults to `Router`. */
   via?: "router" | "routes";
-  /**
-   * The status an SSR server should send for this URL, asked of
-   * `getRouteStatus()`. Defaults to 200, so a case only names it when the URL is
-   * answered by a not-found page.
-   */
-  status?: 200 | 404;
   /** Fragments the streamed document must contain. */
   paints: string[];
   /** Fragments it must not contain. */
@@ -91,15 +84,6 @@ const RENDER_CASES: RenderCase[] = [
     order: ["[root", "[users", "detail:42", "/users]", "/root]"],
   },
   {
-    url: "/users/other/../42",
-    // A request target still carrying the dot segments a browser would have
-    // resolved before sending anything. The status helper resolves them, so the
-    // render has to be mounted on the same reading or the response carries a
-    // `200` around a document that paints the not-found.
-    paints: ['data-page="detail"', "detail:42"],
-    order: ["[root", "[users", "detail:42", "/users]", "/root]"],
-  },
-  {
     url: "/blog/guide/api",
     paints: ['data-page="blog"', "blog{guide|api}"],
   },
@@ -112,10 +96,7 @@ const RENDER_CASES: RenderCase[] = [
   {
     url: "/blog",
     // A required catch-all never matches its base URL: the nearest not-found
-    // answers, and the page is never invoked with an empty catch-all. The route
-    // that renders it is a guard index, indistinguishable in shape from a real
-    // page at that base - which is what the status assertion below is for.
-    status: 404,
+    // answers, and the page is never invoked with an empty catch-all.
     paints: ['data-not-found="root"'],
     skips: ['data-page="blog"'],
     order: ["[root", "nf:root", "/root]"],
@@ -130,9 +111,6 @@ const RENDER_CASES: RenderCase[] = [
   },
   {
     url: "/nowhere",
-    // No page anywhere answers this URL: the root's `not-found.tsx` splat does,
-    // and it is marked as the 404 it is.
-    status: 404,
     paints: ['data-not-found="root"'],
     skips: ['data-page="home"', 'data-page="blog"'],
   },
@@ -146,17 +124,11 @@ const STREAM_TIMEOUT_MS = 30_000;
  * `onAllReady` rather than `onShellReady`: the pages arrive through
  * `React.lazy`, so waiting for every boundary to settle makes the assertion
  * about what the request eventually paints instead of its loading shell.
- *
- * The router is handed `normalizeRequestTarget(url)` - the same value a server
- * decides its status on - because that pairing is the recipe the README shows,
- * and this file is where it has to survive bundling, minification and the router
- * major installed for the combination. A case whose URL carries a dot segment
- * only renders its page if both halves read one value.
  */
 function renderStreamed({ url, via = "router" }: RenderCase): Promise<string> {
   return new Promise((resolve, reject) => {
     const app = via === "routes" ? h(RoutesApp) : h(Router);
-    const element = h(MemoryRouter, { initialEntries: [normalizeRequestTarget(url)] }, app);
+    const element = h(MemoryRouter, { initialEntries: [url] }, app);
     let pending: ReturnType<typeof setTimeout> | undefined;
 
     const fail = (error: unknown) => {
@@ -215,25 +187,6 @@ function assertRendered({ url, paints, skips, order }: RenderCase, html: string)
   }
 }
 
-/**
- * The status an SSR server would send, asked of the package rather than decided
- * here: this harness is exactly the kind of consumer whose logic would otherwise
- * drift into "is this leaf a splat under something URL-neutral". It also has to
- * survive bundling, minification and the router major this combination installs,
- * which is why it is asserted here and not only in the unit suite.
- */
-function assertStatus({ url, status = 200 }: RenderCase): void {
-  const routes = generateRoutes();
-  assert.equal(getRouteStatus(routes, url), status, `"${url}" should be reported as ${status}`);
-  // The same request as an absolute target - what a proxy forwards, and what a
-  // server reading `req.url` naively may hand over - must decide identically.
-  assert.equal(
-    getRouteStatus(routes, `http://example.invalid${url}`),
-    status,
-    `absolute "${url}" should be reported as ${status}`,
-  );
-}
-
 /** Identify a case in the log; the same URL is rendered by both mount styles. */
 function caseLabel({ url, via = "router" }: RenderCase): string {
   return `${url} [${via === "routes" ? "useRoutes(generateRoutes())" : "Router"}]`;
@@ -251,7 +204,6 @@ async function main(): Promise<void> {
     }
     try {
       assertRendered(renderCase, html);
-      assertStatus(renderCase);
     } catch (error) {
       console.error(`--- streamed html for ${label} ---\n${html}`);
       throw error;

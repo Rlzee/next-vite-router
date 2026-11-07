@@ -1,8 +1,4 @@
 packages:
   - "examples"
-  # The browser-suite fixture app. A workspace member so it resolves the package
-  # under test through the same `dist` the tarball jobs install, with no extra
-  # install step in CI.
-  - "test/browser-app"
 allowBuilds:
   esbuild: false

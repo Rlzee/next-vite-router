@@ -385,99 +385,6 @@ for (const pin of [...routerOnlyPins[1].matchAll(/"([^"]+)"/g)].map((match) => m
   );
 }
 
-// The shim-less substitution is format-specific, not just version-specific. An
-// externalized `node_modules` import is handed to Node untouched, and a
-// require-based build resolves the `react-router-dom` import from the file system
-// instead of through the Vite alias the plugin contributes, so the ESM leg proves
-// nothing about a CommonJS install. The job therefore moves `package_type` as a
-// matrix key and fans out one dedicated `commonjs` row through `include`, with the
-// app heredoc switching on it rather than hard-coding `"type": "module"`. The base
-// value and the include value differ, so GitHub treats the row as a new job rather
-// than overwriting the ESM combination it otherwise duplicates.
-assert.match(
-  routerOnlyBody,
-  /package_type: \["module"\]/,
-  "the react-router-only job must declare package_type so the CommonJS leg is a distinct row",
-);
-assert.match(
-  routerOnlyBody,
-  /include:[\s\S]*?package_type: commonjs/,
-  "the react-router-only job must add a dedicated CommonJS combination through include",
-);
-assert.match(
-  routerOnlyBody,
-  /\$\{\{ matrix\.package_type \}\}/,
-  "the app heredoc must switch on matrix.package_type, not hard-code the module type",
-);
-assert.doesNotMatch(
-  routerOnlyBody,
-  /^ +"type": "module",$/m,
-  "the heredoc must not hard-code a package type; that would render the CommonJS row as ESM",
-);
-assert.match(
-  routerOnlyBody,
-  /find dist-ssr[^\n]*-name 'entry-server\.\*'/,
-  "the render step must look the emitted entry up by glob, since a CommonJS build names it .cjs/.mjs",
-);
-
-// Every job above runs on Linux. Path separators, what `path.resolve` hands back,
-// the command lists the CLI gives `execSync`, and the files the plugin writes are
-// exactly the parts that have differed per platform, so the workflow keeps one job
-// that runs the suites on all three - and the browser suite belongs there too,
-// because no `react-dom/server` render can stand in for a mounted application.
-const osJobStart = workflowLines.findIndex((line) =>
-  /^ {2}operating-systems:$/.test(line),
-);
-assert.ok(
-  osJobStart >= 0,
-  "the workflow must keep a job that runs the suites on Ubuntu, Windows and macOS",
-);
-const osJobBodyLines = [];
-for (const line of workflowLines.slice(osJobStart + 1)) {
-  if (/^ {2}\S/.test(line)) break;
-  osJobBodyLines.push(line);
-}
-const osJobBody = osJobBodyLines.join("\n");
-
-assert.match(
-  osJobBody,
-  /runs-on: \$\{\{ matrix\.os \}\}/,
-  "the operating-systems job must run on the matrix image, not on a pinned one",
-);
-for (const image of ["ubuntu-latest", "windows-latest", "macos-latest"]) {
-  assert.ok(
-    osJobBody.includes(image),
-    `the operating-systems job must cover ${image}`,
-  );
-}
-assert.match(
-  osJobBody,
-  /node: \["22"\]/,
-  'the operating-systems job must pin one Node version (22), so the platform is the only variable it moves',
-);
-assert.match(
-  osJobBody,
-  /^ {8}run: pnpm run test$/m,
-  "the operating-systems job must run the unit suite, which no other job runs off Linux",
-);
-assert.match(
-  osJobBody,
-  /pnpm run test:browser/,
-  "the operating-systems job must run the browser suite",
-);
-// `--with-deps` installs system libraries and is accepted on Linux only; using it
-// on every leg would fail the two platforms the job exists to cover.
-assert.match(
-  osJobBody,
-  /if: runner\.os == 'Linux'\n {8}run: pnpm exec playwright install --with-deps chromium/,
-  "only the Linux leg may pass `--with-deps` to the browser install",
-);
-assert.match(
-  osJobBody,
-  /if: runner\.os != 'Linux'\n {8}run: pnpm exec playwright install chromium/,
-  "the Windows and macOS legs must install the browser without the Linux-only flag",
-);
-
 console.log("✅ Peer dependency ranges are explicit and bounded");
 console.log(
   "✅ The two interchangeable router peers are declared optional, the rest are required",
@@ -495,10 +402,4 @@ console.log(
 console.log("✅ The compatibility job renders the fixture app, not only builds it");
 console.log(
   "✅ The compatibility matrix proves react-router works without react-router-dom",
-);
-console.log(
-  "✅ react-router works without the shim in a CommonJS install too",
-);
-console.log(
-  "✅ The workflow runs the unit and browser suites on Ubuntu, Windows and macOS",
 );

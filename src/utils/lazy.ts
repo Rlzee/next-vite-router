@@ -65,14 +65,6 @@ function RouteLoadingFallback() {
  *   component and ignore the passed loader.
  * @param cacheKey - Route-unique key identifying the lazy component.
  * @param cache - The cache instance that owns this route generation.
- *
- * A rejection is memoized exactly like a resolution: `lazy` calls its loader once,
- * so a chunk that never arrived keeps failing for as long as this cache holds the
- * component - which is the whole document. Nothing that re-renders can fetch it
- * again, not the boundary's `reset()` and not a route left and come back to: the
- * reader needs a fresh document, or this entry evicted with `clearLazyCache`
- * beside a re-mount of the tree. See "Retrying a chunk failure" in the README, and
- * the stale-deploy scenario in `test/browser/app.spec.js`.
  */
 export function createLazyElement(
   loader: () => Promise<any>,

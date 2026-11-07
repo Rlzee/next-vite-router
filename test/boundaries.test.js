@@ -518,29 +518,10 @@ describe("RouteErrorBoundary lifecycle", () => {
   // navigation - are pinned directly on the lifecycle methods. A thrown value is
   // handed to `render()` as React would hand it to the state, and the element it
   // returns is streamed, so `error.tsx` painting is proven and not assumed.
-  const makeBoundary = (error, state, resetKey = "/a") => {
-    const boundary = new RouteErrorBoundary({ error, resetKey, children: null });
+  const makeBoundary = (error, state) => {
+    const boundary = new RouteErrorBoundary({ error, resetKey: "/a", children: null });
     if (state) boundary.state = state;
     return boundary;
-  };
-
-  /**
-   * The `resetKey` a folder boundary hands its guard for `url`, read out of the
-   * element `SegmentBoundary` creates instead of written by hand here: the
-   * lifecycle calls below compare the value `useLocation()` actually produced, so
-   * a key that drifted away from the pathname fails this helper rather than
-   * quietly changing the contract.
-   */
-  const resetKeyFor = (url) => {
-    let created;
-    const Probe = () => {
-      created = SegmentBoundary({ error: component("err"), children: null });
-      return null;
-    };
-    renderToStaticMarkup(
-      React.createElement(MemoryRouter, { initialEntries: [url] }, React.createElement(Probe)),
-    );
-    return created.props.children.props.resetKey;
   };
 
   test("derives the thrown error into state", () => {
@@ -625,61 +606,6 @@ describe("RouteErrorBoundary lifecycle", () => {
     assert.deepEqual(applied, { hasError: false, error: undefined });
   });
 
-  test("the reset key is the pathname, not the whole URL", () => {
-    // Pinned as a decision. The key drops the query and the hash, so a boundary
-    // re-considers its caught failure only when the path it guards moves - which
-    // is what makes `error.tsx` a file of the folder rather than of one URL.
-    assert.equal(resetKeyFor("/dashboard?tab=home"), "/dashboard");
-    assert.equal(resetKeyFor("/dashboard?tab=home#steps"), "/dashboard");
-    assert.equal(
-      resetKeyFor("/dashboard?tab=settings"),
-      resetKeyFor("/dashboard?tab=home"),
-      "a query-only navigation does not move the key",
-    );
-    assert.notEqual(
-      resetKeyFor("/dashboard/settings?tab=home"),
-      resetKeyFor("/dashboard?tab=home"),
-      "a path-only navigation does",
-    );
-  });
-
-  test("keeps a caught error across a query-only navigation", () => {
-    // `/dashboard?tab=home` then `/dashboard?tab=settings`: the same page under a
-    // different query, so the screen stays. The failure may well have been caused
-    // by the value that just changed, and a retry then would re-render the very
-    // subtree that threw - `reset()` on the folder's `error.tsx` is the deliberate
-    // way back, and the browser suite proves the kept screen really is stale.
-    const before = resetKeyFor("/dashboard?tab=home");
-    const after = resetKeyFor("/dashboard?tab=settings");
-    const boundary = makeBoundary(component("err"),
-      { hasError: true, error: new Error("boom") }, after);
-    let reset = false;
-    boundary.setState = () => { reset = true; };
-
-    boundary.componentDidUpdate({ resetKey: before });
-
-    assert.equal(after, before, "the key the boundary compares is unchanged by the query");
-    assert.equal(reset, false, "so the error keeps its place on screen");
-  });
-
-  test("clears it when the path changes under an unchanged query", () => {
-    // The other half of the same rule: `?tab=fail` is carried along into a
-    // sibling page of the folder and has no say in the decision, so the next page
-    // is never held hostage by a failure that belonged to another one.
-    const before = resetKeyFor("/dashboard?tab=fail");
-    const after = resetKeyFor("/dashboard/settings?tab=fail");
-    const boundary = makeBoundary(component("err"),
-      { hasError: true, error: new Error("boom") }, after);
-    let applied = null;
-    boundary.setState = (partial) => { applied = partial; };
-
-    boundary.componentDidUpdate({ resetKey: before });
-
-    assert.notEqual(after, before, "the path alone moved the key");
-    assert.deepEqual(applied, { hasError: false, error: undefined },
-      "and the boundary cleared the failure it was holding");
-  });
-
   test("renders children while healthy and the fallback once failed", () => {
     const Fallback = component("SCREEN");
     const child = React.createElement("i", null, "ok");
@@ -716,12 +642,6 @@ describe("reset() scope: a failed dynamic import stays failed", () => {
   // loader, and `reset()` therefore cannot recover from a stale-deploy chunk
   // without a document reload (or an explicit `clearLazyCache(cache)` paired
   // with a remount).
-  //
-  // The half this harness cannot reach is the other end of the same story: a
-  // request a real browser cannot fetch, a placeholder that must not hang, and a
-  // document that has to be replaced. That runs in `test/browser/app.spec.js`
-  // ("a stale-deploy chunk failure…"), which aborts the chunk request of
-  // `test/browser-app/src/app/chunk/` in dev and from the production bundle.
   const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
   /**

@@ -236,11 +236,6 @@ not emitted beside it. The package owns it internally; it is not exported, and
 there is no API to render or configure it — you replace it by adding a
 `not-found.tsx`, not by importing it.
 
-One consequence to know: because every URL now matches a route, `matchRoutes()`
-never returns `null` for an unknown path. An SSR server that picks its status
-from that `null` has to change — see
-[HTTP status for an unmatched URL](#http-status-for-an-unmatched-url-ssr-servers).
-
 ### Folders without a page are 404s
 
 A folder that holds children but no `page.tsx` has no content at its own URL,
@@ -261,175 +256,6 @@ the first URL-bearing folder around them.
 With no `not-found.tsx` anywhere the guard falls back to the built-in 404 page
 described above, so a page-less base paints that instead of an empty content
 area. This is the same fallback the required catch-all base uses.
-
-### HTTP status for an unmatched URL (SSR servers)
-
-Because a root `*` route now answers every URL that reaches no page,
-`matchRoutes()` no longer returns `null` for an unknown path. An SSR entry that
-chose its status code from that `null` now serves `200` for a URL it used to
-answer `404`:
-
-```ts
-// Written for 3.x: since 4.0.0 `matches` is never `null`, so this branch is dead
-// code and the request falls through with a 200.
-const matches = matchRoutes(routes, url);
-if (!matches) return new Response("Not Found", { status: 404 });
-```
-
-The package answers it. `getRouteStatus()` returns the status for a request, so a
-server never has to know how a not-found is recognised:
-
-```ts
-import { getRouteStatus, normalizeRequestTarget } from "next-vite-router";
-import { generateRoutes } from "next-vite-router/routes";
-
-const routes = generateRoutes();
-// One reading of the request target, and both halves answer it.
-const pathname = normalizeRequestTarget(request.url);
-const status = getRouteStatus(routes, pathname); // 200 | 404
-
-// Decide before the first byte: a streamed response cannot change its status once
-// headers are out, and by then a 404 is only a styling decision.
-return new Response(document(routes, pathname), { status });
-```
-
-**Normalize once, then render from that same value.** `getRouteStatus()` reads a
-target the way a browser does — authority, query and fragment dropped, `.` and
-`..` resolved — because that is what `location.pathname` holds in the client, and
-React Router does no such resolution itself. Hand the router the raw target and it
-matches a *different* URL than the one the status was decided on: the response then
-carries `200` around a document that paints the 404 page (`/users/other/../%FF` is
-the page's `/users/%FF` to the status helper, and nothing's page to `matchRoutes()`),
-and hydration paints that 404 too. One value into both is what keeps one response
-answering one URL. `test/http-integration.test.js` pins the drift over a real
-socket, and `test/browser/url-parity.spec.js` collides the package's reading,
-Chromium's own `location.pathname`, and the page the mounted app paints, over a
-corpus of these targets in both pipelines.
-
-A URL is `404` when the route answering it is a not-found page — the built-in root
-404, a folder's own `not-found.tsx`, or the guard for a base that holds no page
-(`docs/` with only `docs/intro/page.tsx`, and a required catch-all's own base). That
-covers what no reading of the route shape could separate: a `[...slug]` page also
-lives on a `*` route and keeps its `200`, while a folder's not-found and a page-less
-base render 404 pages from leaves that look like any other splat and any other index.
-Case sensitivity comes with it — with the default on, `/USERS` answers no `users/`
-folder and is `404`, as in Next.js.
-
-**The URL argument is a request target, and it is normalised like a browser would
-normalise it.** All of these are the same request:
-
-```ts
-getRouteStatus(routes, "/users/123");
-getRouteStatus(routes, "/users/123?tab=profile");
-getRouteStatus(routes, "/users/123#details");
-getRouteStatus(routes, "https://example.com/users/123");   // origin dropped
-```
-
-The authority, query and fragment are removed and `.`/`..` segments resolved before
-matching, so a proxy that forwards an absolute `GET` target reaches the same route
-the browser would. A trailing slash is *kept*, because the browser keeps it and the
-client router sees it — dropping it would let the server decide on a different URL
-than the client renders.
-
-**Only `http` and `https` name an absolute request target.** Anything else is handed
-to the router as it arrived, because re-reading it as a path on *this* origin would
-invent a page no client can ask for under that name:
-
-```ts
-getRouteStatus(routes, "ftp://example.com/users/123");  // 404, not the /users/123 page
-getRouteStatus(routes, "mailto:someone@example.com");   // 404
-```
-
-A protocol-relative `//host/path` is an *href* shortcut inside a document, not a
-request target: a server handed `GET //example.com/users/123` is asked about a path
-that really does begin with two slashes, which is what the browser's own
-`location.pathname` says too. What that is worth is decided by **your routes**, not
-by the URL — which is the rule behind all of this: a root `[...slug]` page answers
-`//example.com/users/123` and the request is a `200` for it, while an app whose only
-root splat is the built-in 404 answers `404`.
-
-```ts
-// same path, two different apps
-getRouteStatus(catchAllApp.routes, "//example.com/users/123"); // 200 - the page takes it
-getRouteStatus(plainApp.routes, "//example.com/users/123");    // 404 - nothing of yours does
-```
-
-The same principle covers a path whose percent escapes are not valid UTF-8 — `%zz`,
-but also the valid-hex cases an escape check misses: `%FF`, the overlong `%C0%AF`,
-the lone surrogate `%ED%A0%80`. Such a path is not rewritten and not refused: a
-`users/[id]` or `[...slug]` route takes it verbatim, as the client's router does.
-Matching it makes React Router warn while decoding the param, and that warning is
-the router's own signal about a page that exists — silencing it with a `404` would
-be a wrong answer bought with a quiet log. This package's own share of the log stays
-empty: the URL parser is never handed a path it could not decode.
-
-Note the asymmetry that implies. The decodability check judges the **whole** path
-because that is what the URL parser would decode, while React Router decodes **segment
-by segment** — so the parser is skipped for the whole path, and the structural work it
-would have done (a missing leading slash, dot segments) is done by hand on the raw
-segments instead, following the URL spec's own definition of a dot segment: `%2e%2e`,
-`.%2e` and `%2E.` pop like `..`, a lone `%2e` disappears like `.`, and nothing else in
-the path is decoded or rewritten. One broken escape therefore cannot change how the
-others match:
-
-```ts
-normalizeRequestTarget("/users/other/../%FF");  // "/users/%FF" - same shape as "/users/other/../%41"
-normalizeRequestTarget("/users/%2e%2e/%FF");    // "/%FF"       - the encoded dot pops too
-normalizeRequestTarget("/users//%FF");          // two slashes preserved
-normalizeRequestTarget("/a/%FF/..");            // "/a/"        - a trailing dot leaves its slash
-getRouteStatus(routes, "/users/a%2Fb");         // 200 - %2F stays inside one segment
-getRouteStatus(routes, "/users/a/b");           // 404 - a real third segment
-```
-
-A path ending on a dot segment keeps the slash the URL spec puts back — `/a/.` and
-`/a/..` are both `/a/`, `//host/.` is `//host/` — because a trailing slash is routing
-information here, not decoration: it is in the browser's `location.pathname`, so it
-has to be in the server's reading of the same request.
-
-The same hand-resolved structure applies to a protocol-relative path — `//example.com/%2e%2e/x`
-keeps its two slashes and loses `example.com` to the dot segment — because the parser
-cannot be used there either: read as a URL, `//host` is an authority, and the request
-would be answered against a different origin than the one being served. Those leading
-slashes sit outside the resolution stack, so no chain of dot segments can pop them:
-`//example.com/../../x` is `//x`, and `/../../x` still floors at `/`.
-
-`normalizeRequestTarget()` is exported if you want the same reading for logging.
-
-If you took the advice this section gave earlier, or the `route.path === "*"` line in
-the 4.0.0 notes, that check is wrong in both directions: it 404s catch-all pages and
-misses the two shapes above. `getRouteStatus()` replaces it.
-
-### What this API deliberately does not do
-
-It answers one question — *is a page reached for this URL* — and leaves the HTTP
-lifecycle to the server, which owns the response, the headers and the stream:
-
-| Situation | This API | Your server |
-| --- | --- | --- |
-| a page answers the URL | `200` | stream it |
-| a not-found page answers it | `404` | stream the fallback with that status |
-| nothing matched at all | `404` | same path |
-| a page threw while rendering | `200` — the page *was* found | `500` |
-| a folder's `error.tsx` renders a fallback | `200` | `500`, not `404` |
-| a route redirects | `200` | `3xx` |
-
-A caught render error is the trap worth naming: `error.tsx` makes the failure look
-like a finished page, and `getRouteStatus()` reports the route, not the render. A
-server that wants `500` has to learn it from the render itself (React's error
-boundary, or its own `onShellError` / `renderToPipeableStream` handling) — a
-fallback page must not quietly turn server errors into not-found pages.
-
-Two things to know about the mechanism:
-
-- The marking lives in the route `handle` (`{ notFound: true }`), which the converter
-  stamps and this package owns for generated routes. `isUnmatched(routes, url)` and
-  `isNotFoundRoute(route)` stay exported as the finer primitives for code that
-  already has the matches; `getRouteStatus()` is `isUnmatched()` spelled as a number.
-  All three come from the package root — the engine entry — beside `treeToRoutes()`;
-  the navigation helpers stay in `next-vite-router/routes`.
-- A route array that did not come from `treeToRoutes()` carries no marking, so
-  nothing reads as not-found. Build the tree with the plugin, or hand the records to
-  `treeToRoutes()` / `createRouteGenerator()`, and the marking is there.
 
 ### Custom file names and pages directory
 
@@ -644,11 +470,6 @@ functions, and those data APIs run only under a data router (`createBrowserRoute
 + `RouterProvider`), not under `BrowserRouter` with `useRoutes`. Fetch data
 inside your page components instead.
 
-This is also the array an SSR server would hand to `matchRoutes()`, and since
-4.0.0 that call answers every URL; picking the status code out of the result has
-its own rules — see
-[HTTP status for an unmatched URL](#http-status-for-an-unmatched-url-ssr-servers).
-
 ## Features
 
 ### Lazy loading
@@ -734,20 +555,13 @@ while one is loading the placeholder paints in the layout's `Outlet` — a neste
 `loading.tsx` overrides its parent's, and a folder that declares none shows
 **nothing** until its page arrives: there is no global fallback to configure, as
 in Next.js, so the placeholder is a file in a folder or there is none. `error.tsx`
-renders in place of the content when something below throws, and receives
-`{ error, reset }` — `error` is the thrown value exactly as React reported it, and
-a `throw` is legal with any value (`throw null`, `throw "text"`), so an `error.tsx`
-must not assume an `Error` instance. `reset()` clears the boundary's error state
-so React re-renders the subtree - enough to recover from a synchronous failure
-whose cause has been fixed, but not from a rejected dynamic import (see
-[Retrying a chunk failure](#retrying-a-chunk-failure-and-when-a-full-reload-is-required)).
-The boundary also clears itself when the path changes,
-so navigating to another page of the same folder after a failure no longer shows
-the stale error. The key it watches is the **pathname** alone: a query-only
-navigation (`?tab=home` to `?tab=settings`) is the same page under the same
-`error.tsx`, and the screen stays until `reset()` is called or the path moves.
-That is deliberate - the failure screen belongs to the folder, not to one URL -
-and both halves are pinned by the browser suite and by `test/boundaries.test.js`.
+renders in
+place of the content when something below throws, and receives
+`{ error, reset }`; `reset()` clears the boundary's error state so React re-renders
+the subtree - enough to recover from a synchronous failure whose cause has been
+fixed, but not from a rejected dynamic import (see the stale-deploy note below).
+The boundary also clears itself when the URL changes, so navigating to another
+page of the same folder after a failure no longer shows the stale error.
 
 Next.js stacks these as `layout > error > loading > not-found > page`, and this
 package reproduces that order, which fixes two consequences:
@@ -771,59 +585,13 @@ the pages root alongside the root's own `error.tsx` still reports the
 
 Both files are imported eagerly, like layouts: a placeholder fetched by chunk
 would wait for a chunk to announce a chunk, and a boundary that has not loaded
-cannot report the failure it exists for. A chunk that fails outright surfaces
-through `error.tsx` rather than leaving `loading.tsx` on screen forever, because
-the boundary sits outside the `Suspense`.
-
-### Retrying a chunk failure, and when a full reload is required
-
-`reset()` retries the **render**, never the **fetch**. `React.lazy` calls its
-loader once and keeps the outcome - resolved or rejected - on the component it
-memoizes, and the router holds that component in its lazy cache for as long as the
-document lives. So the two failures an `error.tsx` answers need two different
-answers:
-
-| the failure | what recovers it |
-| --- | --- |
-| a page threw while rendering, and its cause is gone (a flag cleared, a value fixed) | `reset()` — the subtree renders again and succeeds |
-| a page module that never arrived (stale deploy, offline reader, blocked CDN) | **a full document reload** — `window.location.reload()` |
-
-A stale deploy is the everyday case, and it stays invisible until the reader
-navigates: their document came from the previous build and names chunk files the
-new build no longer serves, so the first lazy route they open rejects with a
-`TypeError`. Only a fresh document asks the server for the file again — a retry
-still reads the memoized rejection *after* the file is back, and so does the same
-route left and come back to in that tab. An `error.tsx` below a lazily loaded page
-should therefore offer the reload beside the retry:
-
-```tsx
-import type { RouteErrorProps } from "next-vite-router";
-
-// src/app/blog/error.tsx
-export default function BlogError({ error, reset }: RouteErrorProps) {
-  return (
-    <div>
-      <p>Something went wrong: {String(error)}</p>
-      <button onClick={reset}>Try again</button>
-      <button onClick={() => window.location.reload()}>Reload this page</button>
-    </div>
-  );
-}
-```
-
-Do not branch on the message to tell the two failures apart: every browser words a
-rejected dynamic import differently (`"Failed to fetch dynamically imported
-module…"`, `"error loading dynamically imported module…"`, `"Importing a module
-script failed…"`), and `error.tsx` cannot know which one it holds. Two buttons
-cost nothing and cover both.
-
-`clearLazyCache(cache)` is the third option, and it exists only where *your* code
-owns the cache. `createRouteGenerator` keeps its instance private, so an app on the
-generated `next-vite-router/routes` module has nothing to evict — for it, a reload
-is the only complete answer. A tree you build yourself
-(`treeToRoutes(tree, true, "", cache)` with a cache from `createLazyCache`) can
-evict it and re-mount the route tree, which is what makes the next render re-fire
-the loader; the pairing is pinned in `test/boundaries.test.js`.
+cannot report the failure it exists for. A chunk that fails outright (a stale
+deploy) surfaces through `error.tsx`, but `React.lazy` memoizes the rejection on
+its own component and the router keeps that instance in its lazy cache, so
+`reset()` re-renders against the same rejection and cannot re-fire the loader.
+Reload the document (`window.location.reload()`) in that case, or evict the
+router's cache explicitly with `clearLazyCache(cache)` on the same cache
+instance the generator owns and re-mount the route tree.
 
 A boundary only sees render errors: nothing thrown from an event handler or a
 bare `async` callback reaches it, and `loading.tsx` is meaningful for chunk
@@ -998,20 +766,6 @@ and the generated `href`/`Link` — not merely compile. One further job runs the
 same app with `react-router` v7 and **no** `react-router-dom` at all, so the
 substitution is proven by a render instead of by this table.
 
-The unit and [browser](#browser-suite) suites also run on Ubuntu, Windows and
-macOS on Node 22. That job exists for the parts a Linux machine cannot judge:
-path separators, what `path.resolve` returns, the commands the CLI hands to a
-shell, and where the plugin writes the files it generates.
-
-A separate `Security` workflow audits the dependency graph on every push and pull
-request, and weekly, because an advisory is usually published long after the
-release that carries it. Two gates block: the graph an install actually pulls in
-(`pnpm audit --prod --audit-level=high`) and any critical anywhere in it. The full
-report stays informational — the suites deliberately install the declared floors
-of React, React Router and Vite to prove compatibility against them, and a check
-that is red by design trains everyone to ignore it. Dependabot opens grouped
-weekly updates for the pnpm workspace and for the workflow's own `uses:` pins.
-
 ## Examples
 
 The repository includes a runnable showcase in [`examples/`](./examples/):
@@ -1033,9 +787,6 @@ pnpm install
 pnpm run build
 pnpm run test            # full suite
 pnpm run test:compatibility
-pnpm run test:browser    # needs a browser: see below
-pnpm run test:bench      # scaling, declaration timing, rebuild memory
-pnpm run test:modules    # ESM and CommonJS as an installed app resolves them
 ```
 
 The route matrix lives in [`test/routes.test.js`](./test/routes.test.js) and
@@ -1045,24 +796,6 @@ groups, nested `not-found.tsx` fallbacks, and catch-all pages under layouts.
 updates, and `test/test-compatibility.js` checks the supported dependency ranges,
 the generated production bootstrap, and that the compatibility matrix pins
 versions inside those ranges and really renders them.
-
-`pnpm run test:bench` times the generator against 100, 500 and 1 000-page trees, the
-declaration writer against the same sizes as a real pages directory, and the
-dev-server rebuild loop as heap growth over 120 cycles. It gates on **ratios, not
-budgets**: what one page costs at 1 000 pages must stay within four times what it
-costs at 100, because a superlinear walk shows up as a ratio while an absolute
-millisecond budget is a coin toss on shared hardware. The timings are printed either
-way. The nesting axis is measured exactly instead of statistically — a folder's
-children must be enumerated once, which is the contract a `2^depth` traversal
-regression broke — and `--expose-gc` makes the memory number a post-collection
-measurement rather than a guess.
-
-`pnpm run test:modules` installs the published `files` set into a throwaway project
-and runs two consumers inside it, so the conditional `exports` map, the `.js`/`.cjs`
-condition split, the `.d.cts` twins, the `bin` path, and the private engine entry are
-judged the way Node judges them — through `node_modules`, not by importing a path. A
-`files` list that stopped matching `exports` fails here rather than in somebody's
-install, which is why it also runs in `prepublishOnly`.
 
 Any matrix combination can be reproduced locally by building the fixture app the
 workflow uses against a packed tarball of this package:
@@ -1077,42 +810,6 @@ pnpm exec vite build                   # browser bundle
 pnpm exec vite build --ssr src/entry-server.tsx --outDir dist-ssr
 NODE_ENV=production node dist-ssr/entry-server.js
 ```
-
-### Browser suite
-
-Everything above renders through `react-dom/server`, which cannot show what only
-exists after a real mount: a class error boundary never runs its catch there, a
-layout is never code-split, and there is no history, no address bar and no file
-watcher. `pnpm run test:browser` runs the Playwright suite in
-[`test/browser`](./test/browser) against the fixture app in
-[`test/browser-app`](./test/browser-app) in three projects — `vite dev`
-(per-module requests), `vite preview` (the production bundle), and a private copy
-of the app on its own port for the route-file watching, because a structural change
-reloads every client of that server.
-
-| Scenario | What it pins |
-| --- | --- |
-| initial load, `Link` navigation, back / forward | the shell mounts once and navigation stays client-side |
-| a deep URL reloaded directly | the route and its parameters survive a fresh document |
-| an unknown URL | the built-in 404 paints inside the root layout, and the app still works after it |
-| catch-all routes | `useCatchAll()` segments, the optional base, and a `Link` filling the splat from an array |
-| `loading.tsx` | the folder's placeholder paints while its page module is held back |
-| `error.tsx` | the fallback replaces the failing page, `reset()` recovers once the cause is gone, a `throw null` is caught like any other failure, and the reset key is the pathname — a query-only navigation keeps the screen, another page of the folder clears it |
-| a chunk that cannot be fetched (simulated stale deploy) | `error.tsx` replaces the `loading.tsx` placeholder, neither `reset()` nor a route change re-fetches the file, and only the document reload paints the page |
-| route files | a page created while the server runs joins the table, and deleting it takes the route back out |
-| `lazyLayouts` | a nested layout lives in a chunk of its own and still paints |
-| URL parity (`url-parity.spec.js`) | for one request target, `normalizeRequestTarget()`, Chromium's `location.pathname` and the page the mounted app paints all answer the same URL — never a target that reads as a page to the server and as a 404 after hydration |
-
-```bash
-pnpm exec playwright install chromium   # once; the browser is not a package dependency
-pnpm run test:browser
-```
-
-The suite is deliberately **not** part of `pnpm run test`: the unit matrix runs on
-several Node versions in containers with no browser installed. CI runs it in the
-`operating-systems` job, on Ubuntu, Windows and macOS, and `pnpm run test:browser`
-refreshes the fixture bundle and the HMR copy before Playwright starts, so a bare
-`pnpm exec playwright test` also works from a clean checkout.
 
 ## License
 

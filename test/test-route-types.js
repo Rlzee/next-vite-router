@@ -55,12 +55,6 @@ try {
   assert.equal(plugin.resolveId("virtual:next-vite-router"), undefined);
   assert.equal(plugin.resolveId("some-other-module"), undefined);
 
-  // The generated module stays the navigation surface it has always been. The SSR
-  // status helpers read a route array, so they belong to the package root beside
-  // `treeToRoutes()` - not to a module an application imports for `Link`.
-  assert.doesNotMatch(virtualModule, /isUnmatched|isNotFoundRoute/,
-    "the engine status helpers must not leak into next-vite-router/routes");
-
   // The fixture keeps a checked-in copy of this declaration so that
   // `next-vite-router/routes` resolves in an editor before anything has been
   // generated. Compare it against what the plugin just emitted (comments and
@@ -521,16 +515,6 @@ try {
     [{ find: /^react-router-dom$/, replacement: "react-router" }],
     "an install without react-router-dom must alias the shim onto react-router",
   );
-  // The alias only governs what Vite resolves. An SSR build keeps `node_modules`
-  // imports external by default, and an external module's own
-  // `react-router-dom` import goes to Node - which has no such package here - so
-  // a server importing `next-vite-router` (for `isUnmatched()`, say) dies at
-  // runtime with ERR_MODULE_NOT_FOUND unless the package is inlined.
-  assert.deepEqual(
-    contributed?.ssr?.noExternal,
-    ["next-vite-router"],
-    "an SSR build must inline this package so the alias reaches its imports",
-  );
 
   const routerOnlyWarnings = [];
   routerOnlyPlugin.configResolved({
@@ -606,63 +590,6 @@ try {
   fs.rmSync(routerRoot, { recursive: true, force: true });
   fs.rmSync(routerRoot6, { recursive: true, force: true });
 }
-
-// What the `config` hook contributes is only half the story: Vite merges the
-// return through `mergeConfig`, whose array rule (`[...arraify(existing),
-// ...arraify(value)]`) is what keeps an application's own `ssr.noExternal`
-// entries next to this package's. The merge is Vite behavior, so it is pinned
-// through Vite's own `resolveConfig` rather than against the hook's return.
-const configMergeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "next-vite-router-config-merge-"));
-writeRouterApp(configMergeRoot);
-writeInstalledPackage(configMergeRoot, "react-router", "7.18.4");
-
-const { resolveConfig } = await import("vite");
-
-{
-  const resolved = await resolveConfig(
-    {
-      configFile: false,
-      root: configMergeRoot,
-      logLevel: "silent",
-      plugins: [nextViteRouter()],
-      ssr: { noExternal: ["some-other-package"] },
-      resolve: { alias: { "~/styles": "/src/styles" } },
-    },
-    "build",
-  );
-  assert.deepEqual(
-    resolved.ssr.noExternal,
-    ["some-other-package", "next-vite-router"],
-    "the contributed noExternal entry must be added to the application's own, never replace it",
-  );
-  assert.ok(
-    resolved.resolve.alias.some((entry) => entry.find === "~/styles"),
-    "the contributed alias must not drop the application's own resolve.alias entries",
-  );
-}
-
-{
-  // `noExternal: true` means "inline everything", so the boolean still wins over
-  // the contributed list instead of the list being concatenated onto it.
-  const resolved = await resolveConfig(
-    {
-      configFile: false,
-      root: configMergeRoot,
-      logLevel: "silent",
-      plugins: [nextViteRouter()],
-      ssr: { noExternal: true },
-    },
-    "build",
-  );
-  assert.equal(
-    resolved.ssr.noExternal,
-    true,
-    "a noExternal: true (inline every import) must survive the contribution",
-  );
-}
-
-console.log("✅ contributed ssr.noExternal merges into the application's own SSR settings");
-fs.rmSync(configMergeRoot, { recursive: true, force: true });
 
 // The `config` hook falls back to the process working directory when the user
 // config carries no `root`, which is the same default Vite applies in

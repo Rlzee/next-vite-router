@@ -54,14 +54,3 @@ virtual-next-vite-router.d.ts
 test/route-types-*/
 # Temporary project dirs created by the lazyLayouts end-to-end test
 test/lazy-e2e-*/
-# Playwright output of the browser suite (reports, traces, screenshots)
-test-results/
-playwright-report/
-blob-report/
-# Page folder the HMR test creates and removes while the dev server runs, so the
-# route table really changes under the watcher. Written inside the fixture app and
-# never part of it.
-test/browser-app/src/app/hmr-live/
-# Throwaway copy of the fixture app the HMR project serves on its own port, so a
-# structural route change cannot reload the server the other browser tests use.
-test/browser-app/hmr-run/
