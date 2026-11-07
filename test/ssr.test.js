@@ -233,6 +233,157 @@ describe("SSR response orchestration", () => {
     resolveAllReady();
   });
 
+  test("keeps status 200 for a signal reported after shell", async () => {
+    let sent = 0;
+    let reportLateSignal;
+    const result = await renderResponse({
+      routes: [],
+      url: "/late",
+      adapter: {
+        head(status) {
+          assert.equal(status, 200);
+        },
+        send() {
+          sent += 1;
+        },
+        abandon() {},
+      },
+      render(_element, callbacks) {
+        callbacks.onShellReady();
+        reportLateSignal = () => callbacks.onError(new NotFoundSignal("/late"));
+        return attempt();
+      },
+    });
+
+    reportLateSignal();
+    assert.equal(result.kind, "page");
+    assert.equal(result.status, 200);
+    assert.equal(sent, 1);
+  });
+
+  test("does not consume a Web stream before the adapter sends it", async () => {
+    let consumed = false;
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("html"));
+        controller.close();
+      },
+    });
+    await renderResponse({
+      routes: [],
+      url: "/web",
+      adapter: {
+        head() {},
+        send(received) {
+          assert.equal(received.stream, stream);
+          assert.equal(stream.locked, false);
+          consumed = true;
+        },
+        abandon() {},
+      },
+      render(_element, callbacks) {
+        callbacks.onShellReady();
+        return { ...attempt(), stream };
+      },
+    });
+    assert.equal(consumed, true);
+    assert.equal(stream.locked, false);
+  });
+
+  test("does not send a timed-out shell", async () => {
+    let aborted = 0;
+    let sent = 0;
+    let failed;
+    await assert.rejects(() => renderResponse({
+      routes: [],
+      url: "/slow",
+      shellTimeoutMs: 1,
+      adapter: {
+        head() {},
+        send() {
+          sent += 1;
+        },
+        abandon() {},
+        fail(status, error) {
+          failed = { status, error };
+        },
+      },
+      render() {
+        return {
+          ...attempt(),
+          shellReady: new Promise(() => {}),
+          abort() {
+            aborted += 1;
+          },
+        };
+      },
+    }));
+    assert.equal(aborted, 1);
+    assert.equal(sent, 0);
+    assert.equal(failed.status, 500);
+  });
+
+  test("does not send after onShellError", async () => {
+    let aborted = 0;
+    let sent = 0;
+    await assert.rejects(() => renderResponse({
+      routes: [],
+      url: "/broken",
+      adapter: {
+        head() {},
+        send() {
+          sent += 1;
+        },
+        abandon() {},
+        fail(status) {
+          assert.equal(status, 500);
+        },
+      },
+      render(_element, callbacks) {
+        const error = new Error("shell failed");
+        callbacks.onShellError(error);
+        return {
+          ...attempt(),
+          abort() {
+            aborted += 1;
+          },
+        };
+      },
+    }));
+    assert.equal(aborted, 1);
+    assert.equal(sent, 0);
+  });
+
+  test("aborts when allReady rejects in non-streaming mode", async () => {
+    let aborted = 0;
+    let sent = 0;
+    await assert.rejects(() => renderResponse({
+      routes: [],
+      url: "/prerender",
+      streaming: false,
+      adapter: {
+        head() {},
+        send() {
+          sent += 1;
+        },
+        abandon() {},
+        fail() {},
+      },
+      render(_element, callbacks) {
+        callbacks.onShellReady();
+        return {
+          ...attempt(),
+          allReady: Promise.reject(new Error("late render failure")),
+          abort() {
+            aborted += 1;
+          },
+        };
+      },
+    }));
+    assert.equal(aborted, 1);
+    assert.equal(sent, 0);
+  });
+
   test("keeps outcomes isolated across concurrent requests", async () => {
     const events = [];
     const makeAdapter = (name) => ({

@@ -245,6 +245,10 @@ export interface RenderAttempt {
   readonly allReady: Promise<void>;
 }
 
+type InternalRenderAttempt = RenderAttempt & {
+  readonly shellCommitted: boolean;
+};
+
 export type RenderEngine = (
   element: ReactElement,
   callbacks: RenderCallbacks,
@@ -259,6 +263,7 @@ export interface ResponseAdapter {
   head(status: number, headers: Headers): void;
   send(attempt: RenderAttempt): void | Promise<void>;
   abandon(attempt: RenderAttempt): void;
+  fail?(status: 500, error: unknown): void | Promise<void>;
 }
 
 export type RenderFailure =
@@ -300,7 +305,7 @@ async function createAttempt(
     pass: 1 | 2 | 3;
     onFailure?: (failure: RenderFailure) => void;
   },
-): Promise<RenderAttempt> {
+): Promise<InternalRenderAttempt> {
   let resolveShell!: () => void;
   let rejectShell!: (error: unknown) => void;
   const shellReady = new Promise<void>((resolve, reject) => {
@@ -308,11 +313,16 @@ async function createAttempt(
     rejectShell = reject;
   });
   const seenErrors = new Set<unknown>();
+  let shellReached = false;
+  let shellCommitted = false;
   const notifyFailure = (error: unknown): void => {
     if (seenErrors.has(error)) {
       return;
     }
     seenErrors.add(error);
+    if (shellReached) {
+      input.outcome.markCommitted();
+    }
     recordRenderError(input.outcome, error, input.pass);
     input.onFailure?.(
       isRenderSignal(error)
@@ -332,6 +342,11 @@ async function createAttempt(
   };
   const callbacks: RenderCallbacks = {
     onShellReady() {
+      shellReached = true;
+      if (input.outcome.signal === null && input.outcome.failure === null) {
+        shellCommitted = true;
+        input.outcome.markCommitted();
+      }
       resolveShell();
     },
     onAllReady() {},
@@ -347,6 +362,9 @@ async function createAttempt(
   return {
     ...attempt,
     shellReady,
+    get shellCommitted() {
+      return shellCommitted;
+    },
   };
 }
 
@@ -379,10 +397,12 @@ export async function renderResponse(input: {
       pass,
       onFailure: input.onFailure,
     });
+    let shellFailed = false;
     try {
       await waitForShell(attempt.shellReady, input.shellTimeoutMs, () => {
         const timeout = input.shellTimeoutMs ?? 0;
         const error = new Error(`SSR shell timed out after ${timeout}ms`);
+        shellFailed = true;
         outcome.recordFailure(error, pass);
         input.onFailure?.({
           request,
@@ -392,13 +412,25 @@ export async function renderResponse(input: {
         });
       });
     } catch {
+      shellFailed = true;
+    }
+    if (shellFailed) {
       abortAttempt(input.adapter, attempt);
-      if (outcome.failure === null) {
-        throw new Error("SSR render failed before shell became ready");
-      }
+      await failBeforeShell(input.adapter, outcome.failure?.error);
+      throw new Error("SSR render failed before shell became ready");
+    }
+    if ((attempt as InternalRenderAttempt).shellCommitted) {
+      outcome.markCommitted();
     }
     if (input.streaming === false && outcome.failure === null) {
-      await attempt.allReady;
+      try {
+        await attempt.allReady;
+      } catch (error) {
+        outcome.recordFailure(error, pass);
+        abortAttempt(input.adapter, attempt);
+        await failBeforeShell(input.adapter, error);
+        throw error;
+      }
     }
     const nextPlan = planResponse(outcome);
 
@@ -429,6 +461,15 @@ export async function renderResponse(input: {
 function abortAttempt(adapter: ResponseAdapter, attempt: RenderAttempt): void {
   attempt.abort();
   adapter.abandon(attempt);
+}
+
+async function failBeforeShell(
+  adapter: ResponseAdapter,
+  error: unknown,
+): Promise<void> {
+  if (adapter.fail) {
+    await adapter.fail(500, error);
+  }
 }
 
 async function waitForShell(

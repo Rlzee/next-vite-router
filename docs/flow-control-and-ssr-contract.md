@@ -358,6 +358,7 @@ export interface ResponseAdapter {
   head(status: number, headers: Headers): void;   // exactly once, before any byte
   send(attempt: RenderAttempt): void | Promise<void>; // no-op for a redirect plan
   abandon(attempt: RenderAttempt): void;              // discard an aborted pass, never reach the client
+  fail?(status: 500, error: unknown): void | Promise<void>; // independent pre-shell fallback
 }
 
 /** The whole protocol for one request, given React's own render API. */
