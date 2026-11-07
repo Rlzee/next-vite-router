@@ -447,16 +447,21 @@ describe("full tree: multi-level integration", () => {
       new NotFoundSignal("/shop"),
     );
 
-    const fallbackElement = boundary.render();
     assert.throws(
       () => renderToStaticMarkup(React.createElement(
         RenderContext.Provider,
-        { value: { outcome, owner: "/", phase: "fallback" } },
-        fallbackElement,
+        { value: { outcome, owner: "/shop", phase: "fallback" } },
+        React.createElement(Fallback),
       )),
-      /cannot re-enter the root fallback/,
+      (error) => error instanceof NotFoundSignal
+        && error.owner === "/shop"
+        && error.reentrant,
     );
-    assert.equal(outcome.reentrantSignal, null);
+    assert.deepEqual(outcome.reentrantSignal, {
+      kind: "not-found",
+      owner: "/shop",
+      reentrant: true,
+    });
   });
 
   test("/dx/y/z paints through every boundary in its chain", async () => {
