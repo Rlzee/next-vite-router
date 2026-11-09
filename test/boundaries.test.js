@@ -15,6 +15,7 @@ import {
 import {
   NotFoundBoundary,
   RedirectGate,
+  RedirectGateBoundary,
   RouteErrorBoundary,
   RouteLoadingProvider,
   SegmentBoundary,
@@ -36,7 +37,7 @@ const component = (name) => function Component() {
 };
 
 test("RedirectGate classifies redirect signals for client navigation", () => {
-  const state = RedirectGate.getDerivedStateFromError(
+  const state = RedirectGateBoundary.getDerivedStateFromError(
     new RedirectSignal("/login", false, true),
   );
   assert.deepEqual(state, {

@@ -18,6 +18,7 @@ export {
   RouteErrorBoundary,
   NotFoundBoundary,
   RedirectGate,
+  RedirectGateBoundary,
 } from "./router/boundary";
 export { RouteLoadingContext, RouteLoadingProvider } from "./router/loading-context";
 export {

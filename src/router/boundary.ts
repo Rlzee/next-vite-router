@@ -172,7 +172,7 @@ type RedirectGateState = {
  * Converts a redirect signal thrown during client rendering into React Router
  * navigation. Non-redirect values continue through the surrounding boundaries.
  */
-export class RedirectGate extends React.Component<
+export class RedirectGateBoundary extends React.Component<
   { children: React.ReactNode },
   RedirectGateState
 > {
@@ -199,6 +199,15 @@ export class RedirectGate extends React.Component<
     }
     return this.props.children;
   }
+}
+
+export function RedirectGate(props: { children: React.ReactNode }): React.ReactElement {
+  const location = useLocation();
+  const key = `${location.key}:${location.pathname}${location.search}${location.hash}`;
+  return React.createElement(
+    RedirectGateBoundary,
+    { key, children: props.children },
+  );
 }
 
 /**
