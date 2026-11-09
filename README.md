@@ -25,7 +25,7 @@ Three entry points, each with one job. **This is the source of truth for imports
 
 | Import from | Provides | Use it for |
 | --- | --- | --- |
-| `next-vite-router/routes` | `Router`, `generateRoutes`, `useRoutes`, `href`, `Link`, `useParams`, `useCatchAll`, and the types `RoutePath` / `RouteParams` / `LinkProps` | application code (pages, layouts, components) |
+| `next-vite-router/routes` | `Router`, `generateRoutes`, `useRoutes`, `href`, `Link`, `useParams`, `useCatchAll`, `notFound`, `redirect`, `permanentRedirect`, and the types `RoutePath` / `RouteParams` / `LinkProps` | application code (pages, layouts, components) |
 | `next-vite-router` | `createRouteGenerator`, `buildRouteTree`, `treeToRoutes`, and the path/lazy utils | advanced / manual routing |
 | `next-vite-router/plugin` | `nextViteRouter` | `vite.config.ts` only |
 
@@ -92,6 +92,25 @@ npm run dev
 ```
 
 The tree above generates `/`, `/users`, and `/users/:id`.
+
+### Flow control
+
+Import route control primitives from the generated routes module:
+
+```tsx
+import { notFound, redirect, permanentRedirect } from "next-vite-router/routes";
+
+export default function Page() {
+  if (!isAllowed()) notFound();
+  if (shouldSignIn()) redirect("/login", { replace: true });
+  if (isArchived()) permanentRedirect("/archive");
+  return <main>Content</main>;
+}
+```
+
+`notFound()` selects the nearest generated `not-found.tsx` fallback without
+rendering `error.tsx`. `redirect()` and `permanentRedirect()` navigate through
+the generated `Router` on the client and produce HTTP 307/308 responses in SSR.
 
 ### Setup notes
 

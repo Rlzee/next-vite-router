@@ -115,13 +115,14 @@ try {
   assert.match(virtualModule, /import \{ useRoutes \} from 'react-router-dom'/);
   assert.match(virtualModule, /export \{ useRoutes \};/);
   assert.match(virtualModule, /export \{ useParams, useCatchAll \};/);
+  assert.match(virtualModule, /export \{ notFound, redirect, permanentRedirect \};/);
   // The generated module binds each catch-all folder name into href/Link so the
   // runtime can validate the key: the "/blog/*" pattern alone cannot name its splat.
   // It reaches the engine by resolved file path (plugin-runtime is not in
   // "exports"), never as a `next-vite-router` specifier app code could reuse.
   assert.match(
     virtualModule,
-    /import \{ buildRouteTree, treeToRoutes, useParams, useCatchAll, href as hrefBase, createTypedLink \} from ["'][^"']*plugin-runtime\.js["']/,
+    /import \{ buildRouteTree, treeToRoutes, useParams, useCatchAll, href as hrefBase, createTypedLink, RedirectGate, RenderContext, notFound, redirect, permanentRedirect \} from ["'][^"']*plugin-runtime\.js["']/,
   );
   assert.doesNotMatch(virtualModule, /from ['"]next-vite-router['"]/);
   assert.match(

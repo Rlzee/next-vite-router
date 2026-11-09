@@ -1,6 +1,6 @@
 # Flow-control signals, render outcomes and the SSR response contract
 
-Status: **design, pending technical validation — no implementation approved.**
+Status: **implemented incrementally; compatibility and browser validation remain pending.**
 Decisions taken (this is the contract those decisions fix):
 
 | decision | outcome |
@@ -547,7 +547,7 @@ Explicitly **not** guaranteed, and this is the reservation kept in the spec:
 - **C5** `renderToReadableStream` (Web) and `renderToPipeableStream` (Node) both fit through
   `RenderEngine` + `RenderAttempt`.
 
-## 10. Files that will change (implementation step, later — none now)
+## 10. Implementation surfaces
 
 | file | change |
 | --- | --- |

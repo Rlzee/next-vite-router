@@ -14,6 +14,7 @@ import {
 // entry the generated routes module resolves by path (never a package specifier).
 import {
   NotFoundBoundary,
+  RedirectGate,
   RouteErrorBoundary,
   RouteLoadingProvider,
   SegmentBoundary,
@@ -33,6 +34,15 @@ const eager = (name) => ({ default: name });
 const component = (name) => function Component() {
   return React.createElement("div", null, name);
 };
+
+test("RedirectGate classifies redirect signals for client navigation", () => {
+  const state = RedirectGate.getDerivedStateFromError(
+    new RedirectSignal("/login", false, true),
+  );
+  assert.deepEqual(state, {
+    signal: { to: "/login", replace: true },
+  });
+});
 
 /** Is this element a folder boundary (rather than a page/layout element)? */
 const isBoundary = (element) => element?.type === SegmentBoundary;

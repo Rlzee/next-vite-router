@@ -414,6 +414,9 @@ ${params}
 
   export const generateRoutes: () => RouteObject[];
   export function Router(): ReactElement | null;
+  export function notFound(): never;
+  export function redirect(to: string | URL, options?: { replace?: boolean }): never;
+  export function permanentRedirect(to: string | URL, options?: { replace?: boolean }): never;
   export function useParams<T extends Record<string, string | undefined> = Record<string, string | undefined>>(): T;
   export function useCatchAll(name?: string): string[];
   export { useRoutes } from '${routerSpecifier}';
@@ -733,7 +736,8 @@ export function nextViteRouter(
         // path never resolves back to a `next-vite-router/...` specifier.
         const engineEntry = fileURLToPath(new URL("./plugin-runtime.js", import.meta.url));
         return `
-import { buildRouteTree, treeToRoutes, useParams, useCatchAll, href as hrefBase, createTypedLink } from ${JSON.stringify(engineEntry)};
+import React from 'react';
+import { buildRouteTree, treeToRoutes, useParams, useCatchAll, href as hrefBase, createTypedLink, RedirectGate, RenderContext, notFound, redirect, permanentRedirect } from ${JSON.stringify(engineEntry)};
 import { useRoutes } from '${routerSpecifier}';
 
 const pagesGlob = import.meta.glob(${JSON.stringify(pagesGlobPath)});
@@ -771,7 +775,15 @@ export function generateRoutes() {
 
 export function Router() {
   routes ??= generateRoutes();
-  return useRoutes(routes);
+  return React.createElement(
+    RenderContext.Provider,
+    { value: { phase: "page" } },
+    React.createElement(
+      RedirectGate,
+      null,
+      useRoutes(routes),
+    ),
+  );
 }
 
 let routes;
@@ -792,6 +804,7 @@ export const Link = createTypedLink(routeMetadata);
 
 export { useRoutes };
 export { useParams, useCatchAll };
+export { notFound, redirect, permanentRedirect };
 `;
       }
     },

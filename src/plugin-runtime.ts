@@ -17,6 +17,7 @@ export {
   SegmentBoundary,
   RouteErrorBoundary,
   NotFoundBoundary,
+  RedirectGate,
 } from "./router/boundary";
 export { RouteLoadingContext, RouteLoadingProvider } from "./router/loading-context";
 export {

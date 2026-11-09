@@ -1,5 +1,5 @@
 import React, { Suspense } from "react";
-import { useLocation } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import type { ComponentType } from "react";
 import type { RouteErrorComponent } from "../types/index.type";
 import { RouteLoadingProvider } from "./loading-context";
@@ -161,6 +161,43 @@ export class NotFoundBoundary extends React.Component<
       { value: parentContext },
       React.createElement(Fallback),
     );
+  }
+}
+
+type RedirectGateState = {
+  signal: { to: string; replace: boolean } | null;
+};
+
+/**
+ * Converts a redirect signal thrown during client rendering into React Router
+ * navigation. Non-redirect values continue through the surrounding boundaries.
+ */
+export class RedirectGate extends React.Component<
+  { children: React.ReactNode },
+  RedirectGateState
+> {
+  state: RedirectGateState = { signal: null };
+
+  static getDerivedStateFromError(error: unknown): RedirectGateState {
+    if (isRenderSignal(error) && !isNotFoundSignal(error)) {
+      return {
+        signal: {
+          to: error.to,
+          replace: error.replace,
+        },
+      };
+    }
+    throw error;
+  }
+
+  render(): React.ReactNode {
+    if (this.state.signal) {
+      return React.createElement(Navigate, {
+        to: this.state.signal.to,
+        replace: this.state.signal.replace,
+      });
+    }
+    return this.props.children;
   }
 }
 
