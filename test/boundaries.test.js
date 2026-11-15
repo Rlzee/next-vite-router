@@ -45,6 +45,25 @@ test("RedirectGate classifies redirect signals for client navigation", () => {
   });
 });
 
+test("RedirectGate clears a caught redirect only when the location changes", () => {
+  // The boundary must survive a navigation: remounting it would remount every
+  // boundary below, clearing an `error.tsx` on a query-only navigation. Only the
+  // redirect state is dropped, and only once the new location is the one on
+  // screen (otherwise the `<Navigate>` it is rendering would be discarded).
+  const boundary = new RedirectGateBoundary({ resetKey: "a", children: null });
+  let applied = null;
+  boundary.setState = (partial) => { applied = partial; };
+  boundary.state = RedirectGateBoundary.getDerivedStateFromError(
+    new RedirectSignal("/login", false, true),
+  );
+
+  boundary.componentDidUpdate({ resetKey: "a" });
+  assert.equal(applied, null, "the same location keeps the redirect on screen");
+
+  boundary.componentDidUpdate({ resetKey: "b" });
+  assert.deepEqual(applied, { signal: null }, "a new location clears it");
+});
+
 /** Is this element a folder boundary (rather than a page/layout element)? */
 const isBoundary = (element) => element?.type === SegmentBoundary;
 

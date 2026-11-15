@@ -269,6 +269,51 @@ test("a stale-deploy chunk failure survives reset() and needs a document reload"
   await expect(page.getByTestId("chunk-error")).toHaveCount(0);
 });
 
+test("a redirect() from a page navigates, and a second redirect still works", async ({ page }) => {
+  await page.goto("/");
+  // A marker on the live document: only a client-side navigation can keep it, so
+  // this proves the redirect is a `<Navigate>` and not a document reload.
+  await page.evaluate(() => {
+    document.body.dataset.stayedMounted = "yes";
+  });
+
+  await page.getByTestId("nav-private-push").click();
+
+  await expect(page).toHaveURL(/\/redirect\/login$/);
+  await expect(page.getByTestId("login-page")).toHaveText("LOGIN-PAGE");
+  await expect(page.getByTestId("root-layout")).toContainText("ROOT-LAYOUT[");
+  await expect(page.evaluate(() => document.body.dataset.stayedMounted)).resolves.toBe("yes");
+
+  // The gate cleared its signal for the new location, so the target is a live
+  // page: a redirect from it is caught and navigated like the first.
+  await page.getByTestId("nav-loop").click();
+  await expect(page).toHaveURL(/\/redirect\/login\?second=1$/);
+  await expect(page.getByTestId("login-page")).toHaveText("LOGIN-PAGE?second=1");
+  await expect(page.evaluate(() => document.body.dataset.stayedMounted)).resolves.toBe("yes");
+});
+
+test("replace: true leaves the target on Back, replace: false returns to it", async ({ page }) => {
+  // `replace: true`: the origin entry was replaced by the target, so Back leaves
+  // the target and lands on the page that was there before the redirect.
+  await page.goto("/");
+  await page.getByTestId("nav-private-replace").click();
+  await expect(page).toHaveURL(/\/redirect\/login$/);
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByTestId("home-page")).toHaveText("HOME");
+
+  // `replace: false`: the origin entry is still in history, so Back returns to it
+  // and it redirects forward again - the reader cannot leave through Back.
+  await page.goto("/");
+  await page.getByTestId("nav-private-push").click();
+  await expect(page).toHaveURL(/\/redirect\/login$/);
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/redirect\/login$/);
+  await expect(page.getByTestId("login-page")).toHaveText("LOGIN-PAGE");
+});
+
 test("a thrown null still renders error.tsx", async ({ page }) => {
   // `throw null` is legal JavaScript. A boundary that stores "no failure" and the
   // captured value in the same field reads it as healthy, renders the failing

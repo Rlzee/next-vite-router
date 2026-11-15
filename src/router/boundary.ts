@@ -171,9 +171,15 @@ type RedirectGateState = {
 /**
  * Converts a redirect signal thrown during client rendering into React Router
  * navigation. Non-redirect values continue through the surrounding boundaries.
+ *
+ * The boundary instance stays mounted across navigations: only its redirect
+ * state is cleared when the location changes. Remounting it (a `key`) would
+ * remount the whole route tree, and with it every `RouteErrorBoundary` below -
+ * clearing a caught `error.tsx` on a query-only navigation, which belongs to the
+ * path and must survive it.
  */
 export class RedirectGateBoundary extends React.Component<
-  { children: React.ReactNode },
+  { children: React.ReactNode; resetKey: string },
   RedirectGateState
 > {
   state: RedirectGateState = { signal: null };
@@ -190,6 +196,12 @@ export class RedirectGateBoundary extends React.Component<
     throw error;
   }
 
+  componentDidUpdate(previous: { resetKey: string }): void {
+    if (this.state.signal && previous.resetKey !== this.props.resetKey) {
+      this.setState({ signal: null });
+    }
+  }
+
   render(): React.ReactNode {
     if (this.state.signal) {
       return React.createElement(Navigate, {
@@ -203,10 +215,9 @@ export class RedirectGateBoundary extends React.Component<
 
 export function RedirectGate(props: { children: React.ReactNode }): React.ReactElement {
   const location = useLocation();
-  const key = `${location.key}:${location.pathname}${location.search}${location.hash}`;
   return React.createElement(
     RedirectGateBoundary,
-    { key, children: props.children },
+    { resetKey: location.key, children: props.children },
   );
 }
 

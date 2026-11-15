@@ -1,6 +1,6 @@
 # Flow-control signals, render outcomes and the SSR response contract
 
-Status: **implemented incrementally; compatibility and browser validation remain pending.**
+Status: **implemented incrementally; client redirect navigation is browser-validated, compatibility and the remaining browser cases remain pending.**
 Decisions taken (this is the contract those decisions fix):
 
 | decision | outcome |
@@ -579,7 +579,7 @@ Explicitly **not** guaranteed, and this is the reservation kept in the spec:
 - **T3 browser (Playwright, `test/browser-app`)** — I2, I4, I6, I18, I19: a click that runs `notFound()`
   paints the folder's not-found inside the root layout with the URL unchanged; a folder that has both
   `error.tsx` and `not-found.tsx` shows the 404; back/forward over a 404 answer; `redirect()` from a
-  link click.
+  link click (covered by `test/browser/app.spec.js`; the other cases remain pending).
 - **T4 compatibility (`compatibility.yml`)** — `test/compat-app` gains `notFound()`/`redirect()` SSR
   cases plus a hydration leg (I17) on React 18.3.1 / 19.2.0 × Router 6.30.6 / 7.18.4 × ESM/CJS ×
   `react-router`-only. This is the tier where "boundaries do not catch on the server" is proven, not
