@@ -102,6 +102,31 @@ test("an unknown URL renders the built-in 404 inside the layout", async ({ page 
   await expect(page.getByTestId("home-page")).toHaveText("HOME");
 });
 
+test("notFound() paints the folder's 404, keeps the URL, and survives history", async ({ page }) => {
+  // The page throws a control-flow signal while rendering. The folder's
+  // `not-found.tsx` answers inside the root layout, the URL does not move, and
+  // the `error.tsx` beside it never sees the signal.
+  await page.goto("/");
+  await page.getByTestId("nav-gone").click();
+
+  await expect(page).toHaveURL(/\/gone$/);
+  await expect(page.getByTestId("gone-not-found")).toHaveText("GONE-NOT-FOUND");
+  await expect(page.getByTestId("gone-error")).toHaveCount(0);
+  await expect(page.getByTestId("root-layout")).toContainText("GONE-NOT-FOUND");
+
+  // A 404 answer is a history entry like any other: Back returns to the page
+  // that navigated here, and Forward paints the 404 again rather than replaying
+  // a stale signal.
+  await page.goBack();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByTestId("home-page")).toHaveText("HOME");
+
+  await page.goForward();
+  await expect(page).toHaveURL(/\/gone$/);
+  await expect(page.getByTestId("gone-not-found")).toHaveText("GONE-NOT-FOUND");
+  await expect(page.getByTestId("gone-error")).toHaveCount(0);
+});
+
 test("a catch-all reads its segments, and its base renders the page", async ({ page }) => {
   // One folder declaring its own layout (`docs/[[...seg]]/layout.tsx`) below an
   // optional catch-all, so the base URL is answered inside that layout instead

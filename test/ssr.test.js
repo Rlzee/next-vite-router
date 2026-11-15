@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { PassThrough } from "node:stream";
 import React from "react";
 import { describe, test } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { renderToPipeableStream } from "react-dom/server";
 import { Outlet, useParams } from "react-router-dom";
+import { buildRouteTree, treeToRoutes } from "../dist/index.js";
 import {
   planResponse,
   prepareRequest,
@@ -13,6 +16,9 @@ import {
 import {
   createRenderOutcome,
   NotFoundSignal,
+  notFound,
+  permanentRedirect,
+  redirect,
 } from "../dist/plugin-runtime.js";
 
 const request = (url = "/") => createRenderOutcome(prepareRequest(url));
@@ -450,5 +456,162 @@ describe("SSR response orchestration", () => {
 
     assert.equal(events.filter((event) => event.endsWith(":head:404")).length, 2);
     assert.equal(events.filter((event) => event.endsWith(":send")).length, 2);
+  });
+});
+
+describe("SSR flow control with a real React render", () => {
+  const component = (name) => function Component() {
+    return React.createElement("div", null, name);
+  };
+
+  const routesFor = (records) => treeToRoutes(buildRouteTree(records), true);
+
+  function collector() {
+    let status = 0;
+    let headers = new Headers();
+    let body = "";
+    let failed = null;
+    return {
+      head(nextStatus, nextHeaders) {
+        status = nextStatus;
+        headers = nextHeaders;
+      },
+      async send(attempt) {
+        await new Promise((resolve, reject) => {
+          const sink = new PassThrough();
+          sink.setEncoding("utf8");
+          sink.on("data", (chunk) => { body += chunk; });
+          sink.on("finish", resolve);
+          sink.on("error", reject);
+          attempt.pipeTo(sink);
+        });
+      },
+      abandon(attempt) {
+        attempt.abort();
+      },
+      fail(nextStatus, error) {
+        failed = { status: nextStatus, error };
+      },
+      get status() { return status; },
+      get headers() { return headers; },
+      get body() { return body; },
+      get failed() { return failed; },
+    };
+  }
+
+  /**
+   * The Node engine the package's `RenderEngine` describes: `renderToPipeableStream`
+   * buffers until `pipe()`, and the callbacks are forwarded verbatim. A signal in
+   * the shell is resolved, not rejected, because the protocol owns it (the same
+   * mapping `createAttempt` applies to `onShellError`).
+   */
+  function nodeEngine(element, callbacks) {
+    let pipe;
+    let abort;
+    let resolveShell;
+    let resolveAll;
+    const shellReady = new Promise((resolve) => { resolveShell = resolve; });
+    const allReady = new Promise((resolve) => { resolveAll = resolve; });
+    const rendered = renderToPipeableStream(element, {
+      onShellReady() {
+        callbacks.onShellReady();
+        resolveShell();
+      },
+      onAllReady() {
+        callbacks.onAllReady();
+        resolveAll();
+      },
+      onShellError(error) {
+        callbacks.onShellError(error);
+        resolveShell();
+        resolveAll();
+      },
+      onError(error) {
+        callbacks.onError(error);
+      },
+    });
+    pipe = rendered.pipe;
+    abort = rendered.abort;
+    return {
+      pipeTo(sink) { pipe(sink); },
+      stream: null,
+      abort() { abort(); },
+      shellReady,
+      allReady,
+    };
+  }
+
+  test("a notFound() renders the owning fallback in a second pass", async () => {
+    function Gone() {
+      notFound();
+    }
+    const routes = routesFor({
+      pages: { "gone/page.tsx": async () => ({ default: Gone }) },
+      notFounds: { "gone/not-found.tsx": async () => ({ default: component("GONE-NOT-FOUND") }) },
+    });
+    const adapter = collector();
+
+    const plan = await renderResponse({
+      routes,
+      url: "/gone",
+      adapter,
+      render: nodeEngine,
+      streaming: false,
+    });
+
+    assert.equal(plan.kind, "not-found");
+    assert.equal(plan.status, 404);
+    assert.equal(plan.pass, 2);
+    assert.equal(adapter.status, 404);
+    assert.equal(adapter.failed, null);
+    assert.match(adapter.body, /GONE-NOT-FOUND/);
+  });
+
+  test("a redirect signal commits 307 with location and no body", async () => {
+    function Private() {
+      redirect("/login");
+    }
+    const routes = routesFor({
+      pages: { "private/page.tsx": async () => ({ default: Private }) },
+    });
+    const adapter = collector();
+
+    const plan = await renderResponse({
+      routes,
+      url: "/private",
+      adapter,
+      render: nodeEngine,
+      streaming: false,
+    });
+
+    assert.equal(plan.kind, "redirect");
+    assert.equal(plan.status, 307);
+    assert.equal(adapter.status, 307);
+    assert.equal(adapter.headers.get("location"), "/login");
+    assert.equal(adapter.body, "");
+  });
+
+  test("a permanent redirect commits 308", async () => {
+    function Old() {
+      permanentRedirect("/new", { replace: true });
+    }
+    const routes = routesFor({
+      pages: { "old/page.tsx": async () => ({ default: Old }) },
+    });
+    const adapter = collector();
+
+    const plan = await renderResponse({
+      routes,
+      url: "/old",
+      adapter,
+      render: nodeEngine,
+      streaming: false,
+    });
+
+    assert.equal(plan.kind, "redirect");
+    assert.equal(plan.status, 308);
+    assert.equal(adapter.status, 308);
+    assert.equal(adapter.headers.get("location"), "/new");
+    assert.equal(adapter.body, "");
   });
 });

@@ -765,6 +765,40 @@ describe("RouteErrorBoundary lifecycle", () => {
 
       assert.throws(() => boundary.render(), (error) => error === failure);
     });
+
+    test("paints the owned fallback from a recorded outcome on the server", () => {
+      // `renderToPipeableStream` never runs a class catch, so pass 2 is driven by
+      // the outcome: the boundary reads the recorded signal and paints, with the
+      // same owner rule the client catch applies.
+      const outcome = createRenderOutcome({ pathname: "/shop", search: "", hash: "" });
+      outcome.recordSignal({ kind: "not-found", owner: "/shop", reentrant: false }, "page");
+      const boundary = new NotFoundBoundary({
+        owner: "/shop",
+        fallback,
+        children: child,
+        parentOwner: "/",
+      });
+      boundary.context = { outcome, owner: "/shop", phase: "fallback" };
+
+      const element = boundary.render();
+      assert.equal(element.type, RenderContext.Provider);
+      assert.equal(element.props.children.type, fallback);
+      assert.equal(element.props.value.owner, "/");
+      assert.equal(element.props.value.phase, "fallback");
+    });
+
+    test("does not paint another owner's recorded signal", () => {
+      const outcome = createRenderOutcome({ pathname: "/shop", search: "", hash: "" });
+      outcome.recordSignal({ kind: "not-found", owner: "/other", reentrant: false }, "page");
+      const boundary = new NotFoundBoundary({
+        owner: "/shop",
+        fallback,
+        children: child,
+      });
+      boundary.context = { outcome, owner: "/shop", phase: "fallback" };
+
+      assert.equal(boundary.render(), child);
+    });
   });
 
   // Every kind of value a component may legally throw. `null` is the one a

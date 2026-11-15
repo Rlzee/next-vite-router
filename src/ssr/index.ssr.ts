@@ -338,7 +338,15 @@ async function createAttempt(
     onAllReady() {},
     onShellError(error) {
       notifyFailure(error);
-      rejectShell(error);
+      // A render signal is not a failed shell: it is the protocol's input. React
+      // reports it through `onError` and then `onShellError` (P2), and treating
+      // the second callback as a 500 would make every `notFound()` discovered
+      // before the shell a server error instead of the bounded second pass.
+      if (isRenderSignal(error)) {
+        resolveShell();
+      } else {
+        rejectShell(error);
+      }
     },
     onError(error) {
       notifyFailure(error);

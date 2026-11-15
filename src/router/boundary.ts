@@ -137,16 +137,7 @@ export class NotFoundBoundary extends React.Component<
     return { hasError: true, error };
   }
 
-  render(): React.ReactNode {
-    if (!this.state.hasError) {
-      return this.props.children;
-    }
-
-    if (!isNotFoundSignal(this.state.error)
-      || this.state.error.owner !== this.props.owner) {
-      throw this.state.error;
-    }
-
+  private fallbackElement(): React.ReactNode {
     const parentOwner = this.props.parentOwner
       ?? (this.context?.owner === this.props.owner ? undefined : this.context?.owner)
       ?? "/";
@@ -161,6 +152,28 @@ export class NotFoundBoundary extends React.Component<
       { value: parentContext },
       React.createElement(Fallback),
     );
+  }
+
+  render(): React.ReactNode {
+    if (!this.state.hasError) {
+      // Server pass 2/3: the class catch never runs under `react-dom/server`, so
+      // the recorded signal is what tells this boundary to paint. The owner match
+      // is the same rule the client catch applies, so both passes agree on whose
+      // 404 this is.
+      const outcome = this.context?.outcome;
+      const signal = outcome?.reentrantSignal ?? outcome?.signal;
+      if (signal?.kind === "not-found" && signal.owner === this.props.owner) {
+        return this.fallbackElement();
+      }
+      return this.props.children;
+    }
+
+    if (!isNotFoundSignal(this.state.error)
+      || this.state.error.owner !== this.props.owner) {
+      throw this.state.error;
+    }
+
+    return this.fallbackElement();
   }
 }
 

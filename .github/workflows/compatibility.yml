@@ -178,6 +178,22 @@ jobs:
           echo "rendering with $entry"
           node "$entry"
 
+      - name: Render compatibility app (flow control SSR)
+        working-directory: ${{ runner.temp }}/compat-app
+        # The same matrix, plus the two signals that change the response: a
+        # `notFound()` that must become a 404 whose body is the folder fallback,
+        # and `redirect()`/`permanentRedirect()` that must become 307/308 with
+        # `location` and no body. This leg is where "the class catch does not run
+        # on the server" is proven for real, not assumed.
+        env:
+          NODE_ENV: production
+        shell: bash
+        run: |
+          pnpm exec vite build --ssr src/entry-flow.tsx --outDir dist-flow
+          entry=$(find dist-flow -maxdepth 1 -name 'entry-flow.*' -print -quit)
+          echo "rendering flow control with $entry"
+          node "$entry"
+
   # React Router v7 moved every export into `react-router` and left
   # `react-router-dom` as a re-export shim whose own README tells a migrated
   # application to remove it. This job removes it: the fixture app keeps importing

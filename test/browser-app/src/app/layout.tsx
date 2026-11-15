@@ -24,6 +24,8 @@ export default function RootLayout() {
         {" "}
         <Link href="/null-throw" data-testid="nav-null-throw">null-throw</Link>
         {" "}
+        <Link href="/gone" data-testid="nav-gone">gone</Link>
+        {" "}
         <Link href="/chunk" data-testid="nav-chunk">chunk</Link>
         {" "}
         <Link href="/redirect/private-push" data-testid="nav-private-push">private-push</Link>
