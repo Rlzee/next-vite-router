@@ -93,6 +93,9 @@ jobs:
         vite: ["5.4.21", "6.1.0", "7.2.2", "8.0.0"]
         package_type: ["module"]
         include:
+          # One dedicated CommonJS row, not a second full matrix: React 19 and
+          # Router 7 are covered as ESM only. The SSR flow leg below inherits that
+          # scope, so it proves CommonJS on this combination alone.
           - react: "18.3.1"
             router: "6.30.6"
             vite: "5.4.21"

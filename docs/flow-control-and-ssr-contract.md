@@ -583,9 +583,10 @@ Explicitly **not** guaranteed, and this is the reservation kept in the spec:
   `test/browser/app.spec.js`; the remaining 404 transition cases are pending).
 - **T4 compatibility (`compatibility.yml`)** — `test/compat-app` gains `notFound()`/`redirect()` SSR
   cases (`src/entry-flow.tsx`, a real `renderToPipeableStream` render) on React 18.3.1 / 19.2.0 ×
-  Router 6.30.6 / 7.18.4 × ESM/CJS; the hydration leg (I17) and the `react-router`-only SSR leg
-  remain pending. This is the tier where "boundaries do not catch on the server" is proven, not
-  assumed, so it is not optional.
+  Router 6.30.6 / 7.18.4 × ESM, plus one CommonJS combination (React 18.3.1 / Router 6.30.6 / Vite
+  5.4.21). CommonJS is not claimed for React 19 or Router 7; the hydration leg (I17) and the
+  `react-router`-only SSR leg remain pending. This is the tier where "boundaries do not catch on the
+  server" is proven, not assumed, so it is not optional.
 - **T5 package surface (`test-modules.js`, `test-package.js`)** — `next-vite-router/ssr` resolves in
   both formats, its `.d.cts` exists, and the ESM/CJS plans agree on the same outcome.
 
