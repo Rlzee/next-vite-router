@@ -19,13 +19,17 @@ const NOT_FOUND_MARKER_ID = "__NVR_NOT_FOUND__";
 // marker, the client's first render would be the page, which throws: React then
 // abandons hydration and reports a recoverable error even though the fallback it
 // paints is the same tree. The marker is an inert JSON script beside the fallback;
-// the first boundary to read it renders the same fallback on its first render,
-// so hydration compares like with like. It is consumed once, so a later client
-// navigation falls back to the normal catch path.
-let markerConsumed = false;
-
-function takeNotFoundMarker(owner: string): NotFoundSignal | null {
-  if (markerConsumed || typeof document === "undefined") {
+// the boundary that owns it renders the same fallback on its first render, so
+// hydration compares like with like.
+//
+// Reading is deliberately side-effect free. React may build an instance it never
+// keeps (StrictMode, an abandoned concurrent render), and a module-level "already
+// read" flag would let that throwaway instance hide the marker from the instance
+// React commits. No consumption is needed either: the marker only exists inside
+// the server-painted fallback, so the client navigation that replaces that
+// fallback also removes the script with it.
+function readNotFoundMarker(owner: string): NotFoundSignal | null {
+  if (typeof document === "undefined") {
     return null;
   }
   const element = document.getElementById(NOT_FOUND_MARKER_ID);
@@ -40,11 +44,23 @@ function takeNotFoundMarker(owner: string): NotFoundSignal | null {
     if (marker.kind !== "not-found" || marker.owner !== owner) {
       return null;
     }
-    markerConsumed = true;
     return new NotFoundSignal(marker.owner);
   } catch {
     return null;
   }
+}
+
+// The marker lives in a `<script type="application/json">` element, so the
+// serialized JSON must not be able to close that element or start a new one:
+// `<`, `>` and `&` are escaped, as are the two line separators JSON allows raw
+// but HTML does not.
+function serializeNotFoundMarker(owner: string): string {
+  return JSON.stringify({ kind: "not-found", owner })
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
 }
 
 type BoundaryProps = {
@@ -170,7 +186,7 @@ export class NotFoundBoundary extends React.Component<
 
   constructor(props: NotFoundBoundaryProps) {
     super(props);
-    const seeded = takeNotFoundMarker(props.owner);
+    const seeded = readNotFoundMarker(props.owner);
     this.markerSeeded = seeded !== null;
     this.state = seeded
       ? { hasError: true, error: seeded }
@@ -201,10 +217,7 @@ export class NotFoundBoundary extends React.Component<
             type: "application/json",
             id: NOT_FOUND_MARKER_ID,
             dangerouslySetInnerHTML: {
-              __html: JSON.stringify({
-                kind: "not-found",
-                owner: this.props.owner,
-              }),
+              __html: serializeNotFoundMarker(this.props.owner),
             },
           }),
         )

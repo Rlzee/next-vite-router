@@ -793,6 +793,55 @@ describe("RouteErrorBoundary lifecycle", () => {
       assert.equal(element.props.value.phase, "fallback");
     });
 
+    test("the marker is readable by more than one boundary instance", () => {
+      // React may build an instance it never keeps (StrictMode double-invokes the
+      // constructor, a concurrent render can be abandoned). Reading the marker
+      // must not consume it: a throwaway instance may not hide the fallback from
+      // the instance React actually commits.
+      const previous = globalThis.document;
+      globalThis.document = {
+        getElementById: (id) =>
+          id === "__NVR_NOT_FOUND__"
+            ? { textContent: JSON.stringify({ kind: "not-found", owner: "/shop" }) }
+            : null,
+      };
+      try {
+        const first = new NotFoundBoundary({ owner: "/shop", fallback, children: child });
+        const second = new NotFoundBoundary({ owner: "/shop", fallback, children: child });
+        assert.equal(first.state.hasError, true);
+        assert.equal(second.state.hasError, true);
+      } finally {
+        if (previous === undefined) {
+          delete globalThis.document;
+        } else {
+          globalThis.document = previous;
+        }
+      }
+    });
+
+    test("the marker script neutralizes HTML-significant characters", () => {
+      // The owner is app data, but it is written into a `<script>` element: a raw
+      // `</script>` in it would end the element and open a new one. Escaping `<`,
+      // `>` and `&` keeps the JSON parseable and the element inert.
+      const owner = "/x</script><script>alert(1)</script>";
+      const outcome = createRenderOutcome({ pathname: "/x", search: "", hash: "" });
+      outcome.recordSignal({ kind: "not-found", owner, reentrant: false }, "page");
+      const boundary = new NotFoundBoundary({
+        owner,
+        fallback,
+        children: child,
+        parentOwner: "/",
+      });
+      boundary.context = { outcome, owner, phase: "fallback" };
+
+      const content = boundary.render().props.children;
+      const html = content.props.children[1].props.dangerouslySetInnerHTML.__html;
+      assert.ok(!html.includes("<"), html);
+      assert.ok(!html.includes(">"), html);
+      assert.ok(!html.includes("&"), html);
+      assert.deepEqual(JSON.parse(html), { kind: "not-found", owner });
+    });
+
     test("does not paint another owner's recorded signal", () => {
       const outcome = createRenderOutcome({ pathname: "/shop", search: "", hash: "" });
       outcome.recordSignal({ kind: "not-found", owner: "/other", reentrant: false }, "page");

@@ -54,6 +54,11 @@ test("a renderResponse document hydrates without a recoverable error", async ({ 
   // The strict I17 case: the HTML is the one `renderResponse` actually streams -
   // pass 1 records the signal, pass 2 paints the fallback, and the sink collects
   // the pipeable stream. Hydrating it must not report a recoverable error.
+  //
+  // Scope: this is the final HTML of the SSR pipeline (`streaming: false`), not
+  // a shell flushed before late segments. It proves the marker round-trips
+  // through `renderResponse`, not that a progressively streamed document
+  // hydrates while React is still inserting segments.
   const adapter = collector();
   const plan = await renderResponse({
     routes: buildRoutes(),
@@ -77,6 +82,44 @@ test("a renderResponse document hydrates without a recoverable error", async ({ 
     `<!doctype html><html><body><div id="root">${adapter.body}</div></body></html>`,
   );
   await page.addScriptTag({ content: await clientBundle() });
+  await page.waitForFunction(() => window.__hydrated === true);
+
+  await expect(page.getByTestId("gone-not-found")).toHaveText("GONE-NOT-FOUND");
+  const recoverable = await page.evaluate(() => window.__recoverable);
+  expect(recoverable, recoverable.join("\n")).toEqual([]);
+  const hydrationErrors = errors.filter((message) =>
+    /hydrat|mismatch|recoverable|did not match/i.test(message));
+  expect(hydrationErrors, hydrationErrors.join("\n")).toEqual([]);
+});
+
+test("a notFound() document hydrates under StrictMode without a recoverable error", async ({ page }) => {
+  // React double-invokes the constructor of every class it mounts under
+  // StrictMode, so the boundary that reads the marker may be one React throws
+  // away. The marker must still be there for the instance React commits, which
+  // is only true while reading it is side-effect free.
+  const adapter = collector();
+  const plan = await renderResponse({
+    routes: buildRoutes(),
+    url: "/gone",
+    adapter,
+    render: nodeEngine,
+    streaming: false,
+  });
+  assert.equal(plan.kind, "not-found");
+  assert.match(adapter.body, /GONE-NOT-FOUND/);
+
+  const errors = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
+  page.on("pageerror", (error) => errors.push(error.message));
+
+  await page.setContent(
+    `<!doctype html><html><body><div id="root">${adapter.body}</div></body></html>`,
+  );
+  await page.addScriptTag({
+    content: await clientBundle("hydration-entry-strict.js", "development"),
+  });
   await page.waitForFunction(() => window.__hydrated === true);
 
   await expect(page.getByTestId("gone-not-found")).toHaveText("GONE-NOT-FOUND");
@@ -162,17 +205,17 @@ function collector() {
  * resolved by Vite from the same app the browser suite serves, so the hydration
  * runs against the shipped `dist`, not a copy of the boundary.
  */
-async function clientBundle() {
+async function clientBundle(entry = "hydration-entry.js", nodeEnv = "production") {
   const result = await build({
     configFile: false,
     root: appDir,
     logLevel: "silent",
-    define: { "process.env.NODE_ENV": JSON.stringify("production") },
+    define: { "process.env.NODE_ENV": JSON.stringify(nodeEnv) },
     build: {
       write: false,
       minify: false,
       rollupOptions: {
-        input: path.join(appDir, "src/hydration-entry.js"),
+        input: path.join(appDir, `src/${entry}`),
         output: {
           format: "iife",
           entryFileNames: "hydration.js",
