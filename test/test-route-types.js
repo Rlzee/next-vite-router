@@ -519,8 +519,11 @@ try {
   const contributed = routerOnlyPlugin.config({ root: routerRoot });
   assert.deepEqual(
     contributed?.resolve?.alias,
-    [{ find: /^react-router-dom$/, replacement: "react-router" }],
-    "an install without react-router-dom must alias the shim onto react-router",
+    [
+      { find: /^react-router-dom$/, replacement: "react-router" },
+      { find: /^react-router-dom\/server$/, replacement: "react-router" },
+    ],
+    "an install without react-router-dom must alias the shim and its server subpath onto react-router",
   );
   // The alias only governs what Vite resolves. An SSR build keeps `node_modules`
   // imports external by default, and an external module's own
@@ -695,7 +698,10 @@ process.stdout.write(JSON.stringify(alias ? alias.map((entry) => [String(entry.f
   assert.equal(probe.status, 0, probe.stdout + probe.stderr);
   assert.deepEqual(
     JSON.parse(probe.stdout),
-    [["/^react-router-dom$/", "react-router"]],
+    [
+      ["/^react-router-dom$/", "react-router"],
+      ["/^react-router-dom\\/server$/", "react-router"],
+    ],
     "config() with no root must detect the router from the working directory",
   );
 
@@ -709,7 +715,10 @@ process.stdout.write(JSON.stringify(alias ? alias.map((entry) => [String(entry.f
       String(entry.find),
       entry.replacement,
     ]),
-    [["/^react-router-dom$/", "react-router"]],
+    [
+      ["/^react-router-dom$/", "react-router"],
+      ["/^react-router-dom\\/server$/", "react-router"],
+    ],
     "a relative root must resolve against the working directory, as Vite does",
   );
 

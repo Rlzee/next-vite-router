@@ -172,10 +172,16 @@ const ROUTER_MIN_MAJOR_FOR_SWAP = 7;
 // application writes - so one entry redirects the whole build. An import Vite
 // leaves external is the exception: it is handed to Node untouched, and Node does
 // not know about the alias. Hence `ssr.noExternal` below.
-const routerDomToRouterAlias = {
-  find: /^react-router-dom$/,
-  replacement: ROUTER,
-};
+//
+// The server subpath is a second entry because `next-vite-router/ssr` imports
+// `StaticRouter` from `react-router-dom/server`: the exact-match rule alone would
+// leave that import unresolved in a shim-less install, which is the one place the
+// SSR entry itself needs the substitution. React Router v7 exports `StaticRouter`
+// from the core root; v6 does not, and v6 without the shim is not buildable.
+const routerDomToRouterAliases = [
+  { find: /^react-router-dom$/, replacement: ROUTER },
+  { find: /^react-router-dom\/server$/, replacement: ROUTER },
+];
 
 /** This package's own name, as an application would import it. */
 const PACKAGE_NAME = "next-vite-router";
@@ -583,7 +589,7 @@ export function nextViteRouter(
         // and the application's own files - has to land on the same module
         // instance, not on a specifier it never installed.
         return {
-          resolve: { alias: [routerDomToRouterAlias] },
+          resolve: { alias: routerDomToRouterAliases },
           // An SSR build externalizes `node_modules` imports by default, and an
           // external module is resolved by Node, not by Vite: the
           // `react-router-dom` import inside this package's `dist` would outlive

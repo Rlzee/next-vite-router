@@ -95,5 +95,11 @@ export default defineConfig({
       testMatch: ["hmr.spec.js"],
       use: { baseURL: url(HMR_PORT) },
     },
+    {
+      // Hydration needs no server: the document is the server pass-2 markup and
+      // the client bundle is built from the same `dist` in the test.
+      name: "hydration",
+      testMatch: ["hydration.spec.js"],
+    },
   ],
 });

@@ -1,6 +1,6 @@
 # Flow-control signals, render outcomes and the SSR response contract
 
-Status: **implemented incrementally; client redirect and `notFound()` flows are browser-validated, and the SSR flow is compatibility-tested; hydration and the react-router-only SSR leg remain pending.**
+Status: **implemented incrementally; client redirect and `notFound()` flows are browser-validated, the SSR flow is compatibility-tested including the shim-less router, and the hydration boundary transition is browser-validated; React 19 hydration and lazy-page hydration remain pending.**
 Decisions taken (this is the contract those decisions fix):
 
 | decision | outcome |
@@ -528,7 +528,7 @@ Explicitly **not** guaranteed, and this is the reservation kept in the spec:
 | I14 | **Concurrency**: two outcomes interleaved (A signals `notFound()`, B does not, promises resolve in reverse order) commit `404` and `200` respectively, with each other's content absent from both bodies. | T2 |
 | I15 | No module-level outcome exists: `next-vite-router/ssr` holds no mutable state between requests. | static check + I14 |
 | I16 | G1: no abandoned-pass byte reaches the sink; G3: no effect ran in any pass. | T2 |
-| I17 | A document streamed for `notFound()` hydrates without a recoverable/mismatch error. | T4 |
+| I17 | A document streamed for `notFound()` hydrates without a recoverable/mismatch error. | T4 + `hydration.spec.js` |
 | I18 | The client reproduces the server's decision: same page code, same fallback, same URL kept. | T3 |
 | I19 | Adding `NotFoundBoundary` does not move who owns an ordinary failure: with the new boundary in place, a page that throws still paints **its folder's** `error.tsx`, not the root's and not a fallback. | T1 + T3 |
 
@@ -537,8 +537,10 @@ Explicitly **not** guaranteed, and this is the reservation kept in the spec:
 - **C1** React `>=18 <20`: nothing may rely on React 19-only options (`abort(reason)`,
   `onCaughtError`), and the re-throw-at-render path is chosen because it behaves identically on both.
 - **C2** `react-router` `>=6 <8`, and the **`react-router`-only** job has no `react-router-dom`:
-  `next-vite-router/ssr` and `src/router/flow.ts` must import only `react`. `Navigate` lives behind
-  the generated module (like `Link`), never in the `ssr` entry.
+  every router import in the package and in generated app code is written against the
+  `react-router-dom` specifier and redirected by the plugin's `resolve.alias` (including the `/server`
+  subpath the `ssr` entry uses for `StaticRouter`) when the shim is absent. `Navigate` lives behind the
+  generated module (like `Link`), never in the `ssr` entry.
 - **C3** ESM and CJS builds: `dist/ssr.js`, `dist/ssr.cjs`, `dist/ssr.d.ts`, `dist/ssr.d.cts`. The
   `package.json` `build` script's `.d.cts` copy list and the `exports` map both gain an entry; the
   `files` list already ships `dist`.
@@ -584,9 +586,12 @@ Explicitly **not** guaranteed, and this is the reservation kept in the spec:
 - **T4 compatibility (`compatibility.yml`)** — `test/compat-app` gains `notFound()`/`redirect()` SSR
   cases (`src/entry-flow.tsx`, a real `renderToPipeableStream` render) on React 18.3.1 / 19.2.0 ×
   Router 6.30.6 / 7.18.4 × ESM, plus one CommonJS combination (React 18.3.1 / Router 6.30.6 / Vite
-  5.4.21). CommonJS is not claimed for React 19 or Router 7; the hydration leg (I17) and the
-  `react-router`-only SSR leg remain pending. This is the tier where "boundaries do not catch on the
-  server" is proven, not assumed, so it is not optional.
+  5.4.21). The `react-router`-only job runs the same flow leg through the substitution (Router 7.18.4,
+  Vite 5/8, ESM and one CommonJS row), which is what proves `react-router-dom/server` is aliased too.
+  The hydration leg (I17) is covered by `test/browser/hydration.spec.js` for the boundary transition
+  with an eager page; the lazy-page variant remains a probe. CommonJS for React 19 or Router 7 is not
+  claimed. This is the tier where "boundaries do not catch on the server" is proven, not assumed, so it
+  is not optional.
 - **T5 package surface (`test-modules.js`, `test-package.js`)** — `next-vite-router/ssr` resolves in
   both formats, its `.d.cts` exists, and the ESM/CJS plans agree on the same outcome.
 

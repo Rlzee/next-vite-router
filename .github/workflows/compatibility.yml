@@ -302,6 +302,22 @@ jobs:
           echo "rendering with $entry"
           node "$entry"
 
+      - name: Render compatibility app (flow control SSR, no react-router-dom)
+        working-directory: ${{ runner.temp }}/compat-app
+        # The same notFound/redirect proof as the shimmed job, but through the
+        # substitution: `next-vite-router/ssr` imports `StaticRouter` from
+        # `react-router-dom/server`, which this install does not have, so the
+        # alias must carry that subpath too. Without this step the shim-less SSR
+        # claim would rest on the client build only.
+        env:
+          NODE_ENV: production
+        shell: bash
+        run: |
+          pnpm exec vite build --ssr src/entry-flow.tsx --outDir dist-flow
+          entry=$(find dist-flow -maxdepth 1 -name 'entry-flow.*' -print -quit)
+          echo "rendering flow control with $entry"
+          node "$entry"
+
   # Two things no job above can prove.
   #
   # One is the mount itself: the unit suites render through `react-dom/server`,
