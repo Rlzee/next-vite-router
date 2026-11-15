@@ -73,6 +73,18 @@ function GoneRoute() {
   );
 }
 
+export function buildRoutes() {
+  return [
+    {
+      path: "/",
+      element: React.createElement(Layout),
+      children: [
+        { path: "gone", element: React.createElement(GoneRoute) },
+      ],
+    },
+  ];
+}
+
 export function buildElement(outcome) {
   return React.createElement(
     RenderContext.Provider,
@@ -80,18 +92,20 @@ export function buildElement(outcome) {
     React.createElement(
       MemoryRouter,
       { initialEntries: ["/gone"] },
-      React.createElement(
-        Routes,
-        null,
-        React.createElement(
-          Route,
-          { path: "/", element: React.createElement(Layout) },
-          React.createElement(
-            Route,
-            { path: "gone", element: React.createElement(GoneRoute) },
-          ),
-        ),
-      ),
+      React.createElement(Routes, null, ...routeElements()),
     ),
   );
+}
+
+function routeElements() {
+  return [
+    React.createElement(
+      Route,
+      { path: "/", element: React.createElement(Layout) },
+      React.createElement(
+        Route,
+        { path: "gone", element: React.createElement(GoneRoute) },
+      ),
+    ),
+  ];
 }

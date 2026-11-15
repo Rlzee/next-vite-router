@@ -6,11 +6,46 @@ import { RouteLoadingProvider } from "./loading-context";
 import {
   isNotFoundSignal,
   isRenderSignal,
+  NotFoundSignal,
 } from "./flow";
 import {
   RenderContext,
   type RenderContextValue,
 } from "./render-outcome";
+
+const NOT_FOUND_MARKER_ID = "__NVR_NOT_FOUND__";
+
+// The server pass 2 paints the fallback before the client bundle runs. Without a
+// marker, the client's first render would be the page, which throws: React then
+// abandons hydration and reports a recoverable error even though the fallback it
+// paints is the same tree. The marker is an inert JSON script beside the fallback;
+// the first boundary to read it renders the same fallback on its first render,
+// so hydration compares like with like. It is consumed once, so a later client
+// navigation falls back to the normal catch path.
+let markerConsumed = false;
+
+function takeNotFoundMarker(owner: string): NotFoundSignal | null {
+  if (markerConsumed || typeof document === "undefined") {
+    return null;
+  }
+  const element = document.getElementById(NOT_FOUND_MARKER_ID);
+  if (!element?.textContent) {
+    return null;
+  }
+  try {
+    const marker = JSON.parse(element.textContent) as {
+      kind?: string;
+      owner?: string;
+    };
+    if (marker.kind !== "not-found" || marker.owner !== owner) {
+      return null;
+    }
+    markerConsumed = true;
+    return new NotFoundSignal(marker.owner);
+  } catch {
+    return null;
+  }
+}
 
 type BoundaryProps = {
   /** This folder's own `loading.tsx`, when it declared one. */
@@ -131,13 +166,22 @@ export class NotFoundBoundary extends React.Component<
   static contextType = RenderContext;
   declare context: React.ContextType<typeof RenderContext>;
 
-  state = healthyNotFoundState();
+  private readonly markerSeeded: boolean;
+
+  constructor(props: NotFoundBoundaryProps) {
+    super(props);
+    const seeded = takeNotFoundMarker(props.owner);
+    this.markerSeeded = seeded !== null;
+    this.state = seeded
+      ? { hasError: true, error: seeded }
+      : healthyNotFoundState();
+  }
 
   static getDerivedStateFromError(error: unknown): NotFoundBoundaryState {
     return { hasError: true, error };
   }
 
-  private fallbackElement(): React.ReactNode {
+  private fallbackElement(withMarker: boolean): React.ReactNode {
     const parentOwner = this.props.parentOwner
       ?? (this.context?.owner === this.props.owner ? undefined : this.context?.owner)
       ?? "/";
@@ -147,10 +191,28 @@ export class NotFoundBoundary extends React.Component<
       phase: "fallback",
     };
     const Fallback = this.props.fallback;
+    const fallback = React.createElement(Fallback);
+    const content = withMarker
+      ? React.createElement(
+          React.Fragment,
+          null,
+          fallback,
+          React.createElement("script", {
+            type: "application/json",
+            id: NOT_FOUND_MARKER_ID,
+            dangerouslySetInnerHTML: {
+              __html: JSON.stringify({
+                kind: "not-found",
+                owner: this.props.owner,
+              }),
+            },
+          }),
+        )
+      : fallback;
     return React.createElement(
       RenderContext.Provider,
       { value: parentContext },
-      React.createElement(Fallback),
+      content,
     );
   }
 
@@ -159,11 +221,12 @@ export class NotFoundBoundary extends React.Component<
       // Server pass 2/3: the class catch never runs under `react-dom/server`, so
       // the recorded signal is what tells this boundary to paint. The owner match
       // is the same rule the client catch applies, so both passes agree on whose
-      // 404 this is.
+      // 404 this is. The marker is part of the server paint so the client's first
+      // render is the same fallback, not a throw that hydration has to recover.
       const outcome = this.context?.outcome;
       const signal = outcome?.reentrantSignal ?? outcome?.signal;
       if (signal?.kind === "not-found" && signal.owner === this.props.owner) {
-        return this.fallbackElement();
+        return this.fallbackElement(true);
       }
       return this.props.children;
     }
@@ -173,7 +236,7 @@ export class NotFoundBoundary extends React.Component<
       throw this.state.error;
     }
 
-    return this.fallbackElement();
+    return this.fallbackElement(this.markerSeeded);
   }
 }
 

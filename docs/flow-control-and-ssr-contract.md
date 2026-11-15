@@ -1,6 +1,6 @@
 # Flow-control signals, render outcomes and the SSR response contract
 
-Status: **implemented incrementally; client redirect and `notFound()` flows are browser-validated, the SSR flow is compatibility-tested including the shim-less router, and the hydration boundary transition is browser-validated; React 19 hydration and lazy-page hydration remain pending.**
+Status: **implemented incrementally; client redirect and `notFound()` flows are browser-validated, the SSR flow is compatibility-tested including the shim-less router, and the streamed `notFound()` fallback is browser-validated with `onRecoverableError` empty; React 19 hydration and lazy-page hydration remain pending.**
 Decisions taken (this is the contract those decisions fix):
 
 | decision | outcome |
@@ -528,7 +528,7 @@ Explicitly **not** guaranteed, and this is the reservation kept in the spec:
 | I14 | **Concurrency**: two outcomes interleaved (A signals `notFound()`, B does not, promises resolve in reverse order) commit `404` and `200` respectively, with each other's content absent from both bodies. | T2 |
 | I15 | No module-level outcome exists: `next-vite-router/ssr` holds no mutable state between requests. | static check + I14 |
 | I16 | G1: no abandoned-pass byte reaches the sink; G3: no effect ran in any pass. | T2 |
-| I17 | A document streamed for `notFound()` hydrates without a recoverable/mismatch error. | T4 + `hydration.spec.js` |
+| I17 | A document streamed for `notFound()` hydrates without a recoverable/mismatch error. | T4 + `hydration.spec.js` (streamed `renderResponse` + `onRecoverableError`) |
 | I18 | The client reproduces the server's decision: same page code, same fallback, same URL kept. | T3 |
 | I19 | Adding `NotFoundBoundary` does not move who owns an ordinary failure: with the new boundary in place, a page that throws still paints **its folder's** `error.tsx`, not the root's and not a fallback. | T1 + T3 |
 
@@ -588,10 +588,11 @@ Explicitly **not** guaranteed, and this is the reservation kept in the spec:
   Router 6.30.6 / 7.18.4 × ESM, plus one CommonJS combination (React 18.3.1 / Router 6.30.6 / Vite
   5.4.21). The `react-router`-only job runs the same flow leg through the substitution (Router 7.18.4,
   Vite 5/8, ESM and one CommonJS row), which is what proves `react-router-dom/server` is aliased too.
-  The hydration leg (I17) is covered by `test/browser/hydration.spec.js` for the boundary transition
-  with an eager page; the lazy-page variant remains a probe. CommonJS for React 19 or Router 7 is not
-  claimed. This is the tier where "boundaries do not catch on the server" is proven, not assumed, so it
-  is not optional.
+  The hydration leg (I17) is covered by `test/browser/hydration.spec.js`: the boundary transition with
+  an eager page, and a second case that hydrates the HTML actually streamed by `renderResponse()` and
+  asserts `onRecoverableError` is empty. The lazy-page variant remains a probe. CommonJS for React 19 or
+  Router 7 is not claimed. This is the tier where "boundaries do not catch on the server" is proven, not
+  assumed, so it is not optional.
 - **T5 package surface (`test-modules.js`, `test-package.js`)** — `next-vite-router/ssr` resolves in
   both formats, its `.d.cts` exists, and the ESM/CJS plans agree on the same outcome.
 
@@ -630,13 +631,13 @@ matrices: React/ReactDOM `18.3.1` + Router DOM `6.30.6`, and React/ReactDOM `19.
 | P1 | On both React 18.3.1 and 19.2.0, `onShellReady` and `onAllReady` fired once; no chunk was observed before `pipe()`; the complete Node document arrived after piping. Aborting before `pipe()` left the Node sink with zero chunks. The Web renderer returned an unlocked `ReadableStream`; cancelling its reader before consumption produced no delivered chunks. | Both render engines provide the required body timing and pre-emission abandonment. The callback mapping for the Web renderer remains an adapter responsibility and must be covered by P1/P2 implementation tests. |
 | P2 | A synchronous render error produced no shell, then `onError`, then `onShellError`; the error was reported twice overall. | Failure recording must be idempotent and must not treat a duplicate callback as a second failure. |
 | P3 | A shell committed with Suspense fallback; after the promise resolved, the late error produced `onError` after the shell and `onAllReady` still fired. | The status is already frozen after `onShellReady`; this is the degraded post-commit case, not a second pass. |
-| P4 | Hydrating matching fallback markup produced no recoverable errors. | A stable fallback document can hydrate cleanly. This probe does not prove every boundary transition; I17 still requires the T4 browser case. |
+| P4 | Hydrating matching fallback markup produced no recoverable errors. | A stable fallback document can hydrate cleanly; the streamed `renderResponse` case now confirms it with `onRecoverableError` empty (`hydration.spec.js`). The boundary reaches the fallback through the server marker, not a throw recovered during hydration. |
 | P5 | `Navigate` is exported as a function in Router 6.30.6 and 7.18.4. | The generated client-side gate can use `Navigate`; relative-target behavior remains a T3/T4 test. |
 | P6 | On Node 22.19.0, `Headers` cloning preserved repeated `Set-Cookie` entries and `getSetCookie()` was available. No Node 20 runtime was available in this environment. | The plan does not require `getSetCookie()` to exist: use it when available and otherwise forward the combined `set-cookie` value without comma-splitting. The Node 20 compatibility job remains mandatory before implementation is approved. |
 
-These probes validate the adapter shape and the post-commit limitation, but do not validate the
-library implementation: no source file outside this document was changed, and P4 used a matching
-fallback tree rather than the eventual `NotFoundBoundary` implementation. P6 is not closed for the
+These probes validated the adapter shape and the post-commit limitation before implementation; P4 is
+now covered by `test/browser/hydration.spec.js`, which hydrates the real `renderResponse` output and
+asserts `onRecoverableError` is empty. The lazy-page variant is still a probe. P6 is not closed for the
 package's Node `>=20` floor until the compatibility job runs on Node 20.
 
 ## 13. Documentation deltas the contract commits to

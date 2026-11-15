@@ -782,7 +782,13 @@ describe("RouteErrorBoundary lifecycle", () => {
 
       const element = boundary.render();
       assert.equal(element.type, RenderContext.Provider);
-      assert.equal(element.props.children.type, fallback);
+      // The server paint carries the fallback plus the inert marker the client
+      // reads to paint the same tree on its first render.
+      const content = element.props.children;
+      assert.equal(content.type, React.Fragment);
+      assert.equal(content.props.children[0].type, fallback);
+      assert.equal(content.props.children[1].type, "script");
+      assert.equal(content.props.children[1].props.id, "__NVR_NOT_FOUND__");
       assert.equal(element.props.value.owner, "/");
       assert.equal(element.props.value.phase, "fallback");
     });
