@@ -121,7 +121,7 @@ describe("flow signals", () => {
   test("rejects flow control outside route rendering", () => {
     assert.throws(
       () => notFound(),
-      /Invalid hook call|Cannot read properties of null/,
+      /next-vite-router notFound\(\) can only be used during route rendering/,
     );
   });
 });

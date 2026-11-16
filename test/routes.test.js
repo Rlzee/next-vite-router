@@ -83,10 +83,14 @@ describe("route generator", () => {
     });
 
     // The home page becomes the index, and a built-in 404 splat answers any
-    // other URL so an unknown path never renders nothing.
+    // other URL so an unknown path never renders nothing. Both sit inside the
+    // root's NotFoundBoundary owner wrapper, the pathless route that is the
+    // sole child of the "/" route.
     assert.deepEqual(routeShape(routes), [{ path: "/", children: [
-      { index: true, children: undefined },
-      { path: "*", children: undefined },
+      { children: [
+        { index: true, children: undefined },
+        { path: "*", children: undefined },
+      ] },
     ] }]);
   });
 
@@ -98,11 +102,14 @@ describe("route generator", () => {
       },
     });
 
+    // The first child of "/" is the pathless boundary wrapper; the folder's
+    // own routes follow inside it.
     assert.equal(routes[0].element, undefined);
-    assert.equal(routes[0].children[0].index, true);
-    assert.notEqual(routes[0].children[0].element, undefined);
-    assert.equal(routes[0].children[1].path, ":id");
-    assert.notEqual(routes[0].children[1].element, undefined);
+    assert.equal(routes[0].children[0].path, undefined);
+    assert.equal(routes[0].children[0].children[0].children[0].index, true);
+    assert.notEqual(routes[0].children[0].children[0].children[0].element, undefined);
+    assert.equal(routes[0].children[0].children[0].children[1].path, ":id");
+    assert.notEqual(routes[0].children[0].children[0].children[1].element, undefined);
   });
 
   test("resolves multiple dynamic parameters and exposes their values", () => {
@@ -129,10 +136,12 @@ describe("route generator", () => {
       pages: { "[...slug]/page.tsx": loader("req") },
     });
 
-    assert.deepEqual(routeShape(routes), [
-      { index: true, children: undefined },
-      { path: "*", children: undefined },
-    ]);
+    assert.deepEqual(routeShape(routes), [{ path: "/", children: [
+      { children: [
+        { index: true, children: undefined },
+        { path: "*", children: undefined },
+      ] },
+    ] }]);
     assert.deepEqual(matchRoutes(routes, "/")?.at(-1)?.params, {});
     assert.equal(matchRoutes(routes, "/")?.at(-1)?.route.index, true);
     assert.deepEqual(matchRoutes(routes, "/a/b")?.at(-1)?.params, { "*": "a/b" });
@@ -145,10 +154,12 @@ describe("route generator", () => {
       pages: { "[[...segments]]/page.tsx": loader("opt") },
     });
 
-    assert.deepEqual(routeShape(routes), [
-      { index: true, children: undefined },
-      { path: "*", children: undefined },
-    ]);
+    assert.deepEqual(routeShape(routes), [{ path: "/", children: [
+      { children: [
+        { index: true, children: undefined },
+        { path: "*", children: undefined },
+      ] },
+    ] }]);
 
     const base = matchRoutes(routes, "/");
     assert.equal(base?.at(-1)?.route.index, true);
@@ -166,8 +177,8 @@ describe("route generator", () => {
 
     assert.equal(routes[0].path, "/");
     assert.equal(routes[0].element, undefined);
-    assert.equal(routes[0].children[0].index, true);
-    assert.equal(routes[0].children[1].path, "about");
+    assert.equal(routes[0].children[0].children[0].index, true);
+    assert.equal(routes[0].children[0].children[1].path, "about");
   });
 
   test("generates static, dynamic, multi-parameter, and catch-all routes", () => {
@@ -181,35 +192,37 @@ describe("route generator", () => {
       },
     });
 
-    assert.deepEqual(routeShape(routes), [
-      { path: "about", children: undefined },
-      { path: "blog", children: [
-        { index: true, children: undefined },
-        { path: "*", children: undefined },
-      ] },
-      { path: "compare", children: [
-        { path: ":from", children: [
-          { path: ":to", children: undefined },
-          // `compare/[from]` holds no page, so its base is guarded: `/compare/x`
-          // answers with the nearest not-found instead of an empty outlet.
+    assert.deepEqual(routeShape(routes), [{ path: "/", children: [
+      { children: [
+        { path: "about", children: undefined },
+        { path: "blog", children: [
+          { index: true, children: undefined },
+          { path: "*", children: undefined },
+        ] },
+        { path: "compare", children: [
+          { path: ":from", children: [
+            { path: ":to", children: undefined },
+            // `compare/[from]` holds no page, so its base is guarded: `/compare/x`
+            // answers with the nearest not-found instead of an empty outlet.
+            { index: true, children: undefined },
+          ] },
+          // `compare` itself has no page either: `/compare` is guarded too.
           { index: true, children: undefined },
         ] },
-        // `compare` itself has no page either: `/compare` is guarded too.
+        { path: "docs", children: [
+          { index: true, children: undefined },
+          { path: "*", children: undefined },
+        ] },
+        { path: "users", children: [
+          { path: ":id", children: undefined },
+          { index: true, children: undefined },
+        ] },
+        // No root page: "/" is guarded the same way.
         { index: true, children: undefined },
-      ] },
-      { path: "docs", children: [
-        { index: true, children: undefined },
+        // A built-in 404 splat answers every other URL from the root.
         { path: "*", children: undefined },
       ] },
-      { path: "users", children: [
-        { path: ":id", children: undefined },
-        { index: true, children: undefined },
-      ] },
-      // No root page: "/" is guarded the same way.
-      { index: true, children: undefined },
-      // A built-in 404 splat answers every other URL from the root.
-      { path: "*", children: undefined },
-    ]);
+    ] }]);
     // Required and optional catch-alls expose the same shape at their level;
     // the difference is what the base index renders (guard vs. the page).
     assert.deepEqual(matchRoutes(routes, "/blog")?.at(-1)?.route.index, true);
@@ -223,14 +236,16 @@ describe("route generator", () => {
       },
     });
 
-    assert.deepEqual(routeShape(routes), [
-      { path: "dashboard", children: undefined },
-      // The group is dropped from the URL and the page keeps its own path; the
-      // trailing index is the root's base guard - no `page.tsx` answers "/",
-      // so Next.js 404s it - and the `*` is the built-in 404 for every other URL.
-      { index: true, children: undefined },
-      { path: "*", children: undefined },
-    ]);
+    assert.deepEqual(routeShape(routes), [{ path: "/", children: [
+      { children: [
+        { path: "dashboard", children: undefined },
+        // The group is dropped from the URL and the page keeps its own path; the
+        // trailing index is the root's base guard - no `page.tsx` answers "/",
+        // so Next.js 404s it - and the `*` is the built-in 404 for every other URL.
+        { index: true, children: undefined },
+        { path: "*", children: undefined },
+      ] },
+    ] }]);
     assert.equal(matchRoutes(routes, "/dashboard")?.at(-1)?.route.path, "dashboard");
   });
 
@@ -252,8 +267,9 @@ describe("route generator", () => {
     // React Router compiles a route pattern to a case-INsensitive regexp unless
     // the route carries `caseSensitive: true`, so `/USERS` would otherwise
     // answer the `users/` folder and `/Blog/a` would match the `/blog/*`
-    // catch-all. The converter stamps every path-bearing route; without a root
-    // layout the emitted array is the root folder's children, flat.
+    // catch-all. The converter stamps every path-bearing route; the emitted
+    // array is the "/" route whose sole child is the pathless boundary
+    // wrapper, so the folders live one level below it.
     const routes = createRoutes({
       pages: {
         "users/page.tsx": loader("list"),
@@ -261,15 +277,17 @@ describe("route generator", () => {
         "blog/[...slug]/page.tsx": loader("blog"),
       },
     });
+    const folderRoutes = routes[0].children[0].children;
 
     assert.deepEqual(
-      routes.map(({ path }) => path),
+      folderRoutes.map(({ path }) => path),
       ["blog", "users", undefined, "*"],
     );
     assert.equal(routes[0].caseSensitive, true);
-    assert.equal(routes[0].children[1].caseSensitive, true);
-    assert.equal(routes[1].caseSensitive, true);
-    assert.equal(routes[1].children[1].caseSensitive, true);
+    assert.equal(folderRoutes[0].caseSensitive, true);
+    assert.equal(folderRoutes[0].children[1].caseSensitive, true);
+    assert.equal(folderRoutes[1].caseSensitive, true);
+    assert.equal(folderRoutes[1].children[1].caseSensitive, true);
 
     // Segment NAMES are compared case-sensitively; a matched value keeps its
     // own case (`/users/ABC` fills `id` with `"ABC"`), exactly like Next.js.
@@ -288,14 +306,16 @@ describe("route generator", () => {
       "blog/[...slug]/page.tsx": loader("blog"),
     }, {}, {});
     const routes = treeToRoutes(tree, true, "", undefined, undefined, false);
+    const folderRoutes = routes[0].children[0].children;
 
     assert.deepEqual(
-      routes.map(({ path }) => path),
+      folderRoutes.map(({ path }) => path),
       ["blog", "users", undefined, "*"],
     );
     assert.equal(routes[0].caseSensitive, false);
-    assert.equal(routes[0].children[1].caseSensitive, false);
-    assert.equal(routes[1].caseSensitive, false);
+    assert.equal(folderRoutes[0].caseSensitive, false);
+    assert.equal(folderRoutes[0].children[1].caseSensitive, false);
+    assert.equal(folderRoutes[1].caseSensitive, false);
 
     // `/USERS` lands on the `users` page - a lone `page.tsx` is the path route
     // itself here - and the mixed-case base lets `/Blog/a` reach the splat.
@@ -315,11 +335,12 @@ describe("route generator", () => {
       { caseSensitive: false },
     );
     const routes = generateRoutes();
+    const folderRoutes = routes[0].children[0].children;
 
     // A lone `users/page.tsx` is one path route plus the root's base guard,
     // and the built-in 404 splat answers every other URL.
     assert.deepEqual(
-      routes.map(({ path }) => path),
+      folderRoutes.map(({ path }) => path),
       ["users", undefined, "*"],
     );
     assert.equal(routes[0].caseSensitive, false);
@@ -335,7 +356,7 @@ describe("route generator", () => {
     // `/USERS` matches no route and falls to the built-in 404 splat.
     assert.equal(matchRoutes(defaultRoutes, "/USERS")?.at(-1)?.route.path, "*");
     // Index routes own no segment, so they are not stamped.
-    assert.equal(defaultRoutes[1].caseSensitive, undefined);
+    assert.equal(defaultRoutes[0].children[0].children[1].caseSensitive, undefined);
   });
 
   test("rejects duplicate routes created by route groups", () => {
@@ -505,22 +526,28 @@ describe("route generator", () => {
       notFounds: { "docs/not-found.tsx": loader("docs-not-found") },
     });
 
-    assert.deepEqual(routeShape(routes), [
-      { path: "docs", children: [
+    assert.deepEqual(routeShape(routes), [{ path: "/", children: [
+      { children: [
+        { path: "docs", children: [
+          // The folder declares `not-found.tsx`, so its guard and splat sit
+          // behind the folder's own NotFoundBoundary owner wrapper.
+          { children: [
+            { index: true, children: undefined },
+            { path: "*", children: undefined },
+          ] },
+        ] },
+        // The root has no page: "/" is guarded like any other page-less folder,
+        // and the built-in 404 splat answers every other URL.
         { index: true, children: undefined },
         { path: "*", children: undefined },
       ] },
-      // The root has no page: "/" is guarded like any other page-less folder,
-      // and the built-in 404 splat answers every other URL.
-      { index: true, children: undefined },
-      { path: "*", children: undefined },
-    ]);
+    ] }]);
     const base = matchRoutes(routes, "/docs");
     assert.equal(base?.at(-1)?.route.index, true);
     assert.equal(matchRoutes(routes, "/docs/guide")?.at(-1)?.route.path, "*");
     // The guard index is the base answer and the page splat the region below:
     // the folder's own not-found never becomes a competing `*` sibling here.
-    const [guard, pageRoute] = routes[0].children;
+    const [guard, pageRoute] = routes[0].children[0].children[0].children[0].children;
     assert.equal(guard.index, true);
     assert.equal(pageRoute.path, "*");
     assert.equal(pageRoute.children, undefined);
@@ -529,9 +556,12 @@ describe("route generator", () => {
     // ...while a catch-all with no not-found anywhere falls back to the
     // built-in 404, so the guard's fallback is a real element, not undefined.
     const bare = createRoutes({ pages: { "docs/[...slug]/page.tsx": loader("docs") } });
-    assert.notEqual(bare[0].children[0].element.props.children.props.fallback, undefined);
+    assert.notEqual(
+      bare[0].children[0].children[0].children[0].element.props.children.props.fallback,
+      undefined,
+    );
     assert.match(
-      renderToStaticMarkup(bare[0].children[0].element.props.children.props.fallback),
+      renderToStaticMarkup(bare[0].children[0].children[0].children[0].element.props.children.props.fallback),
       /could not be found/i,
     );
   });
@@ -546,7 +576,7 @@ describe("route generator", () => {
     });
     // The catch-all base guard wraps its fallback in `CatchAllBaseGuard`, so the
     // built-in 404 is that guard's `fallback` prop.
-    const catchAllFallback = catchAll
+    const catchAllFallback = catchAll[0].children[0].children
       .find((route) => route.path === "docs")
       .children[0].element.props.children.props.fallback;
 
@@ -554,7 +584,7 @@ describe("route generator", () => {
       pages: { "docs/intro/page.tsx": loader("intro") },
     });
     // The page-less base guard renders the element directly as its `element`.
-    const pagelessElement = pageless
+    const pagelessElement = pageless[0].children[0].children
       .find((route) => route.path === "docs")
       .children.find((child) => child.index === true).element.props.children;
 
@@ -957,7 +987,7 @@ describe("route generator", () => {
       },
       notFounds: { "not-found.tsx": loader("root-not-found") },
     });
-    const rootChildren = routes[0].children ?? routes;
+    const rootChildren = routes[0].children[0].children;
 
     const rootSplat = rootChildren.find((route) => route.path === "*");
     assert.ok(rootSplat, "the folder's not-found becomes a root splat");
@@ -977,17 +1007,19 @@ describe("route generator", () => {
     // The built-in 404 only appears where nothing else owns the root splat, and it
     // is marked like every other route that renders a not-found page.
     const bare = createRoutes({ pages: { "page.tsx": loader("home") } });
-    const builtIn = (bare[0].children ?? bare).find((route) => route.path === "*");
+    const builtIn = bare[0].children[0].children.find((route) => route.path === "*");
     assert.ok(builtIn && isNotFoundRoute(builtIn), "the appended 404 splat is marked");
   });
 
   test("a folder's boundary route does not turn its catch-all page into a 404", () => {
     // `loading.tsx` / `error.tsx` insert a pathless boundary route in front of
-    // everything a folder renders, so the chain reaching a nested catch-all page
-    // is `/ > users > pathless > *`. A server guessing at the status from that
-    // shape sees a pathless parent, concludes "the root's splat", and answers 404
-    // for a URL that renders a page - the exact confusion the handle exists to end,
-    // because the root's own 404 behind a root boundary has the same shape.
+    // everything a folder renders, and the root's not-found owner wrapper sits
+    // above the folders, so the chain reaching a nested catch-all page is
+    // `/ > not-found owner > users > pathless > *`. A server guessing at the
+    // status from that shape sees a pathless parent, concludes "the root's
+    // splat", and answers 404 for a URL that renders a page - the exact
+    // confusion the handle exists to end, because the root's own 404 behind a
+    // root boundary has the same shape.
     const tree = buildRouteTree({
       pages: {
         "page.tsx": loader("home"),
@@ -1023,8 +1055,9 @@ describe("route generator", () => {
     const rootRoutes = treeToRoutes(rootLayoutTree, true);
     const unmatched = matchRoutes(rootRoutes, "/ddddddd");
     assert.equal(unmatched.at(-1).route.path, "*");
-    assert.equal(unmatched.at(-2).route.path, undefined, "the root boundary sits above the splat");
-    assert.equal(unmatched.at(-3).route.path, "/");
+    assert.equal(unmatched.at(-2).route.path, undefined, "the not-found owner wrapper sits above the splat");
+    assert.equal(unmatched.at(-3).route.path, undefined, "and the root's own error boundary above that");
+    assert.equal(unmatched.at(-4).route.path, "/");
     assert.ok(isUnmatched(rootRoutes, "/ddddddd"));
     assert.ok(!isUnmatched(rootRoutes, "/"));
   });
@@ -1117,17 +1150,18 @@ describe("route generator", () => {
         },
       });
 
-      assert.deepEqual(routeShape(routes), [{
-        children: [
-          { index: true, children: undefined },
-          { path: "about", children: undefined },
-        ],
-      },
-      // The built-in 404 splat sits beside the group, answering every URL the
-      // group's subtree does not.
-      { path: "*", children: undefined },
-      ]);
-      assert.equal(routes[0].element.type, groupLayout);
+      assert.deepEqual(routeShape(routes), [{ path: "/", children: [
+        { children: [
+          { children: [
+            { index: true, children: undefined },
+            { path: "about", children: undefined },
+          ] },
+          // The built-in 404 splat sits beside the group, answering every URL
+          // the group's subtree does not.
+          { path: "*", children: undefined },
+        ] },
+      ] }]);
+      assert.equal(routes[0].children[0].children[0].element.type, groupLayout);
     });
 
     test("generates not-found routes without requiring a layout", () => {
@@ -1139,17 +1173,21 @@ describe("route generator", () => {
         },
       });
 
-      assert.deepEqual(routeShape(routes), [{
-        path: "/", children: [
+      assert.deepEqual(routeShape(routes), [{ path: "/", children: [
+        { children: [
           { path: "dashboard", children: [
-            { index: true, children: undefined },
-            { path: "*", children: undefined },
+            // The folder declares `not-found.tsx`, so its routes sit behind its
+            // own NotFoundBoundary owner wrapper.
+            { children: [
+              { index: true, children: undefined },
+              { path: "*", children: undefined },
+            ] },
           ] },
           { path: "*", children: undefined },
           // No root page: the guard index answers "/" with the root not-found.
           { index: true, children: undefined },
-        ],
-      }]);
+        ] },
+      ] }]);
     });
 
     test("extracts paths using configured file names and directories", () => {
@@ -1239,28 +1277,32 @@ describe("route generator", () => {
       },
     });
 
-    assert.deepEqual(routeShape(routes), [{
-      path: "/",
-      children: [
+    assert.deepEqual(routeShape(routes), [{ path: "/", children: [
+      { children: [
         { path: "dashboard", children: [
-          { index: true, children: undefined },
-          { path: "*", children: undefined },
+          // The folder declares `not-found.tsx`, so its routes sit behind its
+          // own NotFoundBoundary owner wrapper.
+          { children: [
+            { index: true, children: undefined },
+            { path: "*", children: undefined },
+          ] },
         ] },
         { path: "*", children: undefined },
         // The root holds no page: "/" answers with the root not-found.
         { index: true, children: undefined },
-      ],
-    }]);
+      ] },
+    ] }]);
     assert.equal(routes[0].element.type, rootLayout);
+    // The dashboard index renders its page behind a Suspense boundary.
     assert.equal(
-      routes[0].children[0].children[0].element.props.children.props.children.type,
+      routes[0].children[0].children[0].children[0].children[0].element.type,
       React.Suspense,
     );
 
     const dashboardMissing = matchRoutes(routes, "/dashboard/missing");
     assert.deepEqual(
       dashboardMissing?.map(({ route }) => route.path ?? route.index),
-      ["/", "dashboard", "*"],
+      ["/", undefined, "dashboard", undefined, "*"],
     );
     assert.equal(matchRoutes(routes, "/unknown")?.at(-1)?.route.path, "*");
   });
@@ -1298,7 +1340,7 @@ describe("route generator", () => {
       matchRoutes(routes, `/${segments.join("/")}`)?.map(
         ({ route }) => route.path ?? route.index,
       ),
-      [...segments, true],
+      ["/", undefined, ...segments, true],
     );
   });
 
@@ -1315,6 +1357,8 @@ describe("route generator", () => {
 
     const matches = matchRoutes(routes, "/docs/guide/api");
     assert.deepEqual(matches?.map(({ route }) => route.path ?? route.index), [
+      "/",
+      undefined,
       "docs",
       "*",
     ]);
@@ -1335,29 +1379,31 @@ describe("route generator", () => {
       layouts: { "docs/[[...slug]]/layout.tsx": { default: layout } },
     });
 
-    assert.deepEqual(routeShape(routes), [
-      { path: "docs", children: [
-        { path: "*", children: [
-          { index: true, children: undefined },
-          { path: "*", children: undefined },
+    assert.deepEqual(routeShape(routes), [{ path: "/", children: [
+      { children: [
+        { path: "docs", children: [
+          { path: "*", children: [
+            { index: true, children: undefined },
+            { path: "*", children: undefined },
+          ] },
         ] },
+        // No guard index beside `docs`: the base is claimed inside it. The two
+        // routes after it are the root's own base guard and the built-in 404.
+        { index: true, children: undefined },
+        { path: "*", children: undefined },
       ] },
-      // No guard index beside `docs`: the base is claimed inside it. The two
-      // routes after it are the root's own base guard and the built-in 404.
-      { index: true, children: undefined },
-      { path: "*", children: undefined },
-    ]);
+    ] }]);
 
     assert.deepEqual(matchRoutes(routes, "/docs")?.map(({ route }) => route.path ?? route.index), [
-      "docs", "*", true,
+      "/", undefined, "docs", "*", true,
     ]);
     assert.deepEqual(matchRoutes(routes, "/docs/guide")?.map(({ route }) => route.path ?? route.index), [
-      "docs", "*", "*",
+      "/", undefined, "docs", "*", "*",
     ]);
 
     // The provider naming the splat wraps the layout too, so the layout of the
     // catch-all folder reads its own parameter.
-    const shell = routes[0].children[0].element;
+    const shell = routes[0].children[0].children[0].children[0].element;
     assert.equal(shell.type, CatchAllParamProvider);
     assert.equal(shell.props.name, "slug");
     assert.equal(shell.props.children.type, layout);
@@ -1370,14 +1416,16 @@ describe("route generator", () => {
       },
     });
 
-    assert.deepEqual(routeShape(routes), [
-      { path: "valid", children: undefined },
-      // The root has no page of its own, so "/" is guarded rather than left a
-      // partial match; only `page.tsx` files carry pages.
-      { index: true, children: undefined },
-      // The built-in 404 splat answers every other URL.
-      { path: "*", children: undefined },
-    ]);
+    assert.deepEqual(routeShape(routes), [{ path: "/", children: [
+      { children: [
+        { path: "valid", children: undefined },
+        // The root has no page of its own, so "/" is guarded rather than left a
+        // partial match; only `page.tsx` files carry pages.
+        { index: true, children: undefined },
+        // The built-in 404 splat answers every other URL.
+        { path: "*", children: undefined },
+      ] },
+    ] }]);
   });
 
   test("handles Windows paths and paths containing spaces", () => {
@@ -1387,14 +1435,16 @@ describe("route generator", () => {
       {},
     );
 
-    assert.deepEqual(routeShape(treeToRoutes(tree, true)), [
-      { path: "my pages", children: [
-        { path: ":id", children: undefined },
+    assert.deepEqual(routeShape(treeToRoutes(tree, true)), [{ path: "/", children: [
+      { children: [
+        { path: "my pages", children: [
+          { path: ":id", children: undefined },
+          { index: true, children: undefined },
+        ] },
         { index: true, children: undefined },
+        { path: "*", children: undefined },
       ] },
-      { index: true, children: undefined },
-      { path: "*", children: undefined },
-    ]);
+    ] }]);
   });
 
   test("rejects colliding dynamic parameter names when building routes", () => {
@@ -1418,7 +1468,7 @@ describe("route generator", () => {
     // The trailing index is the root's base guard (no root page here) and the
     // `*` the built-in 404 splat; the point of the test is the order of the
     // URL-bearing routes.
-    assert.deepEqual(routes.map((route) => route.path ?? "index"), [
+    assert.deepEqual(routes[0].children[0].children.map((route) => route.path ?? "index"), [
       "about",
       "alpha",
       "zebra",
@@ -1440,7 +1490,7 @@ describe("route generator", () => {
       },
     });
 
-    assert.deepEqual(routes.map((route) => route.path ?? "index"), [
+    assert.deepEqual(routes[0].children[0].children.map((route) => route.path ?? "index"), [
       "About",
       ":id",
       "about",
@@ -1455,8 +1505,7 @@ describe("route generator", () => {
     const routes = createRoutes({
       pages: { "lazy/page.tsx": loader("lazy") },
     });
-    const boundary = routes[0].element.props.children;
-    const suspense = boundary.props.children;
+    const suspense = routes[0].children[0].children[0].element;
     assert.equal(suspense.type, React.Suspense);
     assert.equal(typeof suspense.props.fallback.type, "function");
     // With no `loading.tsx` in the folder the placeholder renders nothing, like
@@ -1532,8 +1581,8 @@ describe("lazy component cache", () => {
     // The home page lives on the root's index route; the built-in 404 splat sits
     // beside it, so the reused lazy component is the index's.
     assert.equal(
-      lazyOf(generate()[0].children[0].element),
-      lazyOf(generate()[0].children[0].element),
+      lazyOf(generate()[0].children[0].children[0].element),
+      lazyOf(generate()[0].children[0].children[0].element),
     );
   });
 
@@ -1552,8 +1601,8 @@ describe("lazy component cache", () => {
     // Both resolve the same `page:users` key, but per-generator caches keep the
     // components (and therefore the wrapped loaders) isolated.
     assert.notEqual(
-      lazyOf(generateA()[0].element),
-      lazyOf(generateB()[0].element),
+      lazyOf(generateA()[0].children[0].children[0].element),
+      lazyOf(generateB()[0].children[0].children[0].element),
     );
   });
 
@@ -1564,17 +1613,20 @@ describe("lazy component cache", () => {
 
     // Each call builds its own default cache, so the same route key yields a
     // fresh React.lazy component instead of reusing the earlier call's.
-    assert.notEqual(lazyOf(first[0].element), lazyOf(second[0].element));
+    assert.notEqual(
+      lazyOf(first[0].children[0].children[0].element),
+      lazyOf(second[0].children[0].children[0].element),
+    );
   });
 
   test("a generator ignores a loader swapped for an already-cached route", () => {
     const pages = { "users/page.tsx": loader("A") };
     const generate = createRouteGenerator(pages, {}, {});
-    const first = lazyOf(generate()[0].element);
+    const first = lazyOf(generate()[0].children[0].children[0].element);
 
     // Replace the loader for the same key and regenerate on the SAME generator.
     pages["users/page.tsx"] = loader("B");
-    const second = lazyOf(generate()[0].element);
+    const second = lazyOf(generate()[0].children[0].children[0].element);
 
     // The cache hit keeps the original memoized component; loader B is ignored.
     assert.equal(first, second);
@@ -1583,11 +1635,11 @@ describe("lazy component cache", () => {
   test("a fresh generator resolves the swapped loader", () => {
     const pages = { "users/page.tsx": loader("A") };
     const generateV1 = createRouteGenerator(pages, {}, {});
-    const oldComponent = lazyOf(generateV1()[0].element);
+    const oldComponent = lazyOf(generateV1()[0].children[0].children[0].element);
 
     pages["users/page.tsx"] = loader("B");
     const generateV2 = createRouteGenerator(pages, {}, {});
-    const newComponent = lazyOf(generateV2()[0].element);
+    const newComponent = lazyOf(generateV2()[0].children[0].children[0].element);
 
     // The documented workaround: a new generator owns a new cache, so the
     // changed source produces a component wrapping the current loader.
@@ -1678,8 +1730,9 @@ describe("lazy layouts", () => {
 
     // `dashboard` owns the only URL besides the root, so its layout route answers
     // `/dashboard` and the page renders through the layout's Outlet.
-    assert.equal(routes[0].path, "dashboard");
-    assert.equal(routes[0].element.type, React.Suspense);
+    const dashboard = routes[0].children[0].children[0];
+    assert.equal(dashboard.path, "dashboard");
+    assert.equal(dashboard.element.type, React.Suspense);
     assert.equal(paintAt(routes, "/dashboard"), "");
     // Once the module promise settles, the boundary renders the layout itself,
     // which proves the loader is wired to the lazy component, not a stand-in.
@@ -1721,7 +1774,7 @@ describe("lazy layouts", () => {
     });
 
     // children: [base guard index, splat route carrying the lazy layout].
-    const [guard, layoutRoute] = routes[0].children;
+    const [guard, layoutRoute] = routes[0].children[0].children[0].children;
     assert.equal(guard.index, true);
     assert.equal(layoutRoute.path, "*");
     assert.equal(layoutRoute.element.type, CatchAllParamProvider);
@@ -1742,7 +1795,7 @@ describe("lazy layouts", () => {
       },
     });
 
-    const byPath = new Map(routes.map((route) => [route.path, route]));
+    const byPath = new Map(routes[0].children[0].children.map((route) => [route.path, route]));
     assert.equal(byPath.get("dashboard").element.type, Shell);
     assert.equal(byPath.get("reports").element.type, React.Suspense);
   });
@@ -1756,7 +1809,10 @@ describe("lazy layouts", () => {
       { layoutShape: "loader" },
     );
 
-    assert.equal(lazyOf(generate()[0].element), lazyOf(generate()[0].element));
+    assert.equal(
+      lazyOf(generate()[0].children[0].children[0].element),
+      lazyOf(generate()[0].children[0].children[0].element),
+    );
   });
 
   test("reports a lazy layout that resolves without a default export", async () => {
@@ -1767,7 +1823,7 @@ describe("lazy layouts", () => {
 
     // The route is still generated; the module only exists once its chunk
     // loads, so the check has to be deferred to the loader.
-    assert.equal(routes[0].element.type, React.Suspense);
+    assert.equal(routes[0].children[0].children[0].element.type, React.Suspense);
     await assert.rejects(
       () => tree.children.get("dashboard").lazyLayout(),
       {
@@ -1857,13 +1913,15 @@ describe("route file default exports", () => {
       {},
     );
 
-    assert.deepEqual(routeShape(treeToRoutes(tree, true)), [
-      { path: "about", children: undefined },
-      // No root page: "/" is answered by the base guard instead of an empty
-      // outlet, exactly as Next.js 404s it; the `*` answers every other URL.
-      { index: true, children: undefined },
-      { path: "*", children: undefined },
-    ]);
+    assert.deepEqual(routeShape(treeToRoutes(tree, true)), [{ path: "/", children: [
+      { children: [
+        { path: "about", children: undefined },
+        // No root page: "/" is answered by the base guard instead of an empty
+        // outlet, exactly as Next.js 404s it; the `*` answers every other URL.
+        { index: true, children: undefined },
+        { path: "*", children: undefined },
+      ] },
+    ] }]);
 
     return assert.rejects(
       () => tree.children.get("about").page(),

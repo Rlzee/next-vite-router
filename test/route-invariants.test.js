@@ -46,6 +46,9 @@ function files(pairs) {
 /**
  * The identity of a matched route as a stable, readable label: its path, or
  * `"index"` / `"(layout)"` for the routes React Router declares without one.
+ * A pathless route has no segment to label, so the not-found owner wrapper
+ * (the pathless route every tree wraps under `/`, and every folder declaring
+ * `not-found.tsx` wraps under itself) reads as one more `"(layout)"` level.
  */
 function routeLabel(route) {
   if (route.index) return "index";
@@ -93,12 +96,12 @@ const MATRIX = [
     name: "group is omitted from the URL but keeps its children",
     rows: { pages: [page(["(admin)/dashboard/page", "dashboard"])] },
     urls: [
-      { url: "/dashboard", chain: ["dashboard"], params: {} },
+      { url: "/dashboard", chain: ["/", "(layout)", "dashboard"], params: {} },
       // The group is dropped, so `/admin/dashboard` matches no real route: it
       // falls to the built-in 404 splat, never the dashboard page.
-      { url: "/admin/dashboard", chain: ["*"], params: { "*": "admin/dashboard" } },
+      { url: "/admin/dashboard", chain: ["/", "(layout)", "*"], params: { "*": "admin/dashboard" } },
       // No page answers the root - the group is not one - so the base guard is.
-      { url: "/", chain: ["index"], params: {} },
+      { url: "/", chain: ["/", "(layout)", "index"], params: {} },
     ],
   },
   {
@@ -108,8 +111,8 @@ const MATRIX = [
       layouts: [layout(["(marketing)/layout", "marketing"])],
     },
     urls: [
-      { url: "/", chain: ["(layout)", "index"], params: {} },
-      { url: "/about", chain: ["(layout)", "about"], params: {} },
+      { url: "/", chain: ["/", "(layout)", "(layout)", "index"], params: {} },
+      { url: "/about", chain: ["/", "(layout)", "(layout)", "about"], params: {} },
     ],
     paints: [
       {
@@ -125,8 +128,8 @@ const MATRIX = [
       pages: [page(["users/page", "list"]), pageWithId(["users/[id]/page", "detail"])],
     },
     urls: [
-      { url: "/users", chain: ["users", "index"], params: {} },
-      { url: "/users/42", chain: ["users", ":id"], params: { id: "42" } },
+      { url: "/users", chain: ["/", "(layout)", "users", "index"], params: {} },
+      { url: "/users/42", chain: ["/", "(layout)", "users", ":id"], params: { id: "42" } },
     ],
   },
   {
@@ -139,8 +142,8 @@ const MATRIX = [
     urls: [
       // `/shop` has no page: the guard index makes it a leaf match, so the
       // chain stops at the base instead of painting an empty outlet.
-      { url: "/shop", chain: ["/", "shop", "index"], params: {} },
-      { url: "/shop/items", chain: ["/", "shop", "items"], params: {} },
+      { url: "/shop", chain: ["/", "(layout)", "shop", "index"], params: {} },
+      { url: "/shop/items", chain: ["/", "(layout)", "shop", "items"], params: {} },
     ],
     paints: [
       {
@@ -165,13 +168,13 @@ const MATRIX = [
     urls: [
       // Each intermediate folder is guarded, and the guards stay leaf matches:
       // the URLs that do have a page still resolve to it.
-      { url: "/docs", chain: ["/", "docs", "index"], params: {} },
-      { url: "/docs/intro", chain: ["/", "docs", "intro"], params: {} },
-      { url: "/deep", chain: ["/", "deep", "index"], params: {} },
-      { url: "/deep/leaf", chain: ["/", "deep", "leaf"], params: {} },
-      { url: "/shop", chain: ["/", "shop", "index"], params: {} },
-      { url: "/shop/a", chain: ["/", "shop", ":cat", "index"], params: { cat: "a" } },
-      { url: "/shop/a/b", chain: ["/", "shop", ":cat", ":item"], params: { cat: "a", item: "b" } },
+      { url: "/docs", chain: ["/", "(layout)", "docs", "index"], params: {} },
+      { url: "/docs/intro", chain: ["/", "(layout)", "docs", "intro"], params: {} },
+      { url: "/deep", chain: ["/", "(layout)", "deep", "index"], params: {} },
+      { url: "/deep/leaf", chain: ["/", "(layout)", "deep", "leaf"], params: {} },
+      { url: "/shop", chain: ["/", "(layout)", "shop", "index"], params: {} },
+      { url: "/shop/a", chain: ["/", "(layout)", "shop", ":cat", "index"], params: { cat: "a" } },
+      { url: "/shop/a/b", chain: ["/", "(layout)", "shop", ":cat", ":item"], params: { cat: "a", item: "b" } },
     ],
     paints: [
       { url: "/docs", includes: ['data-not-found="root"'], excludes: ['data-page="intro"'] },
@@ -187,8 +190,8 @@ const MATRIX = [
     urls: [
       // Still a leaf match, rendering nothing: the blank 404 an app without a
       // `not-found.tsx` gets, and never the page below with an empty value.
-      { url: "/docs", chain: ["docs", "index"], params: {} },
-      { url: "/docs/intro", chain: ["docs", "intro"], params: {} },
+      { url: "/docs", chain: ["/", "(layout)", "docs", "index"], params: {} },
+      { url: "/docs/intro", chain: ["/", "(layout)", "docs", "intro"], params: {} },
     ],
     paints: [
       { url: "/docs", excludes: ['data-page="intro"'] },
@@ -203,9 +206,11 @@ const MATRIX = [
     },
     urls: [
       // Same rule as the required catch-all base: the folder's own `not-found`
-      // wins, so `/docs` and `/docs/anything` show one boundary.
-      { url: "/docs", chain: ["/", "docs", "index"], params: {} },
-      { url: "/docs/missing", chain: ["/", "docs", "*"], params: { "*": "missing" } },
+      // wins, so `/docs` and `/docs/anything` show one boundary. The folder
+      // declaring `not-found.tsx` adds its own owner wrapper level, as does
+      // the root.
+      { url: "/docs", chain: ["/", "(layout)", "docs", "(layout)", "index"], params: {} },
+      { url: "/docs/missing", chain: ["/", "(layout)", "docs", "(layout)", "*"], params: { "*": "missing" } },
     ],
     paints: [
       {
@@ -226,8 +231,8 @@ const MATRIX = [
     urls: [
       // The group owns no URL: the guard belongs to `docs`, which sits at the
       // same level once the group is dropped from the path.
-      { url: "/docs", chain: ["/", "(layout)", "docs", "index"], params: {} },
-      { url: "/docs/intro", chain: ["/", "(layout)", "docs", "intro"], params: {} },
+      { url: "/docs", chain: ["/", "(layout)", "(layout)", "docs", "index"], params: {} },
+      { url: "/docs/intro", chain: ["/", "(layout)", "(layout)", "docs", "intro"], params: {} },
     ],
     paints: [
       {
@@ -246,13 +251,13 @@ const MATRIX = [
     urls: [
       // The base URL is a real leaf match on the guard index, not a splat
       // match with an empty value: `/blog` answers with the not-found.
-      { url: "/blog", chain: ["/", "blog", "index"], params: {} },
-      { url: "/blog/", chain: ["/", "blog", "index"], params: {} },
-      { url: "/blog/guide", chain: ["/", "blog", "*"], params: { "*": "guide" } },
-      { url: "/blog/guide/api", chain: ["/", "blog", "*"], params: { "*": "guide/api" } },
+      { url: "/blog", chain: ["/", "(layout)", "blog", "index"], params: {} },
+      { url: "/blog/", chain: ["/", "(layout)", "blog", "index"], params: {} },
+      { url: "/blog/guide", chain: ["/", "(layout)", "blog", "*"], params: { "*": "guide" } },
+      { url: "/blog/guide/api", chain: ["/", "(layout)", "blog", "*"], params: { "*": "guide/api" } },
       // React Router keeps the trailing slash in the raw splat; `useCatchAll`
       // drops empty segments, so the rendered value is normalized (see paints).
-      { url: "/blog/guide/api/", chain: ["/", "blog", "*"], params: { "*": "guide/api/" } },
+      { url: "/blog/guide/api/", chain: ["/", "(layout)", "blog", "*"], params: { "*": "guide/api/" } },
     ],
     paints: [
       { url: "/blog", includes: ['data-not-found="root"'], excludes: ["blog{"] },
@@ -264,8 +269,8 @@ const MATRIX = [
     name: "optional catch-all matches its base path and everything below",
     rows: { pages: [pageWithCatchAll(["docs/[[...segments]]/page", "docs"])] },
     urls: [
-      { url: "/docs", chain: ["docs", "index"], params: {} },
-      { url: "/docs/a/b", chain: ["docs", "*"], params: { "*": "a/b" } },
+      { url: "/docs", chain: ["/", "(layout)", "docs", "index"], params: {} },
+      { url: "/docs/a/b", chain: ["/", "(layout)", "docs", "*"], params: { "*": "a/b" } },
     ],
     paints: [
       { url: "/docs", includes: ["docs{}"] },
@@ -283,9 +288,9 @@ const MATRIX = [
       layouts: [layout(["docs/layout", "docs-shell"])],
     },
     urls: [
-      { url: "/docs", chain: ["docs", "index"], params: {} },
-      { url: "/docs/guide", chain: ["docs", "*"], params: { "*": "guide" } },
-      { url: "/docs/guide/api", chain: ["docs", "*"], params: { "*": "guide/api" } },
+      { url: "/docs", chain: ["/", "(layout)", "docs", "index"], params: {} },
+      { url: "/docs/guide", chain: ["/", "(layout)", "docs", "*"], params: { "*": "guide" } },
+      { url: "/docs/guide/api", chain: ["/", "(layout)", "docs", "*"], params: { "*": "guide/api" } },
     ],
     paints: [
       {
@@ -315,9 +320,9 @@ const MATRIX = [
       layouts: [layout(["docs/[[...slug]]/layout", "slug-shell"])],
     },
     urls: [
-      { url: "/docs", chain: ["docs", "*", "index"], params: { "*": "" } },
-      { url: "/docs/guide", chain: ["docs", "*", "*"], params: { "*": "guide" } },
-      { url: "/docs/guide/api", chain: ["docs", "*", "*"], params: { "*": "guide/api" } },
+      { url: "/docs", chain: ["/", "(layout)", "docs", "*", "index"], params: { "*": "" } },
+      { url: "/docs/guide", chain: ["/", "(layout)", "docs", "*", "*"], params: { "*": "guide" } },
+      { url: "/docs/guide/api", chain: ["/", "(layout)", "docs", "*", "*"], params: { "*": "guide/api" } },
     ],
     paints: [
       {
@@ -344,8 +349,8 @@ const MATRIX = [
       notFounds: [notFound(["not-found", "root"])],
     },
     urls: [
-      { url: "/", chain: ["/", "index"], params: {} },
-      { url: "/a/b", chain: ["/", "*"], params: { "*": "a/b" } },
+      { url: "/", chain: ["/", "(layout)", "index"], params: {} },
+      { url: "/a/b", chain: ["/", "(layout)", "*"], params: { "*": "a/b" } },
     ],
     paints: [
       { url: "/", includes: ['data-not-found="root"'], excludes: ["everything{"] },
@@ -356,8 +361,8 @@ const MATRIX = [
     name: "required catch-all without any not-found paints no page at its base",
     rows: { pages: [pageWithCatchAll(["blog/[...slug]/page", "blog"])] },
     urls: [
-      { url: "/blog", chain: ["blog", "index"], params: {} },
-      { url: "/blog/guide", chain: ["blog", "*"], params: { "*": "guide" } },
+      { url: "/blog", chain: ["/", "(layout)", "blog", "index"], params: {} },
+      { url: "/blog/guide", chain: ["/", "(layout)", "blog", "*"], params: { "*": "guide" } },
     ],
     paints: [
       // The guard index still matches, with nothing to render: the page must
@@ -374,8 +379,10 @@ const MATRIX = [
       notFounds: [notFound(["blog/not-found", "blog"])],
     },
     urls: [
-      { url: "/blog", chain: ["blog", "index"], params: {} },
-      { url: "/blog/guide", chain: ["blog", "*"], params: { "*": "guide" } },
+      // `blog` declares its own `not-found.tsx`, so its level adds the owner
+      // wrapper between the folder route and what it emits.
+      { url: "/blog", chain: ["/", "(layout)", "blog", "(layout)", "index"], params: {} },
+      { url: "/blog/guide", chain: ["/", "(layout)", "blog", "(layout)", "*"], params: { "*": "guide" } },
     ],
     paints: [
       {
@@ -393,8 +400,8 @@ const MATRIX = [
       notFounds: [notFound(["not-found", "root"])],
     },
     urls: [
-      { url: "/docs", chain: ["/", "docs", "index"], params: {} },
-      { url: "/docs/guide/api", chain: ["/", "docs", "*"], params: { "*": "guide/api" } },
+      { url: "/docs", chain: ["/", "(layout)", "docs", "index"], params: {} },
+      { url: "/docs/guide/api", chain: ["/", "(layout)", "docs", "*"], params: { "*": "guide/api" } },
     ],
     paints: [
       {
@@ -416,10 +423,10 @@ const MATRIX = [
       notFounds: [notFound(["dashboard/not-found", "dashboard"]), notFound(["not-found", "root"])],
     },
     urls: [
-      { url: "/dashboard", chain: ["/", "dashboard", "index"], params: {} },
-      { url: "/dashboard/missing", chain: ["/", "dashboard", "*"], params: { "*": "missing" } },
-      { url: "/about", chain: ["/", "about"], params: {} },
-      { url: "/nowhere", chain: ["/", "*"], params: { "*": "nowhere" } },
+      { url: "/dashboard", chain: ["/", "(layout)", "dashboard", "(layout)", "index"], params: {} },
+      { url: "/dashboard/missing", chain: ["/", "(layout)", "dashboard", "(layout)", "*"], params: { "*": "missing" } },
+      { url: "/about", chain: ["/", "(layout)", "about"], params: {} },
+      { url: "/nowhere", chain: ["/", "(layout)", "*"], params: { "*": "nowhere" } },
     ],
     paints: [
       { url: "/dashboard/missing", includes: ['data-not-found="dashboard"'] },
@@ -437,12 +444,12 @@ const MATRIX = [
       layouts: [layout(["layout", "root"]), layout(["users/layout", "users"])],
     },
     urls: [
-      { url: "/", chain: ["/", "index"], params: {} },
-      { url: "/users", chain: ["/", "users", "index"], params: {} },
-      { url: "/users/7", chain: ["/", "users", ":id"], params: { id: "7" } },
+      { url: "/", chain: ["/", "(layout)", "index"], params: {} },
+      { url: "/users", chain: ["/", "(layout)", "users", "index"], params: {} },
+      { url: "/users/7", chain: ["/", "(layout)", "users", ":id"], params: { id: "7" } },
       // No deeper route answers `/users/7/edit`: it falls through to the
       // built-in 404 splat inside the root layout, not to the `:id` page.
-      { url: "/users/7/edit", chain: ["/", "*"], params: { "*": "users/7/edit" } },
+      { url: "/users/7/edit", chain: ["/", "(layout)", "*"], params: { "*": "users/7/edit" } },
     ],
     paints: [
       { url: "/", order: ["[root", "home", "/root]"] },
@@ -458,8 +465,8 @@ const MATRIX = [
       notFounds: [notFound(["(app)/(admin)/not-found", "admin"])],
     },
     urls: [
-      { url: "/reports", chain: ["(layout)", "reports"], params: {} },
-      { url: "/reports/hidden", chain: ["(layout)", "*"], params: { "*": "reports/hidden" } },
+      { url: "/reports", chain: ["/", "(layout)", "(layout)", "(layout)", "reports"], params: {} },
+      { url: "/reports/hidden", chain: ["/", "(layout)", "(layout)", "(layout)", "*"], params: { "*": "reports/hidden" } },
     ],
     paints: [
       {

@@ -43,9 +43,12 @@ test("treeToRoutes attaches the catch-all provider to generated pages", () => {
   const routes = treeToRoutes(buildRouteTree({
     "blog/[...slug]/page.tsx": loader,
   }, {}, {}), true);
-  // The base URL is answered by the guard index; the page - and the provider
-  // that names its splat - lives on the `*` route beside it.
-  const [guard, generatedPage] = routes[0].children;
+  // The base URL is answered by the guard index; the splat beside it renders
+  // the page inside the provider that names its catch-all. The root's owner
+  // boundary (pathless) wraps the folder route, so unwrap both levels first.
+  const [boundaryWrapper] = routes[0].children;
+  const [folder] = boundaryWrapper.children;
+  const [guard, generatedPage] = folder.children;
   const provider = generatedPage.element;
 
   assert.equal(guard.index, true);
@@ -87,14 +90,16 @@ test("optional catch-all routes preserve layout matching at base and nested path
   const nestedMatch = matchRoutes(routes, "/docs/reference/api");
 
   assert.deepEqual(
+    // The root path route and the root's pathless owner boundary sit above the
+    // folder, so the matched branch carries both before the folder's own.
     baseMatch?.map(({ route }) => route.path ?? route.index),
-    ["docs", true],
+    ["/", undefined, "docs", true],
   );
   assert.deepEqual(
     nestedMatch?.map(({ route }) => route.path ?? route.index),
-    ["docs", "*"],
+    ["/", undefined, "docs", "*"],
   );
-  assert.equal(baseMatch?.[0]?.route.element.type, DocsLayout);
+  assert.equal(baseMatch?.at(2)?.route.element.type, DocsLayout);
   assert.equal(nestedMatch?.at(-1)?.params["*"], "reference/api");
 });
 

@@ -205,6 +205,7 @@ export class NotFoundBoundary extends React.Component<
       outcome: this.context?.outcome,
       owner: parentOwner,
       phase: "fallback",
+      fallbackOwner: this.props.owner,
     };
     const Fallback = this.props.fallback;
     const fallback = React.createElement(Fallback);
@@ -212,6 +213,11 @@ export class NotFoundBoundary extends React.Component<
       ? React.createElement(
           React.Fragment,
           null,
+          // The noindex meta rides the fallback paint itself - not the plan, not
+          // the document shell - because the client boundary paints the exact
+          // same fragment (marker included) when it seeds from the server
+          // document. Anything the client cannot reproduce breaks hydration.
+          React.createElement("meta", { name: "robots", content: "noindex" }),
           fallback,
           React.createElement("script", {
             type: "application/json",

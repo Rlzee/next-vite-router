@@ -19,6 +19,13 @@ import { RenderContext, useRenderContext } from '../router/render-outcome';
 import { DefaultNotFound } from './default-not-found';
 import { NOT_FOUND_ROUTE_HANDLE } from '../router/not-found';
 
+type NotFoundFallback = {
+  loader?: RouteModuleLoader;
+  owner: string;
+  /** The next boundary that can actually paint a fallback. */
+  parentOwner: string;
+};
+
 /**
  * The `loading.tsx` / `error.tsx` boundary element of `node` when it declares
  * either file, rendered as the element of a pathless route between the folder
@@ -63,12 +70,38 @@ function boundaryOutletElement(node: RouteNode): React.ReactElement | undefined 
 function withBoundaryChildren(
   node: RouteNode,
   children: RouteObject[],
+  cache: LazyComponentCache,
+  notFoundFallback: NotFoundFallback | undefined,
+  rootFallbackBoundary = false,
 ): RouteObject[] {
+  let content = children;
+  if (node.notFound || rootFallbackBoundary) {
+    if (!notFoundFallback) {
+      throw new Error(`Route node "${node.fullPath}" has no not-found fallback`);
+    }
+    content = [{
+      element: React.createElement(
+        RenderContextOverride,
+        { owner: notFoundFallback.owner, phase: "page" },
+        React.createElement(NotFoundBoundary, {
+          owner: notFoundFallback.owner,
+          parentOwner: notFoundFallback.parentOwner,
+          fallback: fallbackComponent(createNotFoundFallbackElement(
+            notFoundFallback,
+            cache,
+            `notfound:${node.fullPath}:boundary`,
+          )),
+          children: React.createElement(Outlet),
+        }),
+      ),
+      children: content,
+    }];
+  }
   const element = boundaryOutletElement(node);
   if (!element) {
-    return children;
+    return content;
   }
-  return [{ element, children }];
+  return [{ element, children: content }];
 }
 
 function isOptionalCatchAll(segment: string): boolean {
@@ -94,20 +127,17 @@ function isRequiredCatchAll(segment: string): boolean {
  * `/docs` and `/docs/missing`).
  */
 function createNotFoundFallbackElement(
-  node: RouteNode,
+  fallback: NotFoundFallback | undefined,
   cache: LazyComponentCache,
-  inheritedFallback: NotFoundFallback | undefined,
   cacheKey: string,
 ): React.ReactElement {
-  const fallbackLoader = node.notFound
-    ? { loader: node.notFound, owner: ownerFor(node) }
-    : inheritedFallback;
-  if (!fallbackLoader) {
+  const loader = fallback?.loader;
+  if (!loader) {
     return React.createElement(DefaultNotFound);
   }
 
   return createLazyElement(
-    async () => ({ default: (await fallbackLoader.loader()).default }),
+    async () => ({ default: (await loader()).default }),
     cacheKey,
     cache,
   );
@@ -118,23 +148,6 @@ function ownerFor(node: RouteNode): string {
     return "/";
   }
   return node.fullPath.startsWith("/") ? node.fullPath : `/${node.fullPath}`;
-}
-
-type NotFoundFallback = {
-  loader: RouteModuleLoader;
-  owner: string;
-};
-
-function fallbackOwnerFor(
-  node: RouteNode,
-  inheritedFallback: NotFoundFallback | undefined,
-): string {
-  return node.notFound ? ownerFor(node) : inheritedFallback?.owner ?? ownerFor(node);
-}
-
-function parentOwnerForFallback(owner: string): string {
-  const slash = owner.lastIndexOf("/");
-  return slash <= 0 ? "/" : owner.slice(0, slash);
 }
 
 function fallbackComponent(element: React.ReactElement): React.ComponentType {
@@ -159,30 +172,6 @@ function RenderContextOverride(props: {
       },
     },
     props.children,
-  );
-}
-
-function withNotFoundPageBoundary(
-  node: RouteNode,
-  element: React.ReactElement,
-  cache: LazyComponentCache,
-  inheritedFallback: NotFoundFallback | undefined,
-): React.ReactElement {
-  const fallback = createNotFoundFallbackElement(
-    node,
-    cache,
-    inheritedFallback,
-    `notfound:${node.fullPath}:boundary`,
-  );
-  return React.createElement(
-    RenderContextOverride,
-    { owner: ownerFor(node), phase: "page" },
-    React.createElement(NotFoundBoundary, {
-      owner: ownerFor(node),
-      parentOwner: parentOwnerForFallback(fallbackOwnerFor(node, inheritedFallback)),
-      fallback: fallbackComponent(fallback),
-      children: element,
-    }),
   );
 }
 
@@ -309,10 +298,7 @@ function createPageRoute(
     cache,
   );
 
-  const routeElement = withCatchAllParam(
-    node.segment,
-    withNotFoundPageBoundary(node, element, cache, inheritedFallback),
-  );
+  const routeElement = withCatchAllParam(node.segment, element);
 
   return isIndex
     ? { index: true, element: routeElement }
@@ -472,12 +458,11 @@ function createCatchAllBaseRoute(
     index: true,
     handle: NOT_FOUND_ROUTE_HANDLE,
     element: withNotFoundFallbackContext(
-      fallbackOwnerFor(node, inheritedFallback),
+      inheritedFallback?.owner ?? ownerFor(node),
       React.createElement(CatchAllBaseGuard, {
       fallback: createNotFoundFallbackElement(
-        node,
-        cache,
         inheritedFallback,
+        cache,
         `notfound:${node.fullPath}:base`,
       ),
       }),
@@ -511,11 +496,10 @@ function createEmptyFolderBaseRoute(
     // replaces. With no `not-found` anywhere it falls through to the built-in
     // `DefaultNotFound`, so the base always paints a 404 page.
     element: withNotFoundFallbackContext(
-      fallbackOwnerFor(node, inheritedFallback),
+      inheritedFallback?.owner ?? ownerFor(node),
       createNotFoundFallbackElement(
-        node,
-        cache,
         inheritedFallback,
+        cache,
         `notfound:${node.fullPath}:empty-base`,
       ),
     ),
@@ -612,7 +596,9 @@ function createPageRoutes(
         {
           path: nodeSegment,
           ...(element ? {} : { element: pageElement }),
-          children: element ? withBoundaryChildren(node, splatChildren) : (catchAllChildren.length > 0 ? catchAllChildren : undefined),
+          children: element
+            ? withBoundaryChildren(node, splatChildren, cache, notFoundFallback)
+            : (catchAllChildren.length > 0 ? catchAllChildren : undefined),
         },
       ],
     };
@@ -632,7 +618,7 @@ function createPageRoutes(
           path: nodeSegment,
           ...(element ? {} : { element: pageRoute.element }),
           ...(element
-            ? { children: withBoundaryChildren(node, splatChildren) }
+            ? { children: withBoundaryChildren(node, splatChildren, cache, notFoundFallback) }
             : {}),
         },
         // A hand-built tree can still attach files under the catch-all folder;
@@ -653,7 +639,7 @@ function createPageRoutes(
           createIndexRoute(node, nodePath, cache, notFoundFallback),
           ...descendants,
           ...notFound,
-        ]),
+        ], cache, notFoundFallback),
       }],
     };
   }
@@ -704,8 +690,6 @@ function createPathlessNodeRoutes(
   // route as the boundary carrier (rather than nesting a second pathless route
   // inside it) keeps the emitted shape minimal while still letting the boundary
   // reach every page at any depth under the group.
-  const element = boundaryOutletElement(node);
-
   return {
     // A group is transparent: whatever its subtree emits at its own level is
     // what the enclosing folder sees.
@@ -714,8 +698,7 @@ function createPathlessNodeRoutes(
       claimsSplats: childClaimsSplats,
     },
     routes: [{
-      ...(element ? { element } : {}),
-      children: children.length > 0 ? children : undefined,
+      children: withBoundaryChildren(node, children, cache, inheritedFallback),
     }],
   };
 }
@@ -724,9 +707,11 @@ function createRootRoutes(
   node: RouteNode,
   cache: LazyComponentCache,
 ): RouteObject[] {
-  const notFoundFallback = node.notFound
-    ? { loader: node.notFound, owner: ownerFor(node) }
-    : undefined;
+  const notFoundFallback: NotFoundFallback = {
+    loader: node.notFound,
+    owner: ownerFor(node),
+    parentOwner: "/",
+  };
   // Folds an unclaimed base into a guard index before the shape below wraps
   // the children, so every root shape answers "/" like Next.js: the not-found
   // inside the root layout when one exists. "/" is a URL, so the root always
@@ -761,33 +746,14 @@ function createRootRoutes(
     return [{
       path: "/",
       element: createLayoutElement(node, "/", cache),
-      children: withBoundaryChildren(node, children),
+      children: withBoundaryChildren(node, children, cache, notFoundFallback, true),
     }];
   }
 
-  if (node.page) {
-    const element = boundaryOutletElement(node);
-    if (element) {
-      return [{ path: "/", children: [{ element, children }] }];
-    }
-
-    if (children.length > 1) {
-      return [{ path: "/", children }];
-    }
-
-    return [{
-      path: "/",
-      element: createPageRoute(node, "/", cache, false, notFoundFallback).element,
-    }];
-  }
-
-  if (node.notFound || node.loading || node.error) {
-    // A root with only a boundary still nests the boundary the same way a
-    // URL-bearing folder does, so its descendants stay guarded at any depth.
-    return [{ path: "/", children: withBoundaryChildren(node, children) }];
-  }
-
-  return children;
+  return [{
+    path: "/",
+    children: withBoundaryChildren(node, children, cache, notFoundFallback, true),
+  }];
 }
 
 /**
@@ -859,7 +825,11 @@ function convertNode(
   // Folders below this one can use its `not-found` as the base fallback for a
   // required catch-all; a folder's own `not-found` shadows an ancestor's.
   const inheritedNotFound = node.notFound
-    ? { loader: node.notFound, owner: ownerFor(node) }
+    ? {
+        loader: node.notFound,
+        owner: ownerFor(node),
+        parentOwner: notFoundFallback?.owner ?? "/",
+      }
     : notFoundFallback;
 
   const nodeSegment = normalizedSegment(node.segment);
@@ -889,7 +859,7 @@ function convertNode(
           {
             path: nodeSegment,
             element: createLayoutElement(node, nodePath, cache),
-            children: withBoundaryChildren(node, splatChildren),
+            children: withBoundaryChildren(node, splatChildren, cache, inheritedNotFound),
           },
         ],
       };
@@ -916,7 +886,7 @@ function convertNode(
         routes: [{
           path: nodeSegment,
           element: createLayoutElement(node, nodePath, cache),
-          children: withBoundaryChildren(node, splatChildren),
+          children: withBoundaryChildren(node, splatChildren, cache, inheritedNotFound),
         }],
       };
     }
@@ -937,7 +907,7 @@ function convertNode(
       routes: [createLayoutRoute(
         isPathless ? "" : nodeSegment,
         createLayoutElement(node, nodePath, cache),
-        withBoundaryChildren(node, layoutChildren),
+        withBoundaryChildren(node, layoutChildren, cache, inheritedNotFound),
       )],
     };
   }
@@ -958,7 +928,7 @@ function convertNode(
       descendants,
       notFound,
       cache,
-      notFoundFallback,
+      inheritedNotFound,
     );
   }
 
@@ -1002,7 +972,7 @@ function convertNode(
           ...(addsBaseGuard
             ? [createEmptyFolderBaseRoute(node, cache, inheritedNotFound)]
             : []),
-        ]),
+        ], cache, inheritedNotFound),
       }],
     };
   }

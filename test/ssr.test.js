@@ -124,6 +124,14 @@ describe("SSR response planning", () => {
     assert.equal(html, "<main><p>42</p></main>");
   });
 
+  test("keeps a robots meta out of the renderApp tree the client must reproduce", () => {
+    const outcome = request("/missing");
+    const plan = planResponse(outcome, { preFlight: 404 });
+    const html = renderToStaticMarkup(renderApp([], { outcome, plan }));
+
+    assert.doesNotMatch(html, /<meta name="robots"/);
+  });
+
   test("plans redirects and preserves application cache policy", () => {
     const outcome = request();
     outcome.recordSignal({
@@ -153,6 +161,34 @@ describe("SSR response planning", () => {
     assert.equal(plan.kind, "error");
     assert.equal(plan.status, 200);
     assert.equal(plan.degraded, true);
+  });
+
+  test("planResponse neither mutates the outcome nor depends on call order", () => {
+    const outcome = request("/shop");
+    outcome.recordSignal({ kind: "not-found", owner: "/shop", reentrant: false }, "page");
+    const slots = () => JSON.stringify({
+      signal: outcome.signal,
+      reentrantSignal: outcome.reentrantSignal,
+      failure: outcome.failure,
+    });
+    const before = slots();
+
+    const first = planResponse(outcome);
+    const second = planResponse(outcome, { preFlight: 404 });
+
+    assert.equal(slots(), before);
+    assert.equal(first.kind, second.kind);
+    assert.equal(first.status, second.status);
+    assert.equal(first.pass, second.pass);
+  });
+
+  test("holds no module-level mutable state in the ssr entry", () => {
+    const source = fs.readFileSync(
+      new URL("../src/ssr/index.ssr.ts", import.meta.url),
+      "utf8",
+    );
+
+    assert.doesNotMatch(source, /^(let |var )/m);
   });
 });
 
@@ -532,43 +568,138 @@ describe("SSR response orchestration", () => {
   });
 
   test("keeps outcomes isolated across concurrent requests", async () => {
+    const bodies = { one: "", two: "" };
     const events = [];
     const makeAdapter = (name) => ({
       head(status) {
         events.push(`${name}:head:${status}`);
       },
-      send() {
+      send(attempt) {
         events.push(`${name}:send`);
+        attempt.pipeTo({
+          write(chunk) { bodies[name] += typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk); },
+          end() {},
+        });
       },
       abandon() {
         events.push(`${name}:abandon`);
       },
       fail() {},
     });
-    const render = async (_element, callbacks) => {
-      await new Promise((resolve) => setTimeout(resolve, 1));
-      callbacks.onError(new NotFoundSignal("/request"));
+    // A starts first, signals, and finishes last: the interleaving proves the
+    // two outcomes never share slots, and completion order proves neither
+    // request waits on the other.
+    const renderOne = async (_element, callbacks) => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      callbacks.onError(new NotFoundSignal("/a"));
       callbacks.onShellReady();
-      return attempt();
+      return {
+        ...attempt(),
+        pipeTo(sink) {
+          sink.write("ONE-NOT-FOUND");
+          sink.end();
+        },
+      };
+    };
+    const renderTwo = async (_element, callbacks) => {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      callbacks.onShellReady();
+      return {
+        ...attempt(),
+        pipeTo(sink) {
+          sink.write("TWO-PAGE");
+          sink.end();
+        },
+      };
     };
 
-    await Promise.all([
-      renderResponse({
-        routes: [],
-        url: "/one",
-        adapter: makeAdapter("one"),
-        render,
-      }),
-      renderResponse({
-        routes: [],
-        url: "/two",
-        adapter: makeAdapter("two"),
-        render,
-      }),
+    const [planOne, planTwo] = await Promise.all([
+      renderResponse({ routes: pageRoutes, url: "/one", adapter: makeAdapter("one"), render: renderOne }),
+      renderResponse({ routes: pageRoutes, url: "/two", adapter: makeAdapter("two"), render: renderTwo }),
     ]);
 
-    assert.equal(events.filter((event) => event.endsWith(":head:404")).length, 2);
-    assert.equal(events.filter((event) => event.endsWith(":send")).length, 2);
+    assert.equal(planOne.kind, "not-found");
+    assert.equal(planOne.status, 404);
+    assert.equal(planTwo.kind, "page");
+    assert.equal(planTwo.status, 200);
+    assert.deepEqual(events.filter((event) => event.includes(":head")), [
+      "two:head:200",
+      "one:head:404",
+    ]);
+    assert.match(bodies.one, /ONE-NOT-FOUND/);
+    assert.doesNotMatch(bodies.one, /TWO-PAGE/);
+    assert.match(bodies.two, /TWO-PAGE/);
+    assert.doesNotMatch(bodies.two, /ONE-NOT-FOUND/);
+  });
+
+  test("commits head exactly once, before the first body byte", async () => {
+    const events = [];
+    const result = await renderResponse({
+      routes: pageRoutes,
+      url: "/ordered",
+      adapter: {
+        head(status) { events.push(`head:${status}`); },
+        send(committed) {
+          events.push("send");
+          committed.pipeTo({
+            write(chunk) { events.push(`byte:${chunk}`); },
+            end() {},
+          });
+        },
+        abandon() {},
+        fail() {},
+      },
+      render(_element, callbacks) {
+        callbacks.onShellReady();
+        return {
+          ...attempt(),
+          pipeTo(sink) {
+            sink.write("body-bytes");
+            sink.end();
+          },
+        };
+      },
+    });
+
+    assert.equal(result.kind, "page");
+    assert.equal(events.filter((event) => event.startsWith("head:")).length, 1);
+    assert.equal(events.findIndex((event) => event.startsWith("head:")), 0);
+    assert.ok(events.findIndex((event) => event.startsWith("byte:")) > 0);
+  });
+
+  test("sends no byte from an abandoned pass", async () => {
+    const written = [];
+    let renders = 0;
+    const plan = await renderResponse({
+      routes: pageRoutes,
+      url: "/fallback",
+      adapter: {
+        head() {},
+        send(committed) {
+          committed.pipeTo({
+            write(chunk) { written.push(String(chunk)); },
+            end() {},
+          });
+        },
+        abandon() {},
+        fail() {},
+      },
+      render(_element, callbacks) {
+        renders += 1;
+        if (renders === 1) callbacks.onError(new NotFoundSignal("/shop"));
+        callbacks.onShellReady();
+        return {
+          ...attempt(),
+          pipeTo(sink) {
+            sink.write(`pass-${renders}`);
+            sink.end();
+          },
+        };
+      },
+    });
+
+    assert.equal(plan.pass, 2);
+    assert.deepEqual(written, ["pass-2"]);
   });
 });
 
@@ -680,6 +811,33 @@ describe("SSR flow control with a real React render", () => {
     assert.match(adapter.body, /GONE-NOT-FOUND/);
   });
 
+  test("paints the robots meta beside the fallback, where the client repaints it", async () => {
+    function Gone() {
+      notFound();
+    }
+    const routes = routesFor({
+      pages: { "gone/page.tsx": async () => ({ default: Gone }) },
+      notFounds: { "gone/not-found.tsx": async () => ({ default: component("GONE-NOT-FOUND") }) },
+    });
+    const adapter = collector();
+
+    const plan = await renderResponse({
+      routes,
+      url: "/gone",
+      adapter,
+      render: nodeEngine,
+      streaming: false,
+    });
+
+    assert.equal(plan.status, 404);
+    assert.equal(plan.headers.get("x-robots-tag"), "noindex");
+    // The meta is part of the boundary's fallback fragment - the exact fragment
+    // the client boundary repaints from the marker - so hydration sees the same
+    // element on both sides.
+    assert.match(adapter.body, /<meta name="robots" content="noindex"/);
+    assert.match(adapter.body, /GONE-NOT-FOUND/);
+  });
+
   test("a notFound() without a file fallback renders the built-in 404", async () => {
     function Missing() {
       notFound();
@@ -700,6 +858,57 @@ describe("SSR flow control with a real React render", () => {
     assert.equal(plan.kind, "not-found");
     assert.equal(plan.status, 404);
     assert.match(adapter.body, /This page could not be found/);
+  });
+
+  test("a layout notFound() uses its ancestor fallback", async () => {
+    function ShopLayout() {
+      notFound();
+    }
+    const routes = routesFor({
+      pages: { "shop/page.tsx": async () => ({ default: component("SHOP") }) },
+      layouts: { "shop/layout.tsx": { default: ShopLayout } },
+      notFounds: { "not-found.tsx": async () => ({ default: component("ROOT-NOT-FOUND") }) },
+    });
+    const adapter = collector();
+
+    const plan = await renderResponse({
+      routes,
+      url: "/shop",
+      adapter,
+      render: nodeEngine,
+      streaming: false,
+    });
+
+    assert.equal(plan.pass, 2);
+    assert.match(adapter.body, /ROOT-NOT-FOUND/);
+  });
+
+  test("a local fallback re-entry paints its real parent fallback in pass 3", async () => {
+    function Missing() {
+      notFound();
+    }
+    function ShopNotFound() {
+      notFound();
+    }
+    const routes = routesFor({
+      pages: { "shop/page.tsx": async () => ({ default: Missing }) },
+      notFounds: {
+        "not-found.tsx": async () => ({ default: component("ROOT-NOT-FOUND") }),
+        "shop/not-found.tsx": async () => ({ default: ShopNotFound }),
+      },
+    });
+    const adapter = collector();
+
+    const plan = await renderResponse({
+      routes,
+      url: "/shop",
+      adapter,
+      render: nodeEngine,
+      streaming: false,
+    });
+
+    assert.equal(plan.pass, 3);
+    assert.match(adapter.body, /ROOT-NOT-FOUND/);
   });
 
   test("a redirect signal commits 307 with location and no body", async () => {
@@ -747,6 +956,64 @@ describe("SSR flow control with a real React render", () => {
     assert.equal(plan.status, 308);
     assert.equal(adapter.status, 308);
     assert.equal(adapter.headers.get("location"), "/new");
+    assert.equal(adapter.body, "");
+  });
+
+  test("runs no effect in any pass", async () => {
+    const effects = [];
+    function Effected() {
+      React.useEffect(() => { effects.push("run"); }, []);
+      return React.createElement("main", null, React.createElement(Outlet));
+    }
+    function Gone() {
+      notFound();
+    }
+    const routes = routesFor({
+      pages: { "gone/page.tsx": async () => ({ default: Gone }) },
+      layouts: { "layout.tsx": { default: Effected } },
+      notFounds: { "not-found.tsx": async () => ({ default: component("ROOT-NOT-FOUND") }) },
+    });
+    const adapter = collector();
+
+    const plan = await renderResponse({
+      routes,
+      url: "/gone",
+      adapter,
+      render: nodeEngine,
+      streaming: false,
+    });
+
+    assert.equal(plan.pass, 2);
+    assert.deepEqual(effects, []);
+    assert.match(adapter.body, /ROOT-NOT-FOUND/);
+  });
+
+  test("an ordinary failure paints no fallback even with error.tsx and not-found.tsx present", async () => {
+    function Broken() {
+      throw new Error("boom");
+    }
+    const routes = routesFor({
+      pages: { "shop/page.tsx": async () => ({ default: Broken }) },
+      notFounds: {
+        "not-found.tsx": async () => ({ default: component("ROOT-NOT-FOUND") }),
+        "shop/not-found.tsx": async () => ({ default: component("SHOP-NOT-FOUND") }),
+      },
+      loadings: {},
+      errors: { "shop/error.tsx": { default: component("SHOP-ERROR") } },
+    });
+    const adapter = collector();
+
+    const plan = await renderResponse({
+      routes,
+      url: "/shop",
+      adapter,
+      render: nodeEngine,
+      streaming: false,
+    });
+
+    assert.equal(plan.kind, "error");
+    assert.equal(plan.status, 500);
+    assert.equal(adapter.failed.status, 500);
     assert.equal(adapter.body, "");
   });
 });

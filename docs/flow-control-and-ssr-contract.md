@@ -7,7 +7,7 @@ Decisions taken (this is the contract those decisions fix):
 | --- | --- |
 | D1 — converter | A. The converter emits the 404 owner marker. `getRouteStatus()` is not modified. |
 | D2 — second SSR render | Yes, for `notFound()` discovered before the shell is committed. Guarantees and non-guarantees in §7.4. |
-| D3 — SSR API surface | New subpath export `next-vite-router/ssr`, platform-neutral: no `node:*` and no `react-router-dom` import. |
+| D3 — SSR API surface | New subpath export `next-vite-router/ssr`, platform-neutral: no `node:*`; React Router imports are resolved through the package alias described by C2. |
 | D4 — redirect statuses | `redirect()` → `307`, `permanentRedirect()` → `308`. `replace` is a client navigation option only and never touches HTTP. |
 
 Sequencing decision kept from review: **signals → SSR protocol → boundaries → converter → `notFound()`
@@ -251,25 +251,40 @@ app-facing/generated-module side, not in `next-vite-router/ssr` (§9 constraint 
 
 ### 6.1 Where the owner and the fallback are decided
 
-`buildRouteTree` already threads the inherited fallback down the walk, and `convertNode` already knows
-`node.notFound`, `node.fullPath`, `node.segment`, and the built-in. The new helper mirrors
-`boundaryOutletElement` in shape:
+The implemented model went one step further than the original page-wrap sketch, because a page-only
+boundary cannot catch a layout's signal (R2) and cannot paint a parent fallback in pass 3 (R5):
+`withBoundaryChildren` installs the folder's `NotFoundBoundary` as a **pathless owner route** between
+the folder (and its layout, when it has one) and everything the folder emits:
 
 ```ts
-/** This folder's 404 owner marker element when a `notFound()` below it has somewhere to land. */
-function notFoundOwnerElement(node: RouteNode, inherited: RouteModuleLoader | undefined): ReactElement | undefined;
+content = [{
+  element: RenderContextOverride(
+    { owner: fallback.owner, phase: "page" },
+    NotFoundBoundary({ owner: fallback.owner, parentOwner: fallback.parentOwner,
+                       fallback, children: <Outlet/> }),
+  ),
+  children: content,
+}];
 ```
 
-It wraps **the page element only** (never the layout element: R2), in `createPageRoute`, `createIndexRoute`
-and the base-guard/`not-found` emission paths where a leaf page can call `notFound()`. `owner` is
-`node.fullPath || "/"` — the same identity used for lazy cache keys, so keys and owners cannot drift.
+It is installed for the root always (`rootFallbackBoundary`) and for every folder that declares
+`not-found.tsx`. The layout element itself is never inside its own folder's boundary — it renders
+under the enclosing ancestor owner, which is exactly R2. A page carries no boundary of its own
+(`createPageRoute` emits the bare lazy element); it inherits the nearest enclosing owner context.
+`NotFoundFallback` carries `parentOwner` — the next boundary that can actually paint — so a
+re-entrant `notFound()` from a fallback targets a real ancestor fallback owner, never a lexical
+path with no boundary behind it. The re-entry context also carries `fallbackOwner` (the boundary
+painting the fallback) so the root-re-entry guard in `flow.ts` fires only when the root fallback
+re-enters itself.
 
 ### 6.2 What must not change
 
-- Route **shapes** stay byte-identical for apps that never call `notFound()`: the wrapper is a context
-  provider and a boundary around an element, not a new route object. The existing shape assertions in
-  `test/routes.test.js` and the traversal-cost test in the same file stay green (no second subtree walk
-  is added: the owner is computed where the element is already built).
+- Route **shapes** change by exactly one wrapper: a pathless owner route sits between the root
+  (`/`) and its content, and between a `not-found.tsx` folder and its content, in every tree. No
+  other shape moves for apps that never call `notFound()`; the shape assertions in
+  `test/routes.test.js`, `test/route-invariants.test.js`, and `test/boundaries.test.js` pin the
+  wrapper level, and the traversal-cost test in `routes.test.js` stays green (the wrapper is built
+  where the element is already built; no second subtree walk).
 - `NOT_FOUND_ROUTE_HANDLE`, `isNotFoundRoute`, `isUnmatched`, `getRouteStatus`,
   `normalizeRequestTarget`: **no signature, no behavior, no wording change** in this step.
 - `handle` still describes the *route*; the outcome still describes the *render*. Nothing moves a
@@ -512,12 +527,12 @@ Explicitly **not** guaranteed, and this is the reservation kept in the spec:
   sole plan-owned header: a redirect always replaces an application `location`, and non-redirect
   plans remove it. This makes the conflict rule deterministic while retaining application cache and
   robots policy when explicitly supplied.
-- `renderApp` adds the robots meta element at the document root when the selected plan has
-  `noindexOnFallback`. It is rendered in the initial document tree for pre-flight 404s and pass-2
-  fallback renders, not in `NotFoundBoundary` itself. For a late signal, the protocol cannot
-  promise a meta element: it is present only if the fallback markup is streamed after the existing
-  document/head position and the application document accepts it; no post-flush head mutation is
-  attempted.
+- `NotFoundBoundary` paints a robots meta element **inside its fallback fragment, beside the
+  hydration marker** - not in `renderApp`, and not in the document shell. The client boundary
+  repaints the exact same fragment when it seeds from the server marker (and when it catches the
+  signal on a navigation), so the meta is one of the elements hydration can match; anything the
+  client cannot reproduce would break the clean-hydration guarantee (I17). For a pre-flight 404
+  the document carries the `x-robots-tag` header only.
 - `Headers` is a Web global (Node ≥ 18, Edge, browsers) — which is why the API takes it and not
   `NodeHttp.OutgoingHttpHeaders` (D3's constraint).
 
@@ -528,15 +543,15 @@ Explicitly **not** guaranteed, and this is the reservation kept in the spec:
 | I1 | `notFound()` records before it throws; the recorded owner equals the context owner. | T1 unit |
 | I2 | A signal is never treated as an ordinary failure: `error.tsx` does not paint for it, on either side. | T1 + T3 |
 | I3 | `notFound()` outside a route render throws a diagnostic error, never a signal. | T1 |
-| I4 | R2: a layout's `notFound()` is owned by an ancestor, and the layout is not replaced by itself. | T1 + T3 |
-| I5 | R3/R5: a signal inside a fallback escalates once, then resolves in one final parent-fallback pass; no fourth pass is possible. | T1 + T2 |
+| I4 | R2: a layout's `notFound()` is owned by an ancestor, and the layout is not replaced by itself. | T2 real render (`ssr.test.js`: a layout `notFound()` uses its ancestor fallback) |
+| I5 | R3/R5: a signal inside a fallback escalates once, then resolves in one final parent-fallback pass; no fourth pass is possible. | T1 + T2 real render (`ssr.test.js`: pass 3 paints the real parent fallback) |
 | I20 | An ordinary failure recorded in pass 3 produces the corresponding `500`/degraded `200` plan, retains `pass: 3`, and never schedules pass 4. | T1 + T2 |
 | I6 | R4: no owner anywhere ⇒ built-in `DefaultNotFound` at owner `"/"`, identical to the base guard. | T1 + T3 |
 | I7 | The fallback resolution is one function used by client and server (no second table). | code review + I4 |
-| I8 | Route shapes and traversal cost unchanged when nothing calls `notFound()`. | T1 (`routes.test.js`) |
+| I8 | Route shapes change by exactly one wrapper (the root/folder owner boundary); traversal cost is unchanged when nothing calls `notFound()`. | T1 (`routes.test.js`) |
 | I9 | `getRouteStatus()` signature, behavior and wording unchanged by this work. | T1 (existing) |
 | I10 | Pre-flight `404` renders the fallback **and its layouts**, and never the leaf page. | T2 |
-| I11 | `planResponse` is pure and total; first record wins independently for the initial and reentrant signal slots, and for the ordinary-failure slot. | T1 |
+| I11 | `planResponse` is pure and total; first record wins independently for the initial and reentrant signal slots, and for the ordinary-failure slot. | T1 (`ssr.test.js` planning suite) |
 | I12 | A redirect sends `location` and no body; `307`/`308` exactly; `replace` never changes a status. | T1 + T2 |
 | I13 | `head()` is called exactly once, before the first byte, and never after a write. | T2 |
 | I14 | **Concurrency**: two outcomes interleaved (A signals `notFound()`, B does not, promises resolve in reverse order) commit `404` and `200` respectively, with each other's content absent from both bodies. | T2 |
@@ -570,7 +585,7 @@ Explicitly **not** guaranteed, and this is the reservation kept in the spec:
 | `src/router/flow.ts` **new** | signals, `notFound`/`redirect`/`permanentRedirect`, predicates |
 | `src/router/render-outcome.ts` **new** | outcome type/factory, the two context hooks |
 | `src/router/boundary.ts` | `NotFoundBoundary`, `RedirectGate` (client), signal re-throw in `render()` |
-| `src/routes/converter.ts` | `notFoundOwnerElement(node, inherited)` around page elements only |
+| `src/routes/converter.ts` | `withBoundaryChildren` installs the owner `NotFoundBoundary` as a pathless route (root always, folders with `not-found.tsx`); `NotFoundFallback` carries `parentOwner` |
 | `src/router/not-found.ts` | **no change** (documentation wording may; behavior none) |
 | `src/ssr/index.ssr.ts` **new** | `prepareRequest`, `planResponse`, `renderApp`, `renderResponse`, types |
 | `src/plugin-runtime.ts` | export the flow API for the generated module to re-export |

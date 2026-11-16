@@ -76,23 +76,66 @@ const isBoundary = (element) => element?.type === SegmentBoundary;
  */
 const boundaryOf = (route) => route?.children?.find((child) => isBoundary(child.element));
 
+/**
+ * The `NotFoundBoundary` element a pathless owner wrapper carries, when the
+ * route's element is the `RenderContextOverride` the converter installs: the
+ * wrapper names the owning folder and the `page` phase, and the boundary
+ * beneath it renders an `<Outlet/>` for everything the folder emits. The root
+ * always installs one as the first route it guards; a folder installs one as
+ * its first child when it declares `not-found.tsx`.
+ */
+const notFoundBoundaryOf = (element) => {
+  if (!element
+    || typeof element.type !== "function"
+    || typeof element.props?.owner !== "string"
+    || element.props?.phase !== "page") {
+    return undefined;
+  }
+  const boundary = element.props.children;
+  return boundary?.type === NotFoundBoundary ? boundary : undefined;
+};
+
+/**
+ * The routes a boundary route guards: its children, descended through the
+ * not-found owner wrapper when one sits between the boundary and the content
+ * (the wrapper forwards through its own `<Outlet/>`, so its children are the
+ * guarded routes).
+ */
+const guardedChildrenOf = (boundaryRoute) => {
+  const wrapperRoute = boundaryRoute?.children
+    ?.find((child) => notFoundBoundaryOf(child.element));
+  return wrapperRoute ? wrapperRoute.children : boundaryRoute?.children;
+};
+
 function generate(records) {
   const tree = buildRouteTree(records);
   return { tree, routes: treeToRoutes(tree, true) };
 }
 
 describe("converter: boundary placement", () => {
-  test("leaves the tree untouched when nothing declares loading or error", () => {
+  test("a leaf without boundary files stays compact under the root's not-found wrapper", () => {
     const { routes } = generate({
       pages: { "shop/page.tsx": loader("shop") },
     });
 
-    // No boundary declared anywhere: the emitted element is the lazy page
-    // itself, not a SegmentBoundary, and no extra pathless route shows up
-    // exactly as before these files existed.
-    assert.equal(routes[0].path, "shop");
-    assert.ok(!isBoundary(routes[0].element));
-    assert.ok(!routes[0].children, "a leaf without a boundary stays a leaf");
+    // No loading/error anywhere: the leaf emits no SegmentBoundary and no
+    // extra pathless route, exactly as before these files existed. The root
+    // does always install the not-found owner wrapper - a pathless route
+    // whose element is the RenderContextOverride around the NotFoundBoundary
+    // rendering an Outlet - and the leaf is its sibling inside that wrapper.
+    const root = routes[0];
+    assert.equal(root.path, "/");
+    const wrapperRoute = root.children.find((route) => notFoundBoundaryOf(route.element));
+    assert.ok(wrapperRoute, "the root installs the not-found owner wrapper");
+    const rootBoundary = notFoundBoundaryOf(wrapperRoute.element);
+    assert.equal(rootBoundary.props.owner, "/");
+    assert.equal(rootBoundary.props.parentOwner, "/");
+    assert.equal(rootBoundary.props.children.type, Outlet, "the wrapper forwards through an Outlet");
+
+    const shop = wrapperRoute.children.find((route) => route.path === "shop");
+    assert.ok(shop, "the page route is emitted inside the wrapper");
+    assert.ok(!isBoundary(shop.element), "no SegmentBoundary shows up for a leaf without files");
+    assert.ok(!shop.children, "a leaf without a boundary stays a leaf");
   });
 
   test("wraps a folder's own page element in its loading boundary", () => {
@@ -106,8 +149,11 @@ describe("converter: boundary placement", () => {
     // children: [{ index: true, element: page }] }] }`: the pathless boundary
     // route sits between the folder's URL and everything it emits there, so
     // the boundary reaches descendants at any depth (not just a leaf's element).
-    assert.equal(routes[0].path, "shop");
-    const boundary = boundaryOf(routes[0]);
+    const root = routes[0];
+    assert.equal(root.path, "/");
+    const shopRoute = guardedChildrenOf(root).find((route) => route.path === "shop");
+    assert.ok(shopRoute, "the folder is emitted under the root's wrapper");
+    const boundary = boundaryOf(shopRoute);
     assert.ok(boundary, "a pathless boundary route is inserted");
     assert.equal(boundary.element.props.loading, ShopLoading);
     assert.equal(boundary.element.props.error, undefined);
@@ -129,7 +175,8 @@ describe("converter: boundary placement", () => {
     // the page index AND the `cart` child route. A child error therefore
     // bubbles to the enclosing folder's `error.tsx`, exactly as Next.js
     // specifies.
-    const shopRoute = routes.find((route) => route.path === "shop");
+    const root = routes[0];
+    const shopRoute = guardedChildrenOf(root).find((route) => route.path === "shop");
     const boundary = boundaryOf(shopRoute);
     assert.ok(boundary, "shop's boundary wraps its whole subtree");
     assert.equal(boundary.element.props.error, ShopError);
@@ -156,7 +203,8 @@ describe("converter: boundary placement", () => {
     // it lives inside `shop`'s boundary route, a throw during the cart
     // layout's render is caught by shop's error, never by cart's (which
     // declares none).
-    const shopRoute = routes.find((route) => route.path === "shop");
+    const root = routes[0];
+    const shopRoute = guardedChildrenOf(root).find((route) => route.path === "shop");
     const shopBoundary = boundaryOf(shopRoute);
     assert.ok(shopBoundary, "shop guards its whole subtree");
     const cartRoute = shopBoundary.children.find((route) => route.path === "cart");
@@ -180,7 +228,8 @@ describe("converter: boundary placement", () => {
     // boundary is inserted one level below it, so a throw inside the layout
     // is caught by the *parent's* `error.tsx` (or nothing), never by this
     // folder's own.
-    const shopRoute = routes.find((route) => route.path === "shop");
+    const root = routes[0];
+    const shopRoute = guardedChildrenOf(root).find((route) => route.path === "shop");
     assert.ok(!isBoundary(shopRoute.element), "the layout element is not itself the boundary");
     const boundary = boundaryOf(shopRoute);
     assert.ok(boundary, "the boundary sits below the layout");
@@ -197,9 +246,10 @@ describe("converter: boundary placement", () => {
     // The group owns no URL segment, so `shop` is emitted at the enclosing
     // level; the group has no boundary of its own, so it stays transparent and
     // `shop`'s loading wraps everything `shop` renders.
-    const shop = routes.find((route) => route.path === "shop");
+    const root = routes[0];
+    const shop = guardedChildrenOf(root).find((route) => route.path === "shop");
     assert.ok(shop, "the group is dropped from the emitted tree");
-    assert.ok(!routes.some((route) => route.path === "(marketing)"));
+    assert.ok(!guardedChildrenOf(root).some((route) => route.path === "(marketing)"));
     const boundary = boundaryOf(shop);
     assert.ok(boundary, "shop's loading guards its subtree");
     assert.equal(boundary.element.props.loading, ShopLoading);
@@ -217,18 +267,21 @@ describe("converter: boundary placement", () => {
       errors: { "sec/(grp)/error.tsx": eager(GrpError) },
     });
 
-    // A group is a folder like any other for boundary purposes: the group's
-    // own pathless route carries the element, so every descendant - a leaf
-    // page directly under the group and a page two levels below it - renders
-    // inside the same boundary.
-    const sec = routes.find((route) => route.path === "sec");
+    // A group is a folder like any other for boundary purposes: a pathless
+    // route inside the group's own pathless route carries the boundary
+    // element, so every descendant - a leaf page directly under the group and
+    // a page two levels below it - renders inside the same boundary.
+    const root = routes[0];
+    const sec = guardedChildrenOf(root).find((route) => route.path === "sec");
     const grp = sec.children.find((route) => route.path === undefined);
     assert.ok(grp, "the group emits a pathless route");
-    assert.ok(isBoundary(grp.element), "the group's pathless route carries the boundary");
-    assert.equal(grp.element.props.loading, GrpLoading);
-    assert.equal(grp.element.props.error, GrpError);
-    const gpage = grp.children.find((route) => route.path === "gpage");
-    const other = grp.children.find((route) => route.path === "other");
+    const grpBoundary = boundaryOf(grp);
+    assert.ok(grpBoundary, "the group nests a pathless route carrying the boundary");
+    assert.ok(isBoundary(grpBoundary.element), "the nested pathless route carries the boundary");
+    assert.equal(grpBoundary.element.props.loading, GrpLoading);
+    assert.equal(grpBoundary.element.props.error, GrpError);
+    const gpage = grpBoundary.children.find((route) => route.path === "gpage");
+    const other = grpBoundary.children.find((route) => route.path === "other");
     assert.ok(gpage, "the direct page is inside the group boundary");
     assert.ok(other, "a deeper folder is inside the group boundary too");
   });
@@ -245,7 +298,8 @@ describe("converter: boundary placement", () => {
     // it. With the boundary on a pathless route in front of `dx`'s whole
     // subtree, the `y/z/page` route renders inside `dx`'s error and the
     // layouts above survive.
-    const dx = routes.find((route) => route.path === "dx");
+    const root = routes[0];
+    const dx = guardedChildrenOf(root).find((route) => route.path === "dx");
     const boundary = boundaryOf(dx);
     assert.ok(boundary, "dx's boundary wraps its subtree");
     assert.equal(boundary.element.props.error, DxError);
@@ -273,7 +327,11 @@ describe("converter: boundary placement", () => {
     const boundary = boundaryOf(root);
     assert.ok(boundary, "the boundary sits inside the root layout's outlet");
     assert.equal(boundary.element.props.error, RootError);
-    const about = boundary.children.find((route) => route.path === "about");
+    // The root's not-found owner wrapper sits between its error boundary and
+    // everything it guards, forwarding through its own Outlet.
+    const wrapperRoute = boundary.children.find((route) => notFoundBoundaryOf(route.element));
+    assert.ok(wrapperRoute, "the not-found owner wrapper sits inside the root boundary");
+    const about = wrapperRoute.children.find((route) => route.path === "about");
     assert.ok(about, "every route below the root lives inside the root boundary");
   });
 });
@@ -349,52 +407,76 @@ describe("full tree: multi-level integration", () => {
     const rootBoundary = boundaryOf(root);
     assert.equal(rootBoundary.element.props.error, RootError);
 
+    // The root also installs the not-found owner wrapper between its error
+    // boundary and everything it guards; the wrapper forwards through an
+    // Outlet, so the guarded routes are its children.
+    const wrapperRoute = rootBoundary.children.find((route) => notFoundBoundaryOf(route.element));
+    assert.ok(wrapperRoute, "the root's not-found owner wrapper sits inside its boundary");
+    const rootNf = notFoundBoundaryOf(wrapperRoute.element);
+    assert.equal(rootNf.props.owner, "/");
+    assert.equal(rootNf.props.parentOwner, "/");
+    assert.equal(rootNf.props.children.type, Outlet);
+    const guarded = wrapperRoute.children;
+
     // The deep page case: `dx/error.tsx` must reach `dx/y/z/page.tsx` even
     // when neither `dx/y` nor `dx/y/z` owns a `layout.tsx` or boundary file.
     // The intermediate folders contribute no element of their own, so the
     // only shape that gets this right is the boundary pathless route in
     // front of every route `dx` emits.
-    const dx = rootBoundary.children.find((route) => route.path === "dx");
+    const dx = guarded.find((route) => route.path === "dx");
     const dxBoundary = boundaryOf(dx);
     assert.equal(dxBoundary.element.props.error, DxError);
     const y = dxBoundary.children.find((route) => route.path === "y");
     const z = y.children.find((route) => route.path === "z");
     assert.ok(z, "z lives inside dx's boundary at two levels deep");
 
-    // The group case: `(grp)` carries its own loading + error on the group's
-    // existing pathless route, so `gpage` renders inside the boundary without
-    // the group needing a layout of its own.
-    const sec = rootBoundary.children.find((route) => route.path === "sec");
+    // The group case: `(grp)` carries its own loading + error on a pathless
+    // route nested inside the group's own pathless route, so `gpage` renders
+    // inside the boundary without the group needing a layout of its own.
+    const sec = guarded.find((route) => route.path === "sec");
     const grp = sec.children.find((route) => route.path === undefined);
-    assert.ok(isBoundary(grp.element), "the group's pathless route carries the boundary");
-    assert.equal(grp.element.props.loading, GrpLoading);
-    assert.equal(grp.element.props.error, GrpError);
-    const gpage = grp.children.find((route) => route.path === "gpage");
+    const grpBoundary = boundaryOf(grp);
+    assert.ok(isBoundary(grpBoundary.element), "the group nests a route carrying the boundary");
+    assert.equal(grpBoundary.element.props.loading, GrpLoading);
+    assert.equal(grpBoundary.element.props.error, GrpError);
+    const gpage = grpBoundary.children.find((route) => route.path === "gpage");
     assert.ok(gpage, "the grouped page lives inside the group boundary");
 
     // The root's `not-found` is a `*` route inside the root's boundary, so it
     // paints inside the layout (Next.js contract), not beside or above it.
-    const notFound = rootBoundary.children.find((route) => route.path === "*");
+    const notFound = guarded.find((route) => route.path === "*");
     assert.ok(notFound, "the not-found splat renders inside the root boundary");
   });
 
-  test("an owning not-found page is wrapped by the signal boundary", () => {
+  test("an owning not-found folder wraps its page in the signal boundary", () => {
     const ChildNotFound = component("CHILD-NOT-FOUND");
     const { routes } = generate({
       pages: { "shop/page.tsx": loader(component("SHOP")) },
       notFounds: { "shop/not-found.tsx": loader(ChildNotFound) },
     });
 
-    const shop = routes.find((route) => route.path === "shop");
+    const root = routes[0];
+    const shop = guardedChildrenOf(root).find((route) => route.path === "shop");
     assert.ok(shop, "the shop route exists");
-    const page = shop.children.find((route) => route.index);
-    assert.ok(page, "the page is an index route");
-    assert.equal(page.element.props.owner, "/shop");
-    assert.equal(page.element.props.phase, "page");
-    assert.equal(page.element.props.children.type, NotFoundBoundary);
-    assert.equal(page.element.props.children.props.owner, "/shop");
-    assert.equal(page.element.props.children.props.parentOwner, "/");
-    assert.equal(page.element.props.children.props.fallback().type, React.Suspense);
+    // The declaring folder installs the owner wrapper as its first child: a
+    // pathless route whose element is the RenderContextOverride around the
+    // NotFoundBoundary, which forwards the folder's whole subtree - page and
+    // not-found splat alike - through its Outlet.
+    const wrapperRoute = shop.children.find((route) => notFoundBoundaryOf(route.element));
+    assert.ok(wrapperRoute, "the owner wrapper is the folder's first child");
+    const wrapperElement = wrapperRoute.element;
+    assert.equal(wrapperElement.props.owner, "/shop");
+    assert.equal(wrapperElement.props.phase, "page");
+    const boundary = notFoundBoundaryOf(wrapperElement);
+    assert.ok(boundary, "the wrapper element wraps the NotFoundBoundary signal boundary");
+    assert.equal(boundary.props.owner, "/shop");
+    assert.equal(boundary.props.parentOwner, "/");
+    assert.equal(boundary.props.children.type, Outlet);
+    assert.equal(boundary.props.fallback().type, React.Suspense);
+    const page = wrapperRoute.children.find((route) => route.index);
+    assert.ok(page, "the page renders inside the boundary as an index");
+    const splat = wrapperRoute.children.find((route) => route.path === "*");
+    assert.ok(splat, "the folder's not-found splat renders inside the boundary too");
   });
 
   test("inherits an ancestor not-found fallback when the child has none", () => {
@@ -406,12 +488,22 @@ describe("full tree: multi-level integration", () => {
       notFounds: { "shop/not-found.tsx": loader(component("SHOP-NOT-FOUND")) },
     });
 
-    const shop = routes.find((route) => route.path === "shop");
-    const cart = shop.children.find((route) => route.path === "cart");
-    assert.equal(cart.element.props.owner, "/shop/cart");
-    assert.equal(cart.element.props.children.type, NotFoundBoundary);
-    assert.equal(cart.element.props.children.props.owner, "/shop/cart");
-    assert.equal(cart.element.props.children.props.fallback().type, React.Suspense);
+    const root = routes[0];
+    const shop = guardedChildrenOf(root).find((route) => route.path === "shop");
+    // The nearest declaring owner wraps cart: shop's owner wrapper guards the
+    // whole subtree, so cart renders through the inherited boundary's Outlet
+    // and inherits shop's fallback.
+    const wrapperRoute = shop.children.find((route) => notFoundBoundaryOf(route.element));
+    assert.ok(wrapperRoute, "shop's owner wrapper is the sole route shop emits");
+    const cart = wrapperRoute.children.find((route) => route.path === "cart");
+    assert.ok(cart, "the cart route exists");
+    assert.ok(!isBoundary(cart.element), "cart carries no boundary of its own");
+    assert.ok(!notFoundBoundaryOf(cart.element), "cart carries no not-found boundary of its own");
+    const boundary = notFoundBoundaryOf(wrapperRoute.element);
+    assert.equal(boundary.props.owner, "/shop");
+    assert.equal(boundary.props.fallback().type, React.Suspense);
+    assert.ok(wrapperRoute.children.includes(cart),
+      "cart renders through the inherited boundary's outlet");
   });
 
   test("keeps the declaring owner for a deeply inherited root fallback", () => {
@@ -420,43 +512,105 @@ describe("full tree: multi-level integration", () => {
       notFounds: { "not-found.tsx": loader(component("ROOT-NOT-FOUND")) },
     });
 
-    const root = routes.find((route) => route.path === "/");
-    const shop = root.children.find((route) => route.path === "shop");
+    const root = routes[0];
+    assert.equal(root.path, "/");
+    // No folder between the page and the root declares `not-found.tsx`, so
+    // the root's own owner wrapper guards the deep page: the fallback keeps
+    // the owner that declared it, and the page renders through its Outlet.
+    const wrapperRoute = root.children.find((route) => notFoundBoundaryOf(route.element));
+    assert.ok(wrapperRoute, "the root wrapper guards every page below");
+    const boundary = notFoundBoundaryOf(wrapperRoute.element);
+    assert.equal(boundary.props.owner, "/", "the root keeps the declaring owner");
+    assert.equal(boundary.props.parentOwner, "/", "the root fallback has no deeper parent owner");
+    assert.equal(boundary.props.fallback().type, React.Suspense, "the declared fallback is lazy");
+
+    const shop = guardedChildrenOf(root).find((route) => route.path === "shop");
     const cart = shop.children.find((route) => route.path === "cart");
-    const boundary = cart.element.props.children;
-    assert.equal(boundary.type, NotFoundBoundary);
-    assert.equal(boundary.props.owner, "/shop/cart");
-    assert.equal(boundary.props.parentOwner, "/");
+    assert.ok(cart, "the deep page exists");
+    assert.ok(!notFoundBoundaryOf(cart.element), "no private boundary replaces the declaring owner");
+    const shopInside = wrapperRoute.children.find((route) => route.path === "shop");
+    assert.ok(shopInside, "the shop folder renders through the root boundary's outlet");
+    assert.ok(shopInside.children.includes(cart),
+      "so the deep page renders inside the root boundary too");
+    // The folder's base also answers with the inherited root fallback, under
+    // the same declaring owner.
+    const baseGuard = shop.children.find((route) => route.index && route.handle?.notFound);
+    assert.ok(baseGuard, "the folder's base is a guard index");
+    assert.equal(baseGuard.element.props.owner, "/");
+    assert.equal(baseGuard.element.props.phase, "fallback");
+    assert.equal(baseGuard.element.props.children.type, React.Suspense);
   });
 
   test("terminates re-entry from a deeply inherited root fallback", () => {
+    // The root's owner wrapper guards every deep page (per-page boundaries are
+    // gone), so the fallback a deep page inherits is painted by the root
+    // boundary itself. Re-entering it must hard-error: there is no boundary
+    // above the root to hand the signal to.
     const outcome = createRenderOutcome({ pathname: "/", search: "", hash: "" });
     const Fallback = () => notFound();
     const boundary = new NotFoundBoundary({
-      owner: "/shop/cart",
+      owner: "/",
       parentOwner: "/",
       fallback: Fallback,
       children: null,
     });
     boundary.context = {
       outcome,
-      owner: "/shop/cart",
+      owner: "/",
       phase: "page",
     };
     boundary.state = NotFoundBoundary.getDerivedStateFromError(
-      new NotFoundSignal("/shop/cart"),
+      new NotFoundSignal("/"),
     );
 
     const fallbackElement = boundary.render();
     assert.throws(
-      () => renderToStaticMarkup(React.createElement(
-        RenderContext.Provider,
-        { value: { outcome, owner: "/", phase: "fallback" } },
-        fallbackElement,
-      )),
+      () => renderToStaticMarkup(fallbackElement),
       /cannot re-enter the root fallback/,
     );
     assert.equal(outcome.reentrantSignal, null);
+  });
+
+  test("records a reentrant signal when a folder's fallback re-enters its parent owner", () => {
+    // A folder boundary (shop declares `not-found.tsx`, so its wrapper owns
+    // the fallback with the root as parent) is not the root itself: re-entry
+    // escapes with a reentrant NotFoundSignal aimed at the parent owner, and
+    // the outcome records it for the server pass to degrade on - the render
+    // still terminates, so the loop cannot spin.
+    const outcome = createRenderOutcome({ pathname: "/shop", search: "", hash: "" });
+    const Fallback = () => notFound();
+    const boundary = new NotFoundBoundary({
+      owner: "/shop",
+      parentOwner: "/",
+      fallback: Fallback,
+      children: null,
+    });
+    boundary.context = {
+      outcome,
+      owner: "/shop",
+      phase: "page",
+    };
+    boundary.state = NotFoundBoundary.getDerivedStateFromError(
+      new NotFoundSignal("/shop"),
+    );
+
+    // The boundary's own fallback element wires the parent handoff: the
+    // provider it paints names the parent owner and the boundary painting.
+    const fallbackElement = boundary.render();
+    assert.equal(fallbackElement.type, RenderContext.Provider);
+    assert.equal(fallbackElement.props.value.owner, "/");
+    assert.equal(fallbackElement.props.value.fallbackOwner, "/shop");
+    assert.throws(
+      () => renderToStaticMarkup(fallbackElement),
+      (error) => error instanceof NotFoundSignal
+        && error.owner === "/"
+        && error.reentrant,
+    );
+    assert.deepEqual(outcome.reentrantSignal, {
+      kind: "not-found",
+      owner: "/",
+      reentrant: true,
+    });
   });
 
   test("local fallback re-entry uses its parent owner instead of itself", () => {
@@ -782,13 +936,16 @@ describe("RouteErrorBoundary lifecycle", () => {
 
       const element = boundary.render();
       assert.equal(element.type, RenderContext.Provider);
-      // The server paint carries the fallback plus the inert marker the client
-      // reads to paint the same tree on its first render.
+      // The server paint carries the noindex meta, the fallback, and the inert
+      // marker the client reads to paint the same tree on its first render.
       const content = element.props.children;
       assert.equal(content.type, React.Fragment);
-      assert.equal(content.props.children[0].type, fallback);
-      assert.equal(content.props.children[1].type, "script");
-      assert.equal(content.props.children[1].props.id, "__NVR_NOT_FOUND__");
+      const painted = content.props.children;
+      assert.equal(painted[0].type, "meta");
+      assert.equal(painted[0].props.name, "robots");
+      assert.equal(painted[1].type, fallback);
+      assert.equal(painted[2].type, "script");
+      assert.equal(painted[2].props.id, "__NVR_NOT_FOUND__");
       assert.equal(element.props.value.owner, "/");
       assert.equal(element.props.value.phase, "fallback");
     });
@@ -835,7 +992,9 @@ describe("RouteErrorBoundary lifecycle", () => {
       boundary.context = { outcome, owner, phase: "fallback" };
 
       const content = boundary.render().props.children;
-      const html = content.props.children[1].props.dangerouslySetInnerHTML.__html;
+      // The meta element is painted first; the marker script follows the fallback.
+      const script = content.props.children[2];
+      const html = script.props.dangerouslySetInnerHTML.__html;
       assert.ok(!html.includes("<"), html);
       assert.ok(!html.includes(">"), html);
       assert.ok(!html.includes("&"), html);

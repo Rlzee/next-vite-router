@@ -28,6 +28,8 @@ export type RenderContextValue = Readonly<{
   outcome?: RenderOutcome;
   owner?: string;
   phase: RenderPhase;
+  /** Boundary currently painting a fallback, when different from its parent owner. */
+  fallbackOwner?: string;
 }>;
 
 export const RenderContext = React.createContext<RenderContextValue | undefined>(undefined);
@@ -86,7 +88,14 @@ export function useRenderContext(): RenderContextValue | undefined {
 }
 
 export function readRenderContext(): RenderContextValue | undefined {
-  return React.useContext(RenderContext);
+  try {
+    return React.useContext(RenderContext);
+  } catch {
+    // Flow-control helpers are also callable from user code outside React. In
+    // that case React rejects the hook call; expose no context so the helper can
+    // report its package diagnostic instead of leaking React internals.
+    return undefined;
+  }
 }
 
 export function useRenderOutcome(): RenderOutcome | undefined {
