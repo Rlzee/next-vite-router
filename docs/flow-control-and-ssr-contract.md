@@ -223,9 +223,10 @@ error to a parent boundary, and the one that behaves identically on React 18 and
   - the **owner must match**, so a boundary for another segment never seeds from someone else's 404;
   - the JSON is **escaped** (`<`, `>`, `&`, U+2028, U+2029) because it is written into a script element; a
     raw `</script>` in an owner would end the element and open a new one.
-  No consumption is needed: the marker only exists inside the fallback subtree, so the client navigation
-  that replaces that subtree removes the script with it. The hydration test asserts the StrictMode case
-  explicitly — it fails on the module-level flag this replaced.
+   No consumption is needed: the marker only exists inside the fallback subtree, so the client navigation
+   that replaces that subtree removes the script with it. The hydration test asserts the StrictMode case
+   explicitly — it fails on the module-level flag this replaced. The marker is scoped to the package's
+   single generated router root; multiple independent React roots on one document are out of scope.
 
 ```ts
 export function RedirectGate(props: { children: React.ReactNode }): React.ReactElement;
@@ -541,7 +542,7 @@ Explicitly **not** guaranteed, and this is the reservation kept in the spec:
 | I14 | **Concurrency**: two outcomes interleaved (A signals `notFound()`, B does not, promises resolve in reverse order) commit `404` and `200` respectively, with each other's content absent from both bodies. | T2 |
 | I15 | No module-level outcome exists: `next-vite-router/ssr` holds no mutable state between requests. | static check + I14 |
 | I16 | G1: no abandoned-pass byte reaches the sink; G3: no effect ran in any pass. | T2 |
-| I17 | A document streamed for `notFound()` hydrates without a recoverable/mismatch error. | T4 + `hydration.spec.js` (`renderResponse` final HTML, StrictMode development hydration, `onRecoverableError`) |
+| I17 | The final `streaming: false` document for `notFound()` hydrates without a recoverable/mismatch error. | T4 + `hydration.spec.js` (`renderResponse` final HTML, StrictMode development hydration, `onRecoverableError`) |
 | I18 | The client reproduces the server's decision: same page code, same fallback, same URL kept. | T3 |
 | I19 | Adding `NotFoundBoundary` does not move who owns an ordinary failure: with the new boundary in place, a page that throws still paints **its folder's** `error.tsx`, not the root's and not a fallback. | T1 + T3 |
 

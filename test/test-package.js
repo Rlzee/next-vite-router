@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRouteGenerator, isNotFoundRoute, isUnmatched, getRouteStatus, normalizeRequestTarget } from '../dist/index.js';
 import { href, Link, createTypedLink, useCatchAll } from '../dist/plugin-runtime.js';
+import { prepareRequest, planResponse, renderResponse } from '../dist/ssr.js';
 
 console.log('✅ createRouteGenerator:', typeof createRouteGenerator);
 console.log('✅ href:', typeof href);
@@ -14,6 +15,9 @@ assert.equal(typeof isUnmatched, 'function');
 assert.equal(typeof isNotFoundRoute, 'function');
 assert.equal(typeof getRouteStatus, 'function');
 assert.equal(typeof normalizeRequestTarget, 'function');
+assert.equal(typeof prepareRequest, 'function');
+assert.equal(typeof planResponse, 'function');
+assert.equal(typeof renderResponse, 'function');
 // The normalizer is the documented reading of the URL argument, so its two
 // guarantees are part of the published contract, not an implementation detail:
 // only `http`/`https` carry an authority to drop, and a foreign scheme is left alone.
@@ -88,6 +92,10 @@ assert.equal(
 assert.equal(cjsIndex.isNotFoundRoute({ handle: undefined }), false);
 assert.equal(cjsIndex.configureRouter, undefined);
 assert.equal(cjsIndex.resetRouterConfig, undefined);
+const cjsSsr = require('../dist/ssr.cjs');
+assert.equal(typeof cjsSsr.prepareRequest, 'function');
+assert.equal(typeof cjsSsr.planResponse, 'function');
+assert.equal(typeof cjsSsr.renderResponse, 'function');
 const cjsInternal = require('../dist/plugin-runtime.cjs');
 assert.equal(typeof cjsInternal.href, 'function');
 assert.equal(typeof cjsInternal.Link, 'function');

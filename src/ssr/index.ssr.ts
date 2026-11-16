@@ -7,6 +7,7 @@ import { StaticRouter } from "react-router-dom/server";
 import {
   normalizeRequestTarget,
 } from "../router/request-target";
+import { getRouteStatus } from "../router/not-found";
 import type {
   PreparedRequest,
   RenderOutcome,
@@ -160,6 +161,21 @@ export function planResponse(
   const headers = headersFor(options);
   const noindex = options.noindexOnFallback !== false;
   const noStore = options.noStoreOnRedirect !== false;
+  // A render failure takes precedence over the signal that selected a fallback:
+  // notably, pass 3 can fail after pass 2 recorded its reentrant notFound.
+  if (outcome.failure !== null) {
+    return {
+      kind: "error",
+      status: outcome.committed ? 200 : 500,
+      headers,
+      pass: outcome.failure.pass,
+      sendBody: true,
+      forceOwner: null,
+      error: outcome.failure.error,
+      degraded: outcome.committed,
+    };
+  }
+
   const signal = outcome.reentrantSignal ?? outcome.signal;
 
   if (options.preFlight === 404 && signal === null) {
@@ -176,19 +192,6 @@ export function planResponse(
 
   if (signal !== null) {
     return planSignal(signal, headers, outcome, noindex, noStore);
-  }
-
-  if (outcome.failure !== null) {
-    return {
-      kind: "error",
-      status: outcome.committed ? 200 : 500,
-      headers,
-      pass: outcome.failure.pass,
-      sendBody: true,
-      forceOwner: null,
-      error: outcome.failure.error,
-      degraded: outcome.committed,
-    };
   }
 
   return {
@@ -367,6 +370,7 @@ export async function renderResponse(input: {
 }): Promise<RenderPlan> {
   const request = prepareRequest(input.url);
   const outcome = createRenderOutcome(request);
+  const preFlight = getRouteStatus(input.routes, request.pathname);
   let pass: 1 | 2 | 3 = 1;
   let plan: RenderPlan = {
     kind: "page",
@@ -404,8 +408,9 @@ export async function renderResponse(input: {
     }
     if (shellFailed) {
       abortAttempt(input.adapter, attempt);
+      const failedPlan = planResponse(outcome, { preFlight });
       await failBeforeShell(input.adapter, outcome.failure?.error);
-      throw new Error("SSR render failed before shell became ready");
+      return failedPlan;
     }
     if (input.streaming === false && outcome.failure === null) {
       try {
@@ -413,11 +418,12 @@ export async function renderResponse(input: {
       } catch (error) {
         outcome.recordFailure(error, pass);
         abortAttempt(input.adapter, attempt);
+        const failedPlan = planResponse(outcome, { preFlight });
         await failBeforeShell(input.adapter, error);
-        throw error;
+        return failedPlan;
       }
     }
-    const nextPlan = planResponse(outcome);
+    const nextPlan = planResponse(outcome, { preFlight });
 
     if (pass === 1 && nextPlan.kind === "not-found" && nextPlan.pass === 2) {
       abortAttempt(input.adapter, attempt);
@@ -425,9 +431,9 @@ export async function renderResponse(input: {
       pass = 2;
       continue;
     }
-    if (pass === 2 && outcome.reentrantSignal !== null) {
+    if (pass === 2 && outcome.reentrantSignal?.kind === "not-found") {
       abortAttempt(input.adapter, attempt);
-      plan = planResponse(outcome);
+      plan = planResponse(outcome, { preFlight });
       pass = 3;
       continue;
     }

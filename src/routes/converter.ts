@@ -168,10 +168,6 @@ function withNotFoundPageBoundary(
   cache: LazyComponentCache,
   inheritedFallback: NotFoundFallback | undefined,
 ): React.ReactElement {
-  if (!node.notFound && !inheritedFallback) {
-    return element;
-  }
-
   const fallback = createNotFoundFallbackElement(
     node,
     cache,

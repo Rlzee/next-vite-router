@@ -1455,11 +1455,13 @@ describe("route generator", () => {
     const routes = createRoutes({
       pages: { "lazy/page.tsx": loader("lazy") },
     });
-    assert.equal(routes[0].element.type, React.Suspense);
-    assert.equal(typeof routes[0].element.props.fallback.type, "function");
+    const boundary = routes[0].element.props.children;
+    const suspense = boundary.props.children;
+    assert.equal(suspense.type, React.Suspense);
+    assert.equal(typeof suspense.props.fallback.type, "function");
     // With no `loading.tsx` in the folder the placeholder renders nothing, like
     // Next.js: no fallback component, and no stray element left in the DOM.
-    assert.equal(renderToStaticMarkup(routes[0].element.props.fallback), "");
+    assert.equal(renderToStaticMarkup(suspense.props.fallback), "");
   });
 
   test("paints the folder's loading.tsx as the only fallback", () => {
@@ -1486,7 +1488,13 @@ describe("route generator", () => {
 describe("lazy component cache", () => {
   // The lazy component is the single child rendered inside the Suspense
   // boundary that `createLazyElement` returns.
-  const lazyOf = (element) => element.props.children.type;
+  const lazyOf = (element) => {
+    let current = element;
+    while (current.type !== React.Suspense) {
+      current = current.props.children;
+    }
+    return current.props.children.type;
+  };
 
   test("reuses the memoized component for the same key within one cache", () => {
     const cache = createLazyCache();

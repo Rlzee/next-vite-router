@@ -85,9 +85,13 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { createRouteGenerator, buildRouteTree, treeToRoutes } from "next-vite-router";
 import { nextViteRouter } from "next-vite-router/plugin";
+import { prepareRequest, planResponse, renderResponse } from "next-vite-router/ssr";
 
 assert.equal(typeof createRouteGenerator, "function");
 assert.equal(typeof nextViteRouter, "function");
+assert.equal(typeof prepareRequest, "function");
+assert.equal(typeof planResponse, "function");
+assert.equal(typeof renderResponse, "function");
 
 // Loadable is not the same as functional: build a tree through the installed
 // bundle, so an interop or externals mistake in the shipped file fails here. The
@@ -104,6 +108,7 @@ assert.equal(typeof createRouteGenerator({ "a/page.tsx": async () => ({ default:
 // The ESM condition has to land on the ESM bundle.
 assert.match(import.meta.resolve("next-vite-router"), /\\/index\\.js$/);
 assert.match(import.meta.resolve("next-vite-router/plugin"), /\\/plugin\\.js$/);
+assert.match(import.meta.resolve("next-vite-router/ssr"), /\\/ssr\\.js$/);
 
 // A CommonJS config file in a non-module project requires this very package:
 // both formats have to work from inside one installed copy.
@@ -112,6 +117,7 @@ assert.equal(typeof require("next-vite-router/plugin").nextViteRouter, "function
 // A resolved path uses the platform separator, so match either spelling.
 assert.match(require.resolve("next-vite-router"), /[\\\\/]index\\.cjs$/);
 assert.match(require.resolve("next-vite-router/plugin"), /[\\\\/]plugin\\.cjs$/);
+assert.match(require.resolve("next-vite-router/ssr"), /[\\\\/]ssr\\.cjs$/);
 assert.equal(require("next-vite-router/package.json").name, "next-vite-router");
 
 // The engine entry stays private: the generated routes module imports it by
@@ -140,9 +146,13 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { createRouteGenerator, buildRouteTree, treeToRoutes } = require("next-vite-router");
 const { nextViteRouter } = require("next-vite-router/plugin");
+const { prepareRequest, planResponse, renderResponse } = require("next-vite-router/ssr");
 
 assert.equal(typeof createRouteGenerator, "function");
 assert.equal(typeof nextViteRouter, "function");
+assert.equal(typeof prepareRequest, "function");
+assert.equal(typeof planResponse, "function");
+assert.equal(typeof renderResponse, "function");
 
 const tree = buildRouteTree({ pages: { "blog/[...slug]/page.tsx": async () => ({ default: () => null }) } });
 const routes = treeToRoutes(tree, true);
@@ -150,6 +160,7 @@ assert.ok(routes.length >= 1, "the CJS bundle built no routes");
 
 assert.match(require.resolve("next-vite-router"), /[\\\\/]index\\.cjs$/);
 assert.match(require.resolve("next-vite-router/plugin"), /[\\\\/]plugin\\.cjs$/);
+assert.match(require.resolve("next-vite-router/ssr"), /[\\\\/]ssr\\.cjs$/);
 
 // A TypeScript project with no "type" field reads the .d.cts twins; if the build
 // stops copying them the require condition resolves to nothing usable. They are

@@ -16,6 +16,7 @@ import {
 import {
   createRenderOutcome,
   NotFoundSignal,
+  RedirectSignal,
   notFound,
   permanentRedirect,
   redirect,
@@ -156,6 +157,8 @@ describe("SSR response planning", () => {
 });
 
 describe("SSR response orchestration", () => {
+  const pageRoutes = [{ path: "*", element: React.createElement("main") }];
+
   function attempt() {
     return {
       stream: null,
@@ -216,7 +219,7 @@ describe("SSR response orchestration", () => {
     });
     const events = [];
     const result = await renderResponse({
-      routes: [],
+      routes: pageRoutes,
       url: "/",
       adapter: {
         head() {
@@ -271,7 +274,7 @@ describe("SSR response orchestration", () => {
   test("does not change status after adapter.head commits", async () => {
     let reportLateSignal;
     const result = await renderResponse({
-      routes: [],
+      routes: pageRoutes,
       url: "/committed",
       adapter: {
         head(status) {
@@ -303,7 +306,7 @@ describe("SSR response orchestration", () => {
       },
     });
     await renderResponse({
-      routes: [],
+      routes: pageRoutes,
       url: "/web",
       adapter: {
         head() {},
@@ -328,8 +331,8 @@ describe("SSR response orchestration", () => {
     let aborted = 0;
     let sent = 0;
     let failed;
-    await assert.rejects(() => renderResponse({
-      routes: [],
+    const result = await renderResponse({
+      routes: pageRoutes,
       url: "/slow",
       shellTimeoutMs: 1,
       adapter: {
@@ -351,7 +354,9 @@ describe("SSR response orchestration", () => {
           },
         };
       },
-    }));
+    });
+    assert.equal(result.kind, "error");
+    assert.equal(result.status, 500);
     assert.equal(aborted, 1);
     assert.equal(sent, 0);
     assert.equal(failed.status, 500);
@@ -360,8 +365,8 @@ describe("SSR response orchestration", () => {
   test("does not send after onShellError", async () => {
     let aborted = 0;
     let sent = 0;
-    await assert.rejects(() => renderResponse({
-      routes: [],
+    const result = await renderResponse({
+      routes: pageRoutes,
       url: "/broken",
       adapter: {
         head() {},
@@ -383,7 +388,9 @@ describe("SSR response orchestration", () => {
           },
         };
       },
-    }));
+    });
+    assert.equal(result.kind, "error");
+    assert.equal(result.status, 500);
     assert.equal(aborted, 1);
     assert.equal(sent, 0);
   });
@@ -391,8 +398,8 @@ describe("SSR response orchestration", () => {
   test("aborts when allReady rejects in non-streaming mode", async () => {
     let aborted = 0;
     let sent = 0;
-    await assert.rejects(() => renderResponse({
-      routes: [],
+    const result = await renderResponse({
+      routes: pageRoutes,
       url: "/prerender",
       streaming: false,
       adapter: {
@@ -413,9 +420,85 @@ describe("SSR response orchestration", () => {
           },
         };
       },
-    }));
+    });
+    assert.equal(result.kind, "error");
+    assert.equal(result.status, 500);
     assert.equal(aborted, 1);
     assert.equal(sent, 0);
+  });
+
+  test("commits a pre-flight 404 when no page route matches", async () => {
+    const result = await renderResponse({
+      routes: [],
+      url: "/missing",
+      adapter: {
+        head(status) { assert.equal(status, 404); },
+        send() {},
+        abandon() {},
+        fail() {},
+      },
+      render(_element, callbacks) {
+        callbacks.onShellReady();
+        return attempt();
+      },
+    });
+
+    assert.equal(result.kind, "not-found");
+    assert.equal(result.pass, 1);
+  });
+
+  test("returns the pass-3 error instead of retaining its reentrant not-found", async () => {
+    let renders = 0;
+    const result = await renderResponse({
+      routes: pageRoutes,
+      url: "/fallback",
+      adapter: {
+        head(status) { assert.equal(status, 500); },
+        send() {},
+        abandon() {},
+        fail() {},
+      },
+      render(_element, callbacks) {
+        renders += 1;
+        if (renders === 1) callbacks.onError(new NotFoundSignal("/shop"));
+        if (renders === 2) callbacks.onError(new NotFoundSignal("/", true));
+        if (renders === 3) callbacks.onError(new Error("pass 3 failed"));
+        callbacks.onShellReady();
+        return attempt();
+      },
+    });
+
+    assert.equal(renders, 3);
+    assert.equal(result.kind, "error");
+    assert.equal(result.pass, 3);
+    assert.equal(result.status, 500);
+  });
+
+  test("commits a fallback redirect without scheduling pass 3", async () => {
+    let renders = 0;
+    const result = await renderResponse({
+      routes: pageRoutes,
+      url: "/fallback",
+      adapter: {
+        head(status, headers) {
+          assert.equal(status, 307);
+          assert.equal(headers.get("location"), "/login");
+        },
+        send() { assert.fail("a redirect must not send a body"); },
+        abandon() {},
+        fail() {},
+      },
+      render(_element, callbacks) {
+        renders += 1;
+        if (renders === 1) callbacks.onError(new NotFoundSignal("/shop"));
+        if (renders === 2) callbacks.onError(new RedirectSignal("/login", false, false));
+        callbacks.onShellReady();
+        return attempt();
+      },
+    });
+
+    assert.equal(renders, 2);
+    assert.equal(result.kind, "redirect");
   });
 
   test("keeps outcomes isolated across concurrent requests", async () => {
@@ -565,6 +648,28 @@ describe("SSR flow control with a real React render", () => {
     assert.equal(adapter.status, 404);
     assert.equal(adapter.failed, null);
     assert.match(adapter.body, /GONE-NOT-FOUND/);
+  });
+
+  test("a notFound() without a file fallback renders the built-in 404", async () => {
+    function Missing() {
+      notFound();
+    }
+    const routes = routesFor({
+      pages: { "missing/page.tsx": async () => ({ default: Missing }) },
+    });
+    const adapter = collector();
+
+    const plan = await renderResponse({
+      routes,
+      url: "/missing",
+      adapter,
+      render: nodeEngine,
+      streaming: false,
+    });
+
+    assert.equal(plan.kind, "not-found");
+    assert.equal(plan.status, 404);
+    assert.match(adapter.body, /This page could not be found/);
   });
 
   test("a redirect signal commits 307 with location and no body", async () => {

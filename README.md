@@ -20,7 +20,7 @@ React Router, navigation, history, or application state.
 
 ## Imports at a glance
 
-Three entry points, each with one job. **This is the source of truth for imports**
+Four entry points, each with one job. **This is the source of truth for imports**
 — everything else in this README follows it.
 
 | Import from | Provides | Use it for |
@@ -28,6 +28,7 @@ Three entry points, each with one job. **This is the source of truth for imports
 | `next-vite-router/routes` | `Router`, `generateRoutes`, `useRoutes`, `href`, `Link`, `useParams`, `useCatchAll`, `notFound`, `redirect`, `permanentRedirect`, and the types `RoutePath` / `RouteParams` / `LinkProps` | application code (pages, layouts, components) |
 | `next-vite-router` | `createRouteGenerator`, `buildRouteTree`, `treeToRoutes`, and the path/lazy utils | advanced / manual routing |
 | `next-vite-router/plugin` | `nextViteRouter` | `vite.config.ts` only |
+| `next-vite-router/ssr` | `prepareRequest`, `planResponse`, `renderApp`, `renderResponse` | platform-neutral SSR response orchestration |
 
 The navigation helpers are generated per project (they are bound to your route
 metadata), so they are served **only** from `next-vite-router/routes`. The
@@ -111,6 +112,19 @@ export default function Page() {
 `notFound()` selects the nearest generated `not-found.tsx` fallback without
 rendering `error.tsx`. `redirect()` and `permanentRedirect()` navigate through
 the generated `Router` on the client and produce HTTP 307/308 responses in SSR.
+
+### SSR responses
+
+`next-vite-router/ssr` owns the render protocol for servers that need the final
+status and headers, including a `notFound()` discovered while rendering. Give
+`renderResponse()` the generated route array, request URL, renderer adapter, and
+response adapter. It computes the pre-flight 404, buffers an initial pass until
+the shell is known, and performs a bounded fallback pass when needed. Its return
+value is the committed `RenderPlan`; do not derive status from `matchRoutes()`.
+
+`streaming: false` waits for the final HTML before committing, which is the mode
+covered by the hydration contract. Progressive hydration while late Suspense
+segments arrive and lazy-page hydration remain outside the current guarantee.
 
 ### Setup notes
 
