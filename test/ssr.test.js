@@ -395,6 +395,36 @@ describe("SSR response orchestration", () => {
     assert.equal(sent, 0);
   });
 
+  test("does not send a failed stream reported after onShellReady", async () => {
+    let aborted = 0;
+    let sent = 0;
+    let failed;
+    const result = await renderResponse({
+      routes: pageRoutes,
+      url: "/broken-after-shell",
+      adapter: {
+        head() { assert.fail("an error plan must not commit normal headers"); },
+        send() { sent += 1; },
+        abandon() {},
+        fail(status, error) { failed = { status, error }; },
+      },
+      render(_element, callbacks) {
+        callbacks.onShellReady();
+        callbacks.onError(new Error("render failed after shell ready"));
+        return {
+          ...attempt(),
+          abort() { aborted += 1; },
+        };
+      },
+    });
+
+    assert.equal(result.kind, "error");
+    assert.equal(result.status, 500);
+    assert.equal(aborted, 1);
+    assert.equal(sent, 0);
+    assert.equal(failed.status, 500);
+  });
+
   test("aborts when allReady rejects in non-streaming mode", async () => {
     let aborted = 0;
     let sent = 0;

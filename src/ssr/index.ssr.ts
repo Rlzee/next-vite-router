@@ -438,6 +438,15 @@ export async function renderResponse(input: {
       continue;
     }
 
+    if (nextPlan.kind === "error") {
+      // The renderer's failed attempt is never a valid error document. The
+      // adapter owns any fallback body and must receive it without piping this
+      // stream, even when React had already announced a shell.
+      abortAttempt(input.adapter, attempt);
+      await failBeforeShell(input.adapter, nextPlan.error);
+      return nextPlan;
+    }
+
     input.adapter.head(nextPlan.status, nextPlan.headers);
     outcome.markCommitted();
     if (nextPlan.sendBody) {
