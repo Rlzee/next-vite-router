@@ -19,7 +19,7 @@ import {
   createRouteGenerator,
   treeToRoutes,
 } from "../dist/index.js";
-import { useCatchAll, useParams } from "../dist/plugin-runtime.js";
+import { SegmentBoundary, useCatchAll, useParams } from "../dist/plugin-runtime.js";
 
 // ---------------------------------------------------------------------------
 // Route-file factories. A page is always a lazy loader (mirroring the glob),
@@ -57,7 +57,11 @@ function resolve(routes, url) {
   const matches = matchRoutes(routes, url);
   if (!matches) return null;
   return {
-    chain: matches.map(({ route }) => routeLabel(route)),
+    chain: matches
+      .filter(({ route }) => !(route.path === undefined && !route.index
+        && route.element?.type === SegmentBoundary
+        && !route.element.props.loading && !route.element.props.error))
+      .map(({ route }) => routeLabel(route)),
     params: matches.at(-1).params,
   };
 }

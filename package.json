@@ -50,7 +50,7 @@
     "test:plugin": "node --test test/test-plugin-lifecycle.js",
     "test:generator": "node --test test/routes.test.js",
     "test:invariants": "node --test test/route-invariants.test.js",
-    "test:boundaries": "node --test test/boundaries.test.js",
+    "test:boundaries": "node --test test/boundaries.test.js test/flow.test.js",
     "test:params": "node --test test/params.test.js",
     "test:cli": "node --test test/cli.test.js",
     "test:compatibility": "node test/test-compatibility.js",

@@ -70,6 +70,9 @@ declare module 'next-vite-router/routes' {
 
   export const generateRoutes: () => RouteObject[];
   export function Router(): ReactElement | null;
+  export function notFound(): never;
+  export function redirect(to: string | URL, options?: { replace?: boolean }): never;
+  export function permanentRedirect(to: string | URL, options?: { replace?: boolean }): never;
   export function useParams<T extends Record<string, string | undefined> = Record<string, string | undefined>>(): T;
   export function useCatchAll(name?: string): string[];
   export { useRoutes } from 'react-router-dom';

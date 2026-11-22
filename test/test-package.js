@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRouteGenerator } from '../dist/index.js';
-import { href, Link, createTypedLink, useCatchAll } from '../dist/plugin-runtime.js';
+import { href, Link, createTypedLink, useCatchAll, notFound, redirect, permanentRedirect } from '../dist/plugin-runtime.js';
 
 console.log('✅ createRouteGenerator:', typeof createRouteGenerator);
 console.log('✅ href:', typeof href);
@@ -67,6 +67,11 @@ assert.equal(typeof cjsInternal.href, 'function');
 assert.equal(typeof cjsInternal.Link, 'function');
 assert.equal(typeof cjsInternal.createTypedLink, 'function');
 assert.equal(typeof cjsInternal.useCatchAll, 'function');
+for (const [name, helper] of Object.entries({ notFound, redirect, permanentRedirect })) {
+  assert.equal(typeof helper, 'function');
+  assert.equal(typeof cjsInternal[name], 'function');
+  assert.equal(cjsIndex[name], undefined, `${name} belongs to the generated routes module`);
+}
 
 console.log('✅ Package built successfully!');
 console.log('✅ Plugin CJS named export is loadable via require');

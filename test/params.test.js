@@ -6,6 +6,7 @@ import { matchRoutes, MemoryRouter, useRoutes } from "react-router-dom";
 import { buildRouteTree, treeToRoutes } from "../dist/index.js";
 import {
   CatchAllParamProvider,
+  RootNotFoundSegment,
   useCatchAll,
   useParams,
 } from "../dist/plugin-runtime.js";
@@ -94,7 +95,11 @@ test("optional catch-all routes preserve layout matching at base and nested path
     nestedMatch?.map(({ route }) => route.path ?? route.index),
     ["docs", "*"],
   );
-  assert.equal(baseMatch?.[0]?.route.element.type, DocsLayout);
+  const element = baseMatch?.[0]?.route.element;
+  assert.equal(
+    (element?.type === RootNotFoundSegment ? element.props.children : element).type,
+    DocsLayout,
+  );
   assert.equal(nestedMatch?.at(-1)?.params["*"], "reference/api");
 });
 

@@ -94,6 +94,10 @@ try {
   assert.match(declaration, /"\/posts\/:slug": \{\n\s+slug: string;\n\s+\};/);
   assert.match(declaration, /segments\?: string \| string\[\];/);
   assert.match(declaration, /export function Router/);
+  assert.match(declaration, /export function notFound\(\): never;/);
+  for (const name of ["redirect", "permanentRedirect"]) {
+    assert.ok(declaration.includes(`export function ${name}(to: string | URL, options?: { replace?: boolean }): never;`));
+  }
   assert.match(declaration, /export function href<P extends RoutePath>/);
   assert.match(declaration, /export type LinkProps =/);
   assert.match(declaration, /export function Link\(props: LinkProps\)/);
@@ -109,13 +113,15 @@ try {
   assert.match(virtualModule, /import \{ useRoutes \} from 'react-router-dom'/);
   assert.match(virtualModule, /export \{ useRoutes \};/);
   assert.match(virtualModule, /export \{ useParams, useCatchAll \};/);
+  assert.match(virtualModule, /export \{ notFound, redirect, permanentRedirect \};/);
+  assert.match(virtualModule, /React\.createElement\(RedirectGate, null, useRoutes\(routes\)\)/);
   // The generated module binds each catch-all folder name into href/Link so the
   // runtime can validate the key: the "/blog/*" pattern alone cannot name its splat.
   // It reaches the engine by resolved file path (plugin-runtime is not in
   // "exports"), never as a `next-vite-router` specifier app code could reuse.
   assert.match(
     virtualModule,
-    /import \{ buildRouteTree, treeToRoutes, useParams, useCatchAll, href as hrefBase, createTypedLink \} from ["'][^"']*plugin-runtime\.js["']/,
+    /import \{ buildRouteTree, treeToRoutes, useParams, useCatchAll, href as hrefBase, createTypedLink, RedirectGate, notFound, redirect, permanentRedirect \} from ["'][^"']*plugin-runtime\.js["']/,
   );
   assert.doesNotMatch(virtualModule, /from ['"]next-vite-router['"]/);
   assert.match(

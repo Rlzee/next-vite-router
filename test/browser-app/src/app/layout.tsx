@@ -10,6 +10,10 @@ export default function RootLayout() {
     <div data-testid="root-layout">
       {"ROOT-LAYOUT["}
       <nav>
+        <Link href="/gone" data-testid="nav-gone">gone</Link>
+        <Link href="/redirect/private-push" data-testid="nav-private-push">private-push</Link>
+        <Link href="/redirect/private-replace" data-testid="nav-private-replace">private-replace</Link>
+        <Link href="/redirect/permanent" data-testid="nav-permanent">permanent</Link>
         <Link href="/" data-testid="nav-home">home</Link>
         {" "}
         <Link href="/users/:id" params={{ id: "42" }} data-testid="nav-user">user</Link>

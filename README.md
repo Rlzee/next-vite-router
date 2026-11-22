@@ -25,7 +25,7 @@ Three entry points, each with one job. **This is the source of truth for imports
 
 | Import from | Provides | Use it for |
 | --- | --- | --- |
-| `next-vite-router/routes` | `Router`, `generateRoutes`, `useRoutes`, `href`, `Link`, `useParams`, `useCatchAll`, and the types `RoutePath` / `RouteParams` / `LinkProps` | application code (pages, layouts, components) |
+| `next-vite-router/routes` | `Router`, `generateRoutes`, `useRoutes`, `href`, `Link`, `useParams`, `useCatchAll`, `notFound`, `redirect`, `permanentRedirect`, and the types `RoutePath` / `RouteParams` / `LinkProps` | application code (pages, layouts, components) |
 | `next-vite-router` | `createRouteGenerator`, `buildRouteTree`, `treeToRoutes`, and the path/lazy utils | advanced / manual routing |
 | `next-vite-router/plugin` | `nextViteRouter` | `vite.config.ts` only |
 
@@ -92,6 +92,33 @@ npm run dev
 ```
 
 The tree above generates `/`, `/users`, and `/users/:id`.
+
+### Flow control
+
+Import route control primitives from the generated routes module:
+
+```tsx
+import { notFound, redirect, permanentRedirect } from "next-vite-router/routes";
+
+export default function Page() {
+  if (!isAllowed()) notFound();
+  if (shouldSignIn()) redirect("/login", { replace: true });
+  if (isArchived()) permanentRedirect("/archive");
+  return <main>Content</main>;
+}
+```
+
+Call these helpers during route rendering, not in event handlers. They interrupt
+rendering by throwing a control signal; do not swallow them in a `try/catch`.
+`notFound()` renders the nearest `not-found.tsx` (or the built-in fallback),
+bypassing `error.tsx`. A fallback can call `notFound()` to escalate to its parent;
+re-entering the root fallback is an error.
+
+With the generated `<Router />`, both redirect helpers navigate through React
+Router without reloading the document. They push a history entry by default;
+`{ replace: true }` replaces it. `permanentRedirect()` has the same client-side
+behavior as `redirect()`; it does not set an HTTP status in a client-only app.
+For click handlers, use React Router's `useNavigate()` or `<Link />` instead.
 
 ### Setup notes
 

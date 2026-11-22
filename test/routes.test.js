@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test, describe } from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { matchRoutes, MemoryRouter, useRoutes } from "react-router-dom";
+import { matchRoutes, MemoryRouter, Outlet, useRoutes } from "react-router-dom";
 import {
   buildRouteTree,
   assertNoDuplicateRoutes,
@@ -21,6 +21,8 @@ import {
   createTypedLink,
   href,
   Link,
+  RootNotFoundSegment,
+  SegmentBoundary,
 } from "../dist/plugin-runtime.js";
 
 const loader = (name) => async () => ({ default: name });
@@ -35,13 +37,23 @@ function createRoutes({ pages = {}, layouts = {}, notFounds = {}, rootLayout } =
 }
 
 function routeShape(routes) {
-  return routes.map(({ path, index, children }) => {
+  return routes.flatMap(({ path, index, children, element }) => {
+    // Control-only pathless carriers do not change URL structure. Their
+    // placement and runtime behavior are covered by the boundary/browser suites.
+    if (path === undefined && !index && element?.type === SegmentBoundary
+      && !element.props.loading && !element.props.error) return routeShape(children ?? []);
     const shape = {};
     if (path !== undefined) shape.path = path;
     if (index !== undefined) shape.index = index;
     shape.children = children ? routeShape(children) : undefined;
     return shape;
   });
+}
+
+function contentElement(element) {
+  if (element?.type !== RootNotFoundSegment) return element;
+  const content = element.props.children;
+  return content?.type === Outlet ? undefined : content;
 }
 
 /**
@@ -94,7 +106,7 @@ describe("route generator", () => {
       },
     });
 
-    assert.equal(routes[0].element, undefined);
+    assert.equal(contentElement(routes[0].element), undefined);
     assert.equal(routes[0].children[0].index, true);
     assert.notEqual(routes[0].children[0].element, undefined);
     assert.equal(routes[0].children[1].path, ":id");
@@ -161,7 +173,7 @@ describe("route generator", () => {
     });
 
     assert.equal(routes[0].path, "/");
-    assert.equal(routes[0].element, undefined);
+    assert.equal(contentElement(routes[0].element), undefined);
     assert.equal(routes[0].children[0].index, true);
     assert.equal(routes[0].children[1].path, "about");
   });
@@ -516,7 +528,7 @@ describe("route generator", () => {
     assert.equal(matchRoutes(routes, "/docs/guide")?.at(-1)?.route.path, "*");
     // The guard index is the base answer and the page splat the region below:
     // the folder's own not-found never becomes a competing `*` sibling here.
-    const [guard, pageRoute] = routes[0].children;
+    const [guard, pageRoute] = routes[0].children[0].children;
     assert.equal(guard.index, true);
     assert.equal(pageRoute.path, "*");
     assert.equal(pageRoute.children, undefined);
@@ -656,7 +668,7 @@ describe("route generator", () => {
       // group's subtree does not.
       { path: "*", children: undefined },
       ]);
-      assert.equal(routes[0].element.type, groupLayout);
+      assert.equal(contentElement(routes[0].element).type, groupLayout);
     });
 
     test("generates not-found routes without requiring a layout", () => {
@@ -780,15 +792,16 @@ describe("route generator", () => {
         { index: true, children: undefined },
       ],
     }]);
-    assert.equal(routes[0].element.type, rootLayout);
+    assert.equal(contentElement(routes[0].element).type, rootLayout);
     assert.equal(
-      routes[0].children[0].children[0].element.type,
+      matchRoutes(routes, "/dashboard").at(-1).route.element.type,
       React.Suspense,
     );
 
     const dashboardMissing = matchRoutes(routes, "/dashboard/missing");
     assert.deepEqual(
-      dashboardMissing?.map(({ route }) => route.path ?? route.index),
+      dashboardMissing?.filter(({ route }) => route.element?.type !== SegmentBoundary)
+        .map(({ route }) => route.path ?? route.index),
       ["/", "dashboard", "*"],
     );
     assert.equal(matchRoutes(routes, "/unknown")?.at(-1)?.route.path, "*");
@@ -984,11 +997,11 @@ describe("route generator", () => {
     const routes = createRoutes({
       pages: { "lazy/page.tsx": loader("lazy") },
     });
-    assert.equal(routes[0].element.type, React.Suspense);
-    assert.equal(typeof routes[0].element.props.fallback.type, "function");
+    assert.equal(contentElement(routes[0].element).type, React.Suspense);
+    assert.equal(typeof contentElement(routes[0].element).props.fallback.type, "function");
     // With no `loading.tsx` in the folder the placeholder renders nothing, like
     // Next.js: no fallback component, and no stray element left in the DOM.
-    assert.equal(renderToStaticMarkup(routes[0].element.props.fallback), "");
+    assert.equal(renderToStaticMarkup(contentElement(routes[0].element).props.fallback), "");
   });
 
   test("paints the folder's loading.tsx as the only fallback", () => {
@@ -1015,7 +1028,7 @@ describe("route generator", () => {
 describe("lazy component cache", () => {
   // The lazy component is the single child rendered inside the Suspense
   // boundary that `createLazyElement` returns.
-  const lazyOf = (element) => element.props.children.type;
+  const lazyOf = (element) => contentElement(element).props.children.type;
 
   test("reuses the memoized component for the same key within one cache", () => {
     const cache = createLazyCache();
@@ -1119,7 +1132,7 @@ describe("lazy component cache", () => {
 describe("lazy layouts", () => {
   // The lazy component is the single child rendered inside the Suspense
   // boundary that `createLazyElement` returns.
-  const lazyOf = (element) => element.props.children.type;
+  const lazyOf = (element) => contentElement(element).props.children.type;
   const componentLoader = (name) => async () => ({ default: component(name) });
 
   /**
@@ -1200,7 +1213,7 @@ describe("lazy layouts", () => {
     // `dashboard` owns the only URL besides the root, so its layout route answers
     // `/dashboard` and the page renders through the layout's Outlet.
     assert.equal(routes[0].path, "dashboard");
-    assert.equal(routes[0].element.type, React.Suspense);
+    assert.equal(contentElement(routes[0].element).type, React.Suspense);
     assert.equal(paintAt(routes, "/dashboard"), "");
     // Once the module promise settles, the boundary renders the layout itself,
     // which proves the loader is wired to the lazy component, not a stand-in.
@@ -1222,7 +1235,7 @@ describe("lazy layouts", () => {
     assert.equal(tree.lazyLayout, undefined);
     assert.equal(tree.layout, Shell);
     assert.equal(routes[0].path, "/");
-    assert.equal(routes[0].element.type, Shell);
+    assert.equal(contentElement(routes[0].element).type, Shell);
   });
 
   test("refuses a loader record that claims the root layout", () => {
@@ -1264,8 +1277,8 @@ describe("lazy layouts", () => {
     });
 
     const byPath = new Map(routes.map((route) => [route.path, route]));
-    assert.equal(byPath.get("dashboard").element.type, Shell);
-    assert.equal(byPath.get("reports").element.type, React.Suspense);
+    assert.equal(contentElement(byPath.get("dashboard").element).type, Shell);
+    assert.equal(contentElement(byPath.get("reports").element).type, React.Suspense);
   });
 
   test("reuses one lazy component per layout within a generator", () => {
@@ -1288,7 +1301,7 @@ describe("lazy layouts", () => {
 
     // The route is still generated; the module only exists once its chunk
     // loads, so the check has to be deferred to the loader.
-    assert.equal(routes[0].element.type, React.Suspense);
+    assert.equal(contentElement(routes[0].element).type, React.Suspense);
     await assert.rejects(
       () => tree.children.get("dashboard").lazyLayout(),
       {

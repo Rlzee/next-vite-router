@@ -1,8 +1,10 @@
 import React, { Suspense } from "react";
-import { useLocation } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import type { ComponentType } from "react";
 import type { RouteErrorComponent } from "../types/index.type";
 import { RouteLoadingProvider } from "./loading-context";
+import { isNotFoundSignal, isRedirectSignal, isRenderSignal } from "./flow";
+import { RenderContext } from "./render-context";
 
 type BoundaryProps = {
   /** This folder's own `loading.tsx`, when it declared one. */
@@ -81,12 +83,96 @@ export class RouteErrorBoundary extends React.Component<
       return this.props.children;
     }
 
+    if (isRenderSignal(this.state.error)) {
+      throw this.state.error;
+    }
     const Error = this.props.error;
     return React.createElement(Error, {
       error: this.state.error,
       reset: this.reset,
     });
   }
+}
+
+/** Only the declaring owner's signal is handled; everything else bubbles. */
+export class NotFoundBoundary extends React.Component<{
+  owner: string;
+  parentOwner: string;
+  fallback: React.ReactNode;
+  resetKey: string;
+  children: React.ReactNode;
+}, BoundaryState> {
+  state: BoundaryState = healthyState();
+
+  static getDerivedStateFromError(error: unknown): BoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidUpdate(previous: { resetKey: string }): void {
+    if (this.state.hasError && previous.resetKey !== this.props.resetKey) {
+      this.setState(healthyState());
+    }
+  }
+
+  render(): React.ReactNode {
+    if (!this.state.hasError) return this.props.children;
+    if (!isNotFoundSignal(this.state.error) || this.state.error.owner !== this.props.owner) {
+      throw this.state.error;
+    }
+    return React.createElement(
+      RenderContext.Provider,
+      { value: {
+        owner: this.props.parentOwner,
+        phase: "fallback",
+        fallbackOwner: this.props.owner,
+      } },
+      this.props.fallback,
+    );
+  }
+}
+
+/**
+ * Keep this instance mounted across navigations. Keying the whole route tree
+ * would incorrectly clear error.tsx on query-only navigations.
+ */
+export class RedirectGateBoundary extends React.Component<{
+  children: React.ReactNode;
+  resetKey: string;
+}, { signal: { to: string; replace: boolean } | null; resetKey: string }> {
+  state: { signal: { to: string; replace: boolean } | null; resetKey: string } = {
+    signal: null,
+    resetKey: this.props.resetKey,
+  };
+
+  static getDerivedStateFromProps(
+    props: { resetKey: string },
+    state: { resetKey: string },
+  ) {
+    // Clear before rendering the new location, not in componentDidUpdate:
+    // another <Navigate> paint can otherwise push the target twice.
+    return props.resetKey === state.resetKey
+      ? null
+      : { signal: null, resetKey: props.resetKey };
+  }
+
+  static getDerivedStateFromError(error: unknown) {
+    if (!isRedirectSignal(error)) throw error;
+    return { signal: { to: error.to, replace: error.replace } };
+  }
+
+  render(): React.ReactNode {
+    return this.state.signal
+      ? React.createElement(Navigate, this.state.signal)
+      : this.props.children;
+  }
+}
+
+export function RedirectGate(props: { children: React.ReactNode }): React.ReactElement {
+  const location = useLocation();
+  return React.createElement(RedirectGateBoundary, {
+    resetKey: location.key,
+    children: props.children,
+  });
 }
 
 /**

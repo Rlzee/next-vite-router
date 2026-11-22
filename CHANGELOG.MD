@@ -4,23 +4,25 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Client-side flow control from `next-vite-router/routes`: `notFound()`,
+  `redirect()`, and `permanentRedirect()`, with nearest-fallback selection,
+  parent fallback escalation, and push/replace navigation through React Router.
+  These helpers do not require SSR.
+
 ### Fixed
 
 - `RouteErrorBoundary` now catches every thrown value, including `null`, while
   preserving reset behavior on retry and pathname navigation.
+- **`RouteErrorBoundary` now catches every thrown value, including `null`.**
+  Error state is tracked separately from the captured value, so `error.tsx`
+  renders reliably and navigation/reset still clears the boundary.
 
 ### Tests
 
 - Restored the Playwright browser suite, cross-platform compatibility checks,
   benchmarks, module-format checks, and dependency security workflow.
-
-## [Unreleased]
-
-### Fixed
-
-- **`RouteErrorBoundary` now catches every thrown value, including `null`.**
-  Error state is tracked separately from the captured value, so `error.tsx`
-  renders reliably and navigation/reset still clears the boundary.
 
 ## [4.0.0] - 2026-11-02
 

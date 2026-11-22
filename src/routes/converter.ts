@@ -1,6 +1,7 @@
 import React from "react";
 import {
   Outlet,
+  useLocation,
   useParams as useReactRouterParams,
   type RouteObject,
 } from "react-router-dom";
@@ -14,14 +15,15 @@ import {
   type LazyComponentCache,
 } from '../utils/index.utils';
 import { CatchAllParamProvider } from '../router/params-context';
-import { SegmentBoundary } from '../router/boundary';
+import { NotFoundBoundary, SegmentBoundary } from '../router/boundary';
+import { RenderContext, useRenderContext } from '../router/render-context';
 import { DefaultNotFound } from './default-not-found';
 
 /**
- * The `loading.tsx` / `error.tsx` boundary element of `node` when it declares
- * either file, rendered as the element of a pathless route between the folder
+ * The loading, error and not-found boundary element of `node` when it declares
+ * one of those files, rendered as a pathless route between the folder
  * (and its layout, when the folder has one) and every route the folder emits
- * at its own URL. Undefined when the folder declares neither, so callers pass
+ * at its own URL. Undefined when the folder declares none, so callers pass
  * their children array through untouched.
  *
  * Placing the boundary on a pathless route that renders `<Outlet/>` - rather
@@ -41,28 +43,98 @@ import { DefaultNotFound } from './default-not-found';
  * `layout.tsx` - a layout failure is caught by the parent folder's boundary,
  * matching Next.js's `layout > error > loading > not-found > page` stack.
  */
-function boundaryOutletElement(node: RouteNode): React.ReactElement | undefined {
-  if (!node.loading && !node.error) {
+function boundaryOutletElement(
+  node: RouteNode,
+  cache: LazyComponentCache = createLazyCache(),
+  defaultNotFound = false,
+  children: React.ReactNode = React.createElement(Outlet),
+): React.ReactElement | undefined {
+  if (!node.loading && !node.error && !node.notFound && !defaultNotFound) {
     return undefined;
+  }
+  let content: React.ReactNode = children;
+  if (node.notFound || defaultNotFound) {
+    content = React.createElement(NotFoundSegment, {
+      owner: node.fullPath.startsWith("/") ? node.fullPath : `/${node.fullPath}`,
+      fallback: node.notFound
+        ? createLazyElement(
+            async () => ({ default: (await node.notFound!()).default }),
+            `notfound:${node.fullPath}:boundary`,
+            cache,
+          )
+        : React.createElement(DefaultNotFound),
+      children: content,
+    });
   }
   return React.createElement(SegmentBoundary, {
     loading: node.loading,
     error: node.error,
-    children: React.createElement(Outlet),
+    children: content,
+  });
+}
+
+function NotFoundSegment(props: {
+  owner: string;
+  fallback: React.ReactNode;
+  children: React.ReactNode;
+}): React.ReactElement {
+  const parent = useRenderContext();
+  const { pathname } = useLocation();
+  return React.createElement(
+    RenderContext.Provider,
+    { value: { owner: props.owner, parentOwner: parent?.owner ?? "/", phase: "page" } },
+    React.createElement(NotFoundBoundary, {
+      owner: props.owner,
+      parentOwner: parent?.owner ?? "/",
+      fallback: props.fallback,
+      resetKey: pathname,
+      children: props.children,
+    }),
+  );
+}
+
+export function RootNotFoundSegment(props: { children: React.ReactNode }): React.ReactElement {
+  return React.createElement(NotFoundSegment, {
+    owner: "/",
+    fallback: React.createElement(DefaultNotFound),
+    children: props.children,
+  });
+}
+
+/** Matched 404 routes follow the same escalation rules as a caught signal. */
+function NotFoundFallbackContext(props: {
+  owner?: string;
+  children?: React.ReactNode;
+}): React.ReactElement {
+  const context = useRenderContext();
+  return React.createElement(RenderContext.Provider, {
+    value: {
+      // Base guards can paint a catch-all folder's own fallback outside that
+      // folder's boundary route. In that case the current owner is already
+      // the parent; do not skip it when the fallback escalates.
+      owner: props.owner && props.owner !== context?.owner
+        ? context?.owner ?? "/"
+        : context?.parentOwner ?? "/",
+      phase: "fallback",
+      fallbackOwner: props.owner ?? context?.owner ?? "/",
+    },
+    children: props.children,
   });
 }
 
 /**
  * Wrap a folder's own children array inside a pathless boundary route when
- * the folder declares `loading.tsx` or `error.tsx`; return it untouched
+ * the folder declares loading, error or not-found; return it untouched
  * otherwise, so an app without either file emits exactly the route shape it
  * had before these conventions existed, byte for byte.
  */
 function withBoundaryChildren(
   node: RouteNode,
   children: RouteObject[],
+  cache: LazyComponentCache = createLazyCache(),
+  defaultNotFound = false,
 ): RouteObject[] {
-  const element = boundaryOutletElement(node);
+  const element = boundaryOutletElement(node, cache, defaultNotFound);
   if (!element) {
     return children;
   }
@@ -99,14 +171,18 @@ function createNotFoundFallbackElement(
 ): React.ReactElement {
   const fallbackLoader = node.notFound ?? inheritedFallback;
   if (!fallbackLoader) {
-    return React.createElement(DefaultNotFound);
+    return React.createElement(NotFoundFallbackContext, null, React.createElement(DefaultNotFound));
   }
 
-  return createLazyElement(
+  return React.createElement(NotFoundFallbackContext, {
+    owner: node.notFound
+      ? (node.fullPath.startsWith("/") ? node.fullPath : `/${node.fullPath}`)
+      : undefined,
+  }, createLazyElement(
     async () => ({ default: (await fallbackLoader()).default }),
     cacheKey,
     cache,
-  );
+  ));
 }
 
 /**
@@ -149,14 +225,16 @@ function createNotFoundRoute(
 ): RouteObject {
   return {
     path: "*",
-    element: createLazyElement(
+    element: React.createElement(NotFoundFallbackContext, {
+      owner: node.fullPath.startsWith("/") ? node.fullPath : `/${node.fullPath}`,
+    }, createLazyElement(
       async () => {
         const mod = await loader();
         return { default: mod.default };
       },
       cacheKey,
       cache,
-    ),
+    )),
   };
 }
 
@@ -485,7 +563,7 @@ function createPageRoutes(
   if (isOptionalCatchAll(node.segment)) {
     const catchAllChildren = [...descendants, ...notFound];
     const pageElement = createPageRoute(node, nodePath, cache).element;
-    const element = boundaryOutletElement(node);
+    const element = boundaryOutletElement(node, cache);
     // A required folder-level boundary turns the splat route into a wrapper
     // whose children carry the page through the boundary's Outlet; without
     // one, keep the compact leaf `{ path, element: page }` unchanged.
@@ -498,16 +576,12 @@ function createPageRoutes(
       claims: { emitsIndex: true, claimsSplats: false },
       routes: [
         element
-          ? { index: true, element: React.createElement(SegmentBoundary, {
-              loading: node.loading,
-              error: node.error,
-              children: pageElement,
-            }) }
+          ? { index: true, element: boundaryOutletElement(node, cache, false, pageElement) }
           : { index: true, element: pageElement },
         {
           path: nodeSegment,
           ...(element ? {} : { element: pageElement }),
-          children: element ? withBoundaryChildren(node, splatChildren) : (catchAllChildren.length > 0 ? catchAllChildren : undefined),
+          children: element ? withBoundaryChildren(node, splatChildren, cache) : (catchAllChildren.length > 0 ? catchAllChildren : undefined),
         },
       ],
     };
@@ -515,7 +589,7 @@ function createPageRoutes(
 
   if (isRequiredCatchAll(node.segment)) {
     const pageRoute = createPageRoute(node, nodePath, cache);
-    const element = boundaryOutletElement(node);
+    const element = boundaryOutletElement(node, cache);
     const splatChildren = [{ path: "*", element: pageRoute.element }];
     return {
       // The guard index answers the enclosing folder's base and the splat owns
@@ -527,7 +601,7 @@ function createPageRoutes(
           path: nodeSegment,
           ...(element ? {} : { element: pageRoute.element }),
           ...(element
-            ? { children: withBoundaryChildren(node, splatChildren) }
+            ? { children: withBoundaryChildren(node, splatChildren, cache) }
             : {}),
         },
         // A hand-built tree can still attach files under the catch-all folder;
@@ -548,7 +622,7 @@ function createPageRoutes(
           createIndexRoute(node, nodePath, cache),
           ...descendants,
           ...notFound,
-        ]),
+        ], cache),
       }],
     };
   }
@@ -560,7 +634,7 @@ function createPageRoutes(
   // sits inside its folder's error and loading just like a page several levels
   // deeper does.
   const leafRoute = createPageRoute(node, nodePath, cache);
-  const element = boundaryOutletElement(node);
+  const element = boundaryOutletElement(node, cache);
   if (!element) {
     return {
       claims: NO_CLAIMS,
@@ -598,7 +672,7 @@ function createPathlessNodeRoutes(
   // route as the boundary carrier (rather than nesting a second pathless route
   // inside it) keeps the emitted shape minimal while still letting the boundary
   // reach every page at any depth under the group.
-  const element = boundaryOutletElement(node);
+  const element = boundaryOutletElement(node, cache);
 
   return {
     // A group is transparent: whatever its subtree emits at its own level is
@@ -652,12 +726,12 @@ function createRootRoutes(
     return [{
       path: "/",
       element: createLayoutElement(node, "/", cache),
-      children: withBoundaryChildren(node, children),
+      children: withBoundaryChildren(node, children, cache, true),
     }];
   }
 
   if (node.page) {
-    const element = boundaryOutletElement(node);
+    const element = boundaryOutletElement(node, cache);
     if (element) {
       return [{ path: "/", children: [{ element, children }] }];
     }
@@ -675,7 +749,7 @@ function createRootRoutes(
   if (node.notFound || node.loading || node.error) {
     // A root with only a boundary still nests the boundary the same way a
     // URL-bearing folder does, so its descendants stay guarded at any depth.
-    return [{ path: "/", children: withBoundaryChildren(node, children) }];
+    return [{ path: "/", children: withBoundaryChildren(node, children, cache) }];
   }
 
   return children;
@@ -732,6 +806,15 @@ export function treeToRoutes(
   caseSensitive = true,
 ): RouteObject[] {
   const routes = convertNode(node, isRoot, currentPath, cache, notFoundFallback).routes;
+  if (isRoot) {
+    // A built-in fallback also owns trees without a declared not-found file.
+    // Keep the existing paths and indices: only their rendering is wrapped.
+    for (const route of routes) {
+      route.element = React.createElement(RootNotFoundSegment, {
+        children: route.element ?? React.createElement(Outlet),
+      });
+    }
+  }
   applyCaseSensitivity(routes, caseSensitive);
   return routes;
 }
@@ -778,7 +861,7 @@ function convertNode(
           {
             path: nodeSegment,
             element: createLayoutElement(node, nodePath, cache),
-            children: withBoundaryChildren(node, splatChildren),
+            children: withBoundaryChildren(node, splatChildren, cache),
           },
         ],
       };
@@ -805,7 +888,7 @@ function convertNode(
         routes: [{
           path: nodeSegment,
           element: createLayoutElement(node, nodePath, cache),
-          children: withBoundaryChildren(node, splatChildren),
+          children: withBoundaryChildren(node, splatChildren, cache),
         }],
       };
     }
@@ -826,7 +909,7 @@ function convertNode(
       routes: [createLayoutRoute(
         isPathless ? "" : nodeSegment,
         createLayoutElement(node, nodePath, cache),
-        withBoundaryChildren(node, layoutChildren),
+        withBoundaryChildren(node, layoutChildren, cache),
       )],
     };
   }
@@ -890,7 +973,7 @@ function convertNode(
           ...(addsBaseGuard
             ? [createEmptyFolderBaseRoute(node, cache, inheritedNotFound)]
             : []),
-        ]),
+        ], cache),
       }],
     };
   }
@@ -899,7 +982,7 @@ function convertNode(
   // subtree: reuse the fallthrough walk with the group's boundary wrapped
   // around it as one pathless route. Without a boundary the children stand on
   // their own and their claims travel up unchanged.
-  const passThroughElement = boundaryOutletElement(node);
+  const passThroughElement = boundaryOutletElement(node, cache);
   if (passThroughElement) {
     return {
       claims: { emitsIndex: childEmitsIndex, claimsSplats: childClaimsSplats },

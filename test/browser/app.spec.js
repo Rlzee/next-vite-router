@@ -269,6 +269,55 @@ test("a stale-deploy chunk failure survives reset() and needs a document reload"
   await expect(page.getByTestId("chunk-error")).toHaveCount(0);
 });
 
+test("notFound selects not-found.tsx instead of error.tsx and survives history", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("nav-gone").click();
+  await expect(page).toHaveURL(/\/gone$/);
+  await expect(page.getByTestId("gone-not-found")).toHaveText("GONE-NOT-FOUND");
+  await expect(page.getByTestId("gone-error")).toHaveCount(0);
+  await expect(page.getByTestId("root-layout")).toContainText("GONE-NOT-FOUND");
+  await page.goBack();
+  await expect(page.getByTestId("home-page")).toHaveText("HOME");
+  await page.goForward();
+  await expect(page.getByTestId("gone-not-found")).toHaveText("GONE-NOT-FOUND");
+});
+
+test("redirects navigate without reloading and the gate handles another redirect", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() => { document.body.dataset.flowTest = "mounted"; });
+  const historyLength = await page.evaluate(() => history.length);
+  await page.getByTestId("nav-private-push").click();
+  await expect(page.getByTestId("login-page")).toHaveText("LOGIN-PAGE");
+  await expect(page).toHaveURL(/\/redirect\/login$/);
+  expect(await page.evaluate(() => history.length)).toBe(historyLength + 2);
+  await page.getByTestId("redirect-again").click();
+  await expect(page).toHaveURL(/\/redirect\/login$/);
+  await expect(page.getByTestId("login-page")).toBeVisible();
+  expect(await page.evaluate(() => document.body.dataset.flowTest)).toBe("mounted");
+});
+
+test("notFound inherits and escalates fallbacks and keeps the root layout", async ({ page }) => {
+  for (const url of ["/gone/child", "/gone/escalate", "/gone/escalate/unknown", "/gone/layout-throw"]) {
+    await page.goto(url);
+    await expect(page.getByTestId("gone-not-found")).toHaveText("GONE-NOT-FOUND");
+    await expect(page.getByTestId("gone-error")).toHaveCount(0);
+    await expect(page.getByTestId("wrong-layout-fallback")).toHaveCount(0);
+  }
+  await page.goto("/missing-signal");
+  await expect(page.getByTestId("root-layout")).toContainText("could not be found");
+});
+
+test("replace and permanent redirects replace the origin history entry", async ({ page }) => {
+  for (const link of ["nav-private-replace", "nav-permanent"]) {
+    await page.goto("/");
+    await page.getByTestId(link).click();
+    await expect(page).toHaveURL(/\/redirect\/login$/);
+    await expect(page.getByTestId("login-page")).toBeVisible();
+    await page.goBack();
+    await expect(page.getByTestId("home-page")).toHaveText("HOME");
+  }
+});
+
 test("a thrown null still renders error.tsx", async ({ page }) => {
   // `throw null` is legal JavaScript. A boundary that stores "no failure" and the
   // captured value in the same field reads it as healthy, renders the failing
