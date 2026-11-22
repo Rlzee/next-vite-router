@@ -21,6 +21,9 @@ All notable changes to this project are documented in this file.
 
 ### Tests
 
+- Added a real Vite glob test for `lazyLayouts`, included in `pnpm test` and
+  available as `pnpm run test:lazy`, plus unit coverage for error-boundary
+  navigation keys and not-found fallback inheritance and escalation.
 - Restored the Playwright browser suite, cross-platform compatibility checks,
   benchmarks, module-format checks, and dependency security workflow.
 

@@ -51,6 +51,36 @@ describe("client flow control", () => {
     }
   });
 
+  test("a caught folder fallback escalates to its parent owner", () => {
+    const boundary = new NotFoundBoundary({
+      owner: "/shop/cart",
+      parentOwner: "/shop",
+      fallback: React.createElement(() => notFound()),
+      resetKey: "/shop/cart",
+      children: null,
+    });
+    boundary.state = NotFoundBoundary.getDerivedStateFromError(new NotFoundSignal("/shop/cart"));
+    assert.throws(
+      () => renderToStaticMarkup(boundary.render()),
+      (error) => isNotFoundSignal(error) && error.owner === "/shop",
+    );
+  });
+
+  test("a caught root fallback cannot re-enter itself", () => {
+    const boundary = new NotFoundBoundary({
+      owner: "/",
+      parentOwner: "/",
+      fallback: React.createElement(() => notFound()),
+      resetKey: "/shop/cart",
+      children: null,
+    });
+    boundary.state = NotFoundBoundary.getDerivedStateFromError(new NotFoundSignal("/"));
+    assert.throws(
+      () => renderToStaticMarkup(boundary.render()),
+      /cannot re-enter the root fallback/,
+    );
+  });
+
   test("helpers reject use outside route rendering", () => {
     // A React render without our provider is a valid hook call, but not a route.
     for (const helper of [notFound, () => redirect("/"), () => permanentRedirect("/")]) {

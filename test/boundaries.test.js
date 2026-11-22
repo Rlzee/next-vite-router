@@ -44,6 +44,44 @@ function generate(records) {
 }
 
 describe("converter: boundary placement", () => {
+  test("a descendant without not-found inherits the declaring folder's boundary", () => {
+    const { routes } = generate({
+      pages: {
+        "shop/page.tsx": loader(component("SHOP")),
+        "shop/cart/page.tsx": loader(component("CART")),
+      },
+      notFounds: { "shop/not-found.tsx": loader(component("SHOP-NOT-FOUND")) },
+    });
+    const shop = routes.find((route) => route.path === "shop");
+    const wrapper = boundaryOf(shop);
+    assert.ok(wrapper, "shop's boundary guards its subtree");
+    const segment = wrapper.element.props.children;
+    assert.equal(segment.props.owner, "/shop");
+    assert.equal(segment.props.fallback.type, React.Suspense);
+    const cart = wrapper.children.find((route) => route.path === "cart");
+    assert.ok(cart, "cart renders through the inherited boundary's outlet");
+    assert.ok(!isBoundary(cart.element), "cart declares no private boundary");
+    assert.equal(boundaryOf(cart), undefined);
+  });
+
+  test("a deeply inherited root fallback keeps the root as its declaring owner", () => {
+    const { routes } = generate({
+      pages: { "shop/cart/page.tsx": loader(component("CART")) },
+      notFounds: { "not-found.tsx": loader(component("ROOT-NOT-FOUND")) },
+    });
+    const root = routes.find((route) => route.path === "/");
+    const wrapper = boundaryOf(root);
+    assert.ok(wrapper, "the declared root fallback guards the deep page");
+    const segment = wrapper.element.props.children;
+    assert.equal(segment.props.owner, "/");
+    assert.equal(segment.props.fallback.type, React.Suspense);
+    const shop = wrapper.children.find((route) => route.path === "shop");
+    const cart = shop.children.find((route) => route.path === "cart");
+    assert.ok(cart);
+    assert.equal(boundaryOf(shop), undefined, "an intermediate folder does not replace the owner");
+    assert.equal(boundaryOf(cart), undefined);
+  });
+
   test("leaves the tree untouched when nothing declares loading or error", () => {
     const { routes } = generate({
       pages: { "shop/page.tsx": loader("shop") },
@@ -518,11 +556,56 @@ describe("RouteErrorBoundary lifecycle", () => {
   // navigation - are pinned directly on the lifecycle methods. A thrown value is
   // handed to `render()` as React would hand it to the state, and the element it
   // returns is streamed, so `error.tsx` painting is proven and not assumed.
-  const makeBoundary = (error, state) => {
-    const boundary = new RouteErrorBoundary({ error, resetKey: "/a", children: null });
+  const makeBoundary = (error, state, resetKey = "/a") => {
+    const boundary = new RouteErrorBoundary({ error, resetKey, children: null });
     if (state) boundary.state = state;
     return boundary;
   };
+
+  // Read the key from the real SegmentBoundary under React Router, so these
+  // tests guard both key selection and the class boundary's reset behavior.
+  const resetKeyFor = (url) => {
+    let created;
+    const Probe = () => {
+      created = SegmentBoundary({ error: component("err"), children: null });
+      return null;
+    };
+    renderToStaticMarkup(
+      React.createElement(MemoryRouter, { initialEntries: [url] }, React.createElement(Probe)),
+    );
+    return created.props.children.props.resetKey;
+  };
+
+  test("the reset key is the pathname, not the query or hash", () => {
+    assert.equal(resetKeyFor("/dashboard?tab=home"), "/dashboard");
+    assert.equal(resetKeyFor("/dashboard?tab=home#steps"), "/dashboard");
+    assert.equal(resetKeyFor("/dashboard?tab=settings"), "/dashboard");
+    assert.equal(resetKeyFor("/dashboard/settings?tab=home"), "/dashboard/settings");
+  });
+
+  test("keeps a caught error across a query-only navigation", () => {
+    const before = resetKeyFor("/dashboard?tab=home");
+    const after = resetKeyFor("/dashboard?tab=settings#steps");
+    const boundary = makeBoundary(component("err"),
+      { hasError: true, error: new Error("boom") }, after);
+    let reset = false;
+    boundary.setState = () => { reset = true; };
+    boundary.componentDidUpdate({ resetKey: before });
+    assert.equal(after, before);
+    assert.equal(reset, false);
+  });
+
+  test("clears a caught error when the path changes under an unchanged query", () => {
+    const before = resetKeyFor("/dashboard?tab=fail");
+    const after = resetKeyFor("/dashboard/settings?tab=fail");
+    const boundary = makeBoundary(component("err"),
+      { hasError: true, error: new Error("boom") }, after);
+    let applied = null;
+    boundary.setState = (partial) => { applied = partial; };
+    boundary.componentDidUpdate({ resetKey: before });
+    assert.notEqual(after, before);
+    assert.deepEqual(applied, { hasError: false, error: undefined });
+  });
 
   test("derives the thrown error into state", () => {
     const thrown = new Error("boom");
